@@ -1,3 +1,4 @@
+# Gradle & Build Artifacts
 .gradle/
 build/
 app/build/
@@ -6,11 +7,16 @@ app/build/
 *.dex
 *.class
 
-# IDE
+# Downloaded Portable Toolchain
+.jdk17/
+.gradle87/
+
+# IDE & OS
 .idea/
 *.iml
 .DS_Store
 
+# Temporary & Log files
 .BAK/
 .venv/
 __pycache__/
