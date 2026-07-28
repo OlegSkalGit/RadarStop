@@ -1,3 +1,16 @@
+.gradle/
+build/
+app/build/
+*.apk
+*.ap_
+*.dex
+*.class
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
 .BAK/
 .venv/
 __pycache__/
