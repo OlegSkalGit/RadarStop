@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.radardetector.app-mergeReleaseResources-6:/values-in/values-in.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\Usr\\.gradle\\caches\\transforms-4\\ea3df0294d03aef598c6eca03c452a36\\transformed\\core-1.12.0\\res\\values-in\\values-in.xml",
+                    "from": {
+                        "startLines": "2,3,4,5,6,7,8,9",
+                        "startColumns": "4,4,4,4,4,4,4,4",
+                        "startOffsets": "55,150,252,349,446,552,670,785",
+                        "endColumns": "94,101,96,96,105,117,114,100",
+                        "endOffsets": "145,247,344,441,547,665,780,881"
+                    }
+                }
+            ]
+        }
+    ]
+}

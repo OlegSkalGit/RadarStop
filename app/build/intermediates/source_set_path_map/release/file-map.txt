@@ -1,0 +1,11 @@
+com.example.radardetector.app-lifecycle-runtime-2.3.1-0 C:\Users\Usr\.gradle\caches\transforms-4\6cf55f4100ee7977131df70ef4682a24\transformed\lifecycle-runtime-2.3.1\res
+com.example.radardetector.app-annotation-experimental-1.3.0-1 C:\Users\Usr\.gradle\caches\transforms-4\7f1c19d75183e4182a55135f586463d3\transformed\annotation-experimental-1.3.0\res
+com.example.radardetector.app-core-ktx-1.12.0-2 C:\Users\Usr\.gradle\caches\transforms-4\996408d1ac81f3e24a91832c9eb6062d\transformed\core-ktx-1.12.0\res
+com.example.radardetector.app-core-1.12.0-3 C:\Users\Usr\.gradle\caches\transforms-4\ea3df0294d03aef598c6eca03c452a36\transformed\core-1.12.0\res
+com.example.radardetector.app-pngs-4 D:\Skalatskiy\Develop\Projects\RadarStop\app\build\generated\res\pngs\release
+com.example.radardetector.app-resValues-5 D:\Skalatskiy\Develop\Projects\RadarStop\app\build\generated\res\resValues\release
+com.example.radardetector.app-packageReleaseResources-6 D:\Skalatskiy\Develop\Projects\RadarStop\app\build\intermediates\incremental\release\packageReleaseResources\merged.dir
+com.example.radardetector.app-packageReleaseResources-7 D:\Skalatskiy\Develop\Projects\RadarStop\app\build\intermediates\incremental\release\packageReleaseResources\stripped.dir
+com.example.radardetector.app-merged_res-8 D:\Skalatskiy\Develop\Projects\RadarStop\app\build\intermediates\merged_res\release
+com.example.radardetector.app-main-9 D:\Skalatskiy\Develop\Projects\RadarStop\app\src\main\res
+com.example.radardetector.app-release-10 D:\Skalatskiy\Develop\Projects\RadarStop\app\src\release\res
