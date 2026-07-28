@@ -1,0 +1,9 @@
+.BAK/
+.venv/
+__pycache__/
+BAK/
+example/
+setup/
+*.pyc
+.last_state.json
+*.log
