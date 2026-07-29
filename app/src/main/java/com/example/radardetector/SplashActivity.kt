@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.radardetector.service.RadarForegroundService
+import com.example.radardetector.util.AppLogger
 
 class SplashActivity : Activity() {
 
@@ -23,8 +24,10 @@ class SplashActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLogger.log("SplashActivity", "onCreate", true, "SplashActivity launched.")
 
         if (RadarForegroundService.isRunning) {
+            AppLogger.log("SplashActivity", "onCreate", true, "RadarForegroundService is already running. Toast shown.")
             Toast.makeText(this, "Radar Detector Active", Toast.LENGTH_SHORT).show()
             finish()
             return
@@ -47,8 +50,10 @@ class SplashActivity : Activity() {
         }
 
         if (missing.isNotEmpty()) {
+            AppLogger.log("SplashActivity", "checkAndRequestPermissions", false, "Requesting missing permissions: $missing")
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQ_FOREGROUND_PERMS)
         } else {
+            AppLogger.log("SplashActivity", "checkAndRequestPermissions", true, "All required foreground permissions already granted.")
             onForegroundPermissionsGranted()
         }
     }
@@ -57,6 +62,7 @@ class SplashActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_FOREGROUND_PERMS) {
             val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            AppLogger.log("SplashActivity", "onRequestPermissionsResult", allGranted, "Permission grant result: allGranted=$allGranted")
             if (allGranted) {
                 onForegroundPermissionsGranted()
             } else {
@@ -78,6 +84,8 @@ class SplashActivity : Activity() {
         val needsBattery = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
                 !pm.isIgnoringBatteryOptimizations(packageName)
 
+        AppLogger.log("SplashActivity", "checkBackgroundLocationAndBattery", true, "Check status: needsBgLoc=$needsBgLoc, needsBatteryIgnored=$needsBattery")
+
         if (needsBgLoc || needsBattery) {
             showExplanationDialog(needsBgLoc, needsBattery)
         } else {
@@ -97,7 +105,7 @@ class SplashActivity : Activity() {
                         }
                         startActivity(intent)
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        AppLogger.log("SplashActivity", "showExplanationDialog", false, "Error launching app settings: ${e.message}")
                     }
                 }
                 if (needsBattery && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -107,12 +115,13 @@ class SplashActivity : Activity() {
                         }
                         startActivity(intent)
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        AppLogger.log("SplashActivity", "showExplanationDialog", false, "Error launching battery settings: ${e.message}")
                     }
                 }
                 startRadarServiceAndFinish()
             }
             .setNegativeButton("Cancel") { _, _ ->
+                AppLogger.log("SplashActivity", "showExplanationDialog", false, "User cancelled configuration dialog.")
                 finish()
             }
             .setCancelable(false)
@@ -120,6 +129,7 @@ class SplashActivity : Activity() {
     }
 
     private fun startRadarServiceAndFinish() {
+        AppLogger.log("SplashActivity", "startRadarServiceAndFinish", true, "Starting RadarForegroundService...")
         val serviceIntent = Intent(this, RadarForegroundService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)

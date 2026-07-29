@@ -57,7 +57,7 @@ class RadarForegroundService : Service(), LocationListener {
         isRunning = true
 
         AppLogger.initNewSession(this)
-        AppLogger.log("RadarForegroundService", "onCreate", true, "Service instance created.")
+        AppLogger.log("RadarForegroundService", "onCreate", true, "Foreground Service instance created.")
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         dbHelper = DatabaseHelper(this)
@@ -65,7 +65,7 @@ class RadarForegroundService : Service(), LocationListener {
             this,
             dbHelper,
             onStatusUpdate = { statusMsg -> updateNotificationText(statusMsg) },
-            onSyncSuccess = { downloadedCount, totalInDb ->
+            onSyncSuccess = { _, _ ->
                 lastLocation?.let { loc ->
                     reloadCameraCacheForLocation(loc)
                 }
@@ -82,7 +82,7 @@ class RadarForegroundService : Service(), LocationListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_SERVICE) {
-            AppLogger.log("RadarForegroundService", "onStartCommand", true, "Received ACTION_STOP_SERVICE intent.")
+            AppLogger.log("RadarForegroundService", "onStartCommand", true, "Received ACTION_STOP_SERVICE intent. Stopping service...")
             stopSelfAndCleanup()
             return START_NOT_STICKY
         }
@@ -100,12 +100,12 @@ class RadarForegroundService : Service(), LocationListener {
                 0f,
                 this
             )
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling interval set to: ${intervalMs}ms")
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling interval changed -> ${intervalMs}ms")
         } catch (e: SecurityException) {
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Permission missing: ${e.message}")
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
             updateNotificationText("Weak GPS signal (>15m)")
         } catch (e: Exception) {
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Error: ${e.message}")
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS request failed: ${e.message}")
         }
     }
 
@@ -130,7 +130,7 @@ class RadarForegroundService : Service(), LocationListener {
         if (location.hasAccuracy() && location.accuracy > 15f) {
             if (lastLoggedSpeedMode != "WEAK_GPS") {
                 lastLoggedSpeedMode = "WEAK_GPS"
-                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy dropped (>15m: ${location.accuracy}m). Alerts paused.")
+                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy dropped (>15m: ${location.accuracy}m). Alerting paused.")
             }
             updateNotificationText("Weak GPS signal (>15m)")
             audioEngine.stopAlert()
@@ -148,6 +148,11 @@ class RadarForegroundService : Service(), LocationListener {
         val isStationaryFor3Hours = lastStationaryTimeMs > 0 &&
                 (System.currentTimeMillis() - lastStationaryTimeMs >= 3 * 3600 * 1000L)
 
+        if (isStationaryFor3Hours && lastLoggedSpeedMode != "STATIONARY_3H") {
+            lastLoggedSpeedMode = "STATIONARY_3H"
+            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Vehicle stationary for >= 3 hours. Overpass network sync paused.")
+        }
+
         syncManager.onLocationUpdate(location, speedKmh, isStationaryFor3Hours)
 
         val lat = location.latitude
@@ -162,28 +167,28 @@ class RadarForegroundService : Service(), LocationListener {
             speedKmh <= 30f -> {
                 if (lastLoggedSpeedMode != "SLOW") {
                     lastLoggedSpeedMode = "SLOW"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Mode: Speed <= 30 km/h ($speedKmh km/h). GPS interval: 10s.")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h (${speedKmh.toInt()} km/h). Polling interval: 10s. Beep alerts inactive.")
                 }
                 10000L
             }
             speedKmh <= 70f -> {
                 if (lastLoggedSpeedMode != "CITY") {
                     lastLoggedSpeedMode = "CITY"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Mode: City 31-70 km/h ($speedKmh km/h). GPS interval: 3s.")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: City Mode 31-70 km/h (${speedKmh.toInt()} km/h). Polling interval: 3s.")
                 }
                 3000L
             }
             speedKmh > 70f && !hasNearbyCameraIn3km -> {
                 if (lastLoggedSpeedMode != "SMART_SLEEP") {
                     lastLoggedSpeedMode = "SMART_SLEEP"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Mode: Smart Sleep (>70 km/h, no cameras in 3km horizon). GPS interval: 15s.")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (>70 km/h, no cameras within 3km). Polling interval: 15s.")
                 }
                 15000L
             }
             else -> {
                 if (lastLoggedSpeedMode != "HIGHWAY") {
                     lastLoggedSpeedMode = "HIGHWAY"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Mode: Highway (>70 km/h with cameras). GPS interval: 1s.")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Highway Mode >70 km/h (${speedKmh.toInt()} km/h) near cameras. Polling interval: 1s.")
                 }
                 1000L
             }
@@ -191,7 +196,10 @@ class RadarForegroundService : Service(), LocationListener {
         registerGpsUpdates(targetInterval)
 
         if (speedKmh <= 30f) {
-            currentAlertCameraId = null
+            if (currentAlertCameraId != null) {
+                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Speed dropped <= 30 km/h).")
+                currentAlertCameraId = null
+            }
             audioEngine.stopAlert()
             val totalInDb = dbHelper.getCameraCount()
             updateNotificationText("Active. Cameras in DB: $totalInDb")
@@ -226,7 +234,12 @@ class RadarForegroundService : Service(), LocationListener {
                     "Radar! Approaching: $speedInt km/h (${distInt}m)",
                     Toast.LENGTH_LONG
                 ).show()
-                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Triggered 5s Toast alert for Camera #${closestAlertCamera.id}")
+                AppLogger.log(
+                    "RadarForegroundService",
+                    "onLocationChanged",
+                    true,
+                    "CAMERA ALERT DETECTED: Approaching Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}"
+                )
             }
 
             val timeToCollisionSec = minDistanceToAlert / (maxVApproach / 3.6f)
@@ -242,7 +255,10 @@ class RadarForegroundService : Service(), LocationListener {
 
             updateNotificationText("Radar! Approaching: $speedInt km/h (${distInt}m)")
         } else {
-            currentAlertCameraId = null
+            if (currentAlertCameraId != null) {
+                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Camera #${currentAlertCameraId} cleared).")
+                currentAlertCameraId = null
+            }
             audioEngine.stopAlert()
             val totalInDb = dbHelper.getCameraCount()
             updateNotificationText("Active. Cameras in DB: $totalInDb")
@@ -330,6 +346,10 @@ class RadarForegroundService : Service(), LocationListener {
 
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-    override fun onProviderEnabled(provider: String) {}
-    override fun onProviderDisabled(provider: String) {}
+    override fun onProviderEnabled(provider: String) {
+        AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system.")
+    }
+    override fun onProviderDisabled(provider: String) {
+        AppLogger.log("RadarForegroundService", "onProviderDisabled", false, "GPS provider disabled by user/system.")
+    }
 }

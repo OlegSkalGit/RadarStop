@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import com.example.radardetector.util.AppLogger
 
 class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
@@ -45,12 +46,14 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             )
             """.trimIndent()
         )
+        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_CAMERAS, $TABLE_CONFIG) and spatial index created.")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         db.execSQL("DROP TABLE IF EXISTS $TABLE_CAMERAS")
         db.execSQL("DROP TABLE IF EXISTS $TABLE_CONFIG")
         onCreate(db)
+        AppLogger.log("DatabaseHelper", "onUpgrade", true, "Upgraded DB from v$oldVersion to v$newVersion.")
     }
 
     fun getLastCountry(): String? {
@@ -80,9 +83,11 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     fun clearCameras() {
         writableDatabase.execSQL("DELETE FROM $TABLE_CAMERAS")
+        AppLogger.log("DatabaseHelper", "clearCameras", true, "Cleared all camera records from SQLite DB.")
     }
 
     fun insertCameras(cameras: List<Camera>) {
+        val startMs = System.currentTimeMillis()
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -100,6 +105,10 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
                 stmt.executeInsert()
             }
             db.setTransactionSuccessful()
+            val duration = System.currentTimeMillis() - startMs
+            AppLogger.log("DatabaseHelper", "insertCameras", true, "Batch inserted ${cameras.size} cameras into SQLite DB in ${duration}ms.")
+        } catch (e: Exception) {
+            AppLogger.log("DatabaseHelper", "insertCameras", false, "Error inserting cameras: ${e.message}")
         } finally {
             db.endTransaction()
         }
