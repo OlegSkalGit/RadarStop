@@ -1,7 +1,13 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val formattedVersionName = SimpleDateFormat("yyMMdd.HHmm").format(Date())
+val formattedVersionCode = SimpleDateFormat("yyMMddHH").format(Date()).toInt()
 
 android {
     namespace = "com.example.radardetector"
@@ -11,8 +17,8 @@ android {
         applicationId = "com.example.radardetector"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = formattedVersionCode
+        versionName = formattedVersionName
     }
 
     buildTypes {

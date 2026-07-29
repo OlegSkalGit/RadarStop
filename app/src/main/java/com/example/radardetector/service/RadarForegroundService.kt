@@ -56,8 +56,14 @@ class RadarForegroundService : Service(), LocationListener {
         super.onCreate()
         isRunning = true
 
+        val appVersionName = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (e: Exception) {
+            "1.0"
+        }
+
         AppLogger.initNewSession(this)
-        AppLogger.log("RadarForegroundService", "onCreate", true, "Foreground Service instance created.")
+        AppLogger.log("RadarForegroundService", "onCreate", true, "Foreground Service created. App Version: v$appVersionName")
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         dbHelper = DatabaseHelper(this)

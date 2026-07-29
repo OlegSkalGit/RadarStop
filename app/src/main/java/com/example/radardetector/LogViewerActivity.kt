@@ -34,6 +34,12 @@ class LogViewerActivity : Activity() {
             }
         })
 
+        val appVersionName = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (e: Exception) {
+            "1.0"
+        }
+
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#121212"))
@@ -45,7 +51,7 @@ class LogViewerActivity : Activity() {
         }
 
         val headerTitle = TextView(this).apply {
-            text = "Radar Detector Logs"
+            text = "Radar Detector Logs (v$appVersionName)"
             textSize = 18f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
