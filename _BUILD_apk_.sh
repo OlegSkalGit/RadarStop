@@ -83,11 +83,14 @@ echo ""
 
 "${GRADLE_BIN}" clean assembleRelease
 
-APK_PATH="app/build/outputs/apk/release/app-release-unsigned.apk"
+APK_PATH="app/build/outputs/apk/release/app-release.apk"
+if [ ! -f "${APK_PATH}" ]; then
+    APK_PATH="app/build/outputs/apk/release/app-release-unsigned.apk"
+fi
 
 if [ -f "${APK_PATH}" ]; then
     echo "========================================================"
-    echo "  BUILD SUCCESSFUL!"
+    echo "  BUILD SUCCESSFUL! (Ready to Install)"
     echo "========================================================"
     echo "  APK Path: ${APK_PATH}"
     SIZE_KB=$(du -k "${APK_PATH}" | cut -f1)

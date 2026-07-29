@@ -42,7 +42,14 @@ set "JAVA_HOME=%JDK_DIR%\jdk-17.0.10+7"
 call "%GRADLE_BAT%" clean assembleRelease
 
 echo.
-if exist "app\build\outputs\apk\release\app-release-unsigned.apk" (
+if exist "app\build\outputs\apk\release\app-release.apk" (
+    echo ========================================================
+    echo   BUILD SUCCESSFUL! (Signed & Ready to Install)
+    echo ========================================================
+    echo   APK Path: app\build\outputs\apk\release\app-release.apk
+    powershell -Command "$size = [math]::Round((Get-Item 'app\build\outputs\apk\release\app-release.apk').Length / 1KB); Write-Host '  Size:' $size 'KB'"
+    echo ========================================================
+) else if exist "app\build\outputs\apk\release\app-release-unsigned.apk" (
     echo ========================================================
     echo   BUILD SUCCESSFUL!
     echo ========================================================
