@@ -2,7 +2,7 @@
 set -e
 
 echo "========================================================"
-echo "  RadarStop - Ultra-Light Background Radar Detector Build"
+echo "  RadarStop - Ultra-Light Radar Detector Build"
 echo "========================================================"
 echo ""
 

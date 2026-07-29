@@ -288,10 +288,10 @@ class RadarForegroundService : Service(), LocationListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Radar Detector Notifications",
+                "RadarStop Notifications",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Status of Background Radar Detector"
+                description = "Status of Background RadarStop"
             }
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
@@ -316,7 +316,7 @@ class RadarForegroundService : Service(), LocationListener {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Radar Detector Active")
+            .setContentTitle("RadarStop Active")
             .setContentText(contentText)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setOngoing(true)

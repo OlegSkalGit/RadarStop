@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title Building Background Radar Detector APK
+title Building RadarStop APK
 
 echo ========================================================
-echo   RadarStop - Ultra-Light Background Radar Detector Build
+echo   RadarStop - Ultra-Light Radar Detector Build
 echo ========================================================
 echo.
 
@@ -48,7 +48,7 @@ set "ROOT_APK=RadarStop_!VERSION_STR!.apk"
 if exist "app\build\outputs\apk\release\app-release.apk" (
     copy /y "app\build\outputs\apk\release\app-release.apk" "!ROOT_APK!" >nul
     echo ========================================================
-    echo   BUILD SUCCESSFUL! (Signed and Ready to Install)
+    echo   BUILD SUCCESSFUL - Signed and Ready to Install
     echo ========================================================
     echo   Copied to Root: !ROOT_APK!
     powershell -Command "$size = [math]::Round((Get-Item '!ROOT_APK!').Length / 1KB); Write-Host '  Size:' $size 'KB'"
@@ -59,7 +59,7 @@ if exist "app\build\outputs\apk\release\app-release.apk" (
 if exist "app\build\outputs\apk\release\app-release-unsigned.apk" (
     copy /y "app\build\outputs\apk\release\app-release-unsigned.apk" "!ROOT_APK!" >nul
     echo ========================================================
-    echo   BUILD SUCCESSFUL!
+    echo   BUILD SUCCESSFUL
     echo ========================================================
     echo   Copied to Root: !ROOT_APK!
     powershell -Command "$size = [math]::Round((Get-Item '!ROOT_APK!').Length / 1KB); Write-Host '  Size:' $size 'KB'"

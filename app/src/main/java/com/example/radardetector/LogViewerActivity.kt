@@ -51,7 +51,7 @@ class LogViewerActivity : Activity() {
         }
 
         val headerTitle = TextView(this).apply {
-            text = "Radar Detector Logs (v$appVersionName)"
+            text = "RadarStop Logs (v$appVersionName)"
             textSize = 18f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
@@ -144,7 +144,7 @@ class LogViewerActivity : Activity() {
             val logText = AppLogger.readLogText()
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "Radar Detector Log")
+                putExtra(Intent.EXTRA_SUBJECT, "RadarStop Log")
                 putExtra(Intent.EXTRA_TEXT, logText)
             }
             startActivity(Intent.createChooser(intent, "Share / Open Log"))

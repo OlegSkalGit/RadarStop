@@ -28,7 +28,7 @@ class SplashActivity : Activity() {
 
         if (RadarForegroundService.isRunning) {
             AppLogger.log("SplashActivity", "onCreate", true, "RadarForegroundService is already running. Toast shown.")
-            Toast.makeText(this, "Radar Detector Active", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "RadarStop Active", Toast.LENGTH_SHORT).show()
             finish()
             return
         }
@@ -96,7 +96,7 @@ class SplashActivity : Activity() {
     private fun showExplanationDialog(needsBgLoc: Boolean, needsBattery: Boolean) {
         AlertDialog.Builder(this)
             .setTitle("Background & Battery Settings")
-            .setMessage("Radar Detector requires continuous background location access ('Allow all the time') and battery optimization exemption to alert you of speed cameras while driving.")
+            .setMessage("RadarStop requires continuous background location access ('Allow all the time') and battery optimization exemption to alert you of speed cameras while driving.")
             .setPositiveButton("Configure") { _, _ ->
                 if (needsBgLoc && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     try {
