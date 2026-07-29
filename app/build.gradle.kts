@@ -6,8 +6,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val formattedVersionName = SimpleDateFormat("yyMMdd.HHmm").format(Date())
-val formattedVersionCode = SimpleDateFormat("yyMMddHH").format(Date()).toInt()
+val formattedVersionName = SimpleDateFormat("yy.MM.dd").format(Date())
+val formattedVersionCode = SimpleDateFormat("HHmm").format(Date()).toInt()
 
 android {
     namespace = "com.example.radardetector"
