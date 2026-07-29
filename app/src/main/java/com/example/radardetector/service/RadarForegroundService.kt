@@ -61,9 +61,16 @@ class RadarForegroundService : Service(), LocationListener {
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         dbHelper = DatabaseHelper(this)
-        syncManager = OverpassSyncManager(this, dbHelper) { statusMsg ->
-            updateNotificationText(statusMsg)
-        }
+        syncManager = OverpassSyncManager(
+            this,
+            dbHelper,
+            onStatusUpdate = { statusMsg -> updateNotificationText(statusMsg) },
+            onSyncSuccess = { downloadedCount, totalInDb ->
+                lastLocation?.let { loc ->
+                    reloadCameraCacheForLocation(loc)
+                }
+            }
+        )
         audioEngine = AcousticRadarEngine(this)
 
         createNotificationChannel()
@@ -102,6 +109,23 @@ class RadarForegroundService : Service(), LocationListener {
         }
     }
 
+    private fun reloadCameraCacheForLocation(location: Location) {
+        val lat = location.latitude
+        val lon = location.longitude
+        cachedBoxMinLat = lat - 0.045
+        cachedBoxMaxLat = lat + 0.045
+        cachedBoxMinLon = lon - 0.045
+        cachedBoxMaxLon = lon + 0.045
+        cachedCameras = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
+        val totalInDb = dbHelper.getCameraCount()
+        AppLogger.log(
+            "RadarForegroundService",
+            "reloadCameraCacheForLocation",
+            true,
+            "DATABASE LOAD: Loaded ${cachedCameras.size} cameras from SQLite DB for current location ($lat, $lon). Total in DB: $totalInDb"
+        )
+    }
+
     override fun onLocationChanged(location: Location) {
         if (location.hasAccuracy() && location.accuracy > 15f) {
             if (lastLoggedSpeedMode != "WEAK_GPS") {
@@ -130,12 +154,7 @@ class RadarForegroundService : Service(), LocationListener {
         val lon = location.longitude
 
         if (cachedCameras.isEmpty() || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
-            cachedBoxMinLat = lat - 0.045
-            cachedBoxMaxLat = lat + 0.045
-            cachedBoxMinLon = lon - 0.045
-            cachedBoxMaxLon = lon + 0.045
-            cachedCameras = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
-            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Refreshed camera bounding cache: ${cachedCameras.size} cameras loaded.")
+            reloadCameraCacheForLocation(location)
         }
 
         val hasNearbyCameraIn3km = hasCameraWithinRadius(location, cachedCameras, 3000.0)

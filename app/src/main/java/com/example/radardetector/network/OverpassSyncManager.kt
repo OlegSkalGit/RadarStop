@@ -16,7 +16,8 @@ import java.util.concurrent.Executors
 class OverpassSyncManager(
     private val context: Context,
     private val dbHelper: DatabaseHelper,
-    private val onStatusUpdate: (String) -> Unit
+    private val onStatusUpdate: (String) -> Unit,
+    private val onSyncSuccess: (downloadedCount: Int, totalInDb: Int) -> Unit
 ) {
 
     companion object {
@@ -90,8 +91,14 @@ class OverpassSyncManager(
                     lastSyncedLon = lon
                     success = true
                     val count = dbHelper.getCameraCount()
-                    AppLogger.log("OverpassSyncManager", "performSync", true, "Downloaded and saved ${cameras.size} cameras from $mirror. DB count: $count")
+                    AppLogger.log(
+                        "OverpassSyncManager",
+                        "performSync",
+                        true,
+                        "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras from Overpass ($mirror) for 100x100km box around ($lat, $lon). Total in DB: $count"
+                    )
                     onStatusUpdate("Active. Cameras in DB: $count")
+                    onSyncSuccess(cameras.size, count)
                     break
                 }
             }
