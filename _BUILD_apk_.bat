@@ -39,25 +39,35 @@ echo [3/3] Building Release APK...
 echo.
 
 set "JAVA_HOME=%JDK_DIR%\jdk-17.0.10+7"
-call "%GRADLE_BAT%" clean assembleRelease
+call "%GRADLE_BAT%" assembleRelease
 
 echo.
+for /f "tokens=*" %%V in ('powershell -Command "Get-Date -Format 'yyMMdd.HHmm'"') do set "VERSION_STR=%%V"
+set "ROOT_APK=RadarStop_!VERSION_STR!.apk"
+
 if exist "app\build\outputs\apk\release\app-release.apk" (
+    copy /y "app\build\outputs\apk\release\app-release.apk" "!ROOT_APK!" >nul
     echo ========================================================
-    echo   BUILD SUCCESSFUL! (Signed & Ready to Install)
+    echo   BUILD SUCCESSFUL! (Signed and Ready to Install)
     echo ========================================================
-    echo   APK Path: app\build\outputs\apk\release\app-release.apk
-    powershell -Command "$size = [math]::Round((Get-Item 'app\build\outputs\apk\release\app-release.apk').Length / 1KB); Write-Host '  Size:' $size 'KB'"
+    echo   Copied to Root: !ROOT_APK!
+    powershell -Command "$size = [math]::Round((Get-Item '!ROOT_APK!').Length / 1KB); Write-Host '  Size:' $size 'KB'"
     echo ========================================================
-) else if exist "app\build\outputs\apk\release\app-release-unsigned.apk" (
+    goto END
+)
+
+if exist "app\build\outputs\apk\release\app-release-unsigned.apk" (
+    copy /y "app\build\outputs\apk\release\app-release-unsigned.apk" "!ROOT_APK!" >nul
     echo ========================================================
     echo   BUILD SUCCESSFUL!
     echo ========================================================
-    echo   APK Path: app\build\outputs\apk\release\app-release-unsigned.apk
-    powershell -Command "$size = [math]::Round((Get-Item 'app\build\outputs\apk\release\app-release-unsigned.apk').Length / 1KB); Write-Host '  Size:' $size 'KB'"
+    echo   Copied to Root: !ROOT_APK!
+    powershell -Command "$size = [math]::Round((Get-Item '!ROOT_APK!').Length / 1KB); Write-Host '  Size:' $size 'KB'"
     echo ========================================================
-) else (
-    echo [ERROR] Build failed or APK not found.
+    goto END
 )
 
+echo [ERROR] Build failed or APK not found.
+
+:END
 pause

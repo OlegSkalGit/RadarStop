@@ -81,7 +81,7 @@ fi
 echo "[3/3] Building Release APK..."
 echo ""
 
-"${GRADLE_BIN}" clean assembleRelease
+"${GRADLE_BIN}" assembleRelease
 
 APK_PATH="app/build/outputs/apk/release/app-release.apk"
 if [ ! -f "${APK_PATH}" ]; then
@@ -89,11 +89,15 @@ if [ ! -f "${APK_PATH}" ]; then
 fi
 
 if [ -f "${APK_PATH}" ]; then
+    VERSION_STR=$(date +"%y%m%d.%H%M")
+    DEST_APK="RadarStop_${VERSION_STR}.apk"
+    cp -f "${APK_PATH}" "${DEST_APK}"
+
     echo "========================================================"
     echo "  BUILD SUCCESSFUL! (Ready to Install)"
     echo "========================================================"
-    echo "  APK Path: ${APK_PATH}"
-    SIZE_KB=$(du -k "${APK_PATH}" | cut -f1)
+    echo "  Copied to Root: ${DEST_APK}"
+    SIZE_KB=$(du -k "${DEST_APK}" | cut -f1)
     echo "  Size: ${SIZE_KB} KB"
     echo "========================================================"
 else
