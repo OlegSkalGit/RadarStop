@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -16,10 +18,21 @@ import com.example.radardetector.util.AppLogger
 class LogViewerActivity : Activity() {
 
     private lateinit var textViewLog: TextView
+    private lateinit var scaleGestureDetector: ScaleGestureDetector
+    private var currentTextSizeSp = 12f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = "Application Logs"
+
+        scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val factor = detector.scaleFactor
+                currentTextSizeSp = (currentTextSizeSp * factor).coerceIn(8f, 32f)
+                textViewLog.textSize = currentTextSizeSp
+                return true
+            }
+        })
 
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -28,7 +41,7 @@ class LogViewerActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            setPadding(24, 24, 24, 24)
+            setPadding(16, 16, 16, 16)
         }
 
         val headerTitle = TextView(this).apply {
@@ -43,19 +56,33 @@ class LogViewerActivity : Activity() {
         val btnLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, 16, 0, 16)
+            setPadding(0, 12, 0, 12)
         }
 
+        val btnZoomOut = Button(this).apply {
+            text = " - "
+            setOnClickListener {
+                currentTextSizeSp = (currentTextSizeSp - 2f).coerceAtLeast(8f)
+                textViewLog.textSize = currentTextSizeSp
+            }
+        }
+        val btnZoomIn = Button(this).apply {
+            text = " + "
+            setOnClickListener {
+                currentTextSizeSp = (currentTextSizeSp + 2f).coerceAtMost(32f)
+                textViewLog.textSize = currentTextSizeSp
+            }
+        }
         val btnRefresh = Button(this).apply {
             text = "Refresh"
             setOnClickListener { refreshLog() }
         }
         val btnShare = Button(this).apply {
-            text = "Share / External"
+            text = "Share"
             setOnClickListener { shareLog() }
         }
         val btnClear = Button(this).apply {
-            text = "Clear Log"
+            text = "Clear"
             setOnClickListener {
                 AppLogger.clearLog()
                 refreshLog()
@@ -66,6 +93,8 @@ class LogViewerActivity : Activity() {
             setOnClickListener { finish() }
         }
 
+        btnLayout.addView(btnZoomOut)
+        btnLayout.addView(btnZoomIn)
         btnLayout.addView(btnRefresh)
         btnLayout.addView(btnShare)
         btnLayout.addView(btnClear)
@@ -81,10 +110,10 @@ class LogViewerActivity : Activity() {
         }
 
         textViewLog = TextView(this).apply {
-            textSize = 12f
+            textSize = currentTextSizeSp
             setTextColor(Color.parseColor("#00FF66"))
             setTypeface(Typeface.MONOSPACE)
-            setPadding(16, 16, 16, 16)
+            setPadding(12, 12, 12, 12)
             setBackgroundColor(Color.parseColor("#1E1E1E"))
         }
 
@@ -93,6 +122,11 @@ class LogViewerActivity : Activity() {
 
         setContentView(rootLayout)
         refreshLog()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        scaleGestureDetector.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun refreshLog() {
