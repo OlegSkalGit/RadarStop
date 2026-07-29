@@ -4,6 +4,7 @@ import android.content.Context
 import android.location.Location
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
+import com.example.radardetector.util.AppLogger
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -58,15 +59,19 @@ class OverpassSyncManager(
     }
 
     private fun performSync(lat: Double, lon: Double) {
+        AppLogger.log("OverpassSyncManager", "performSync", true, "Starting sync for coords: ($lat, $lon)")
         onStatusUpdate("Downloading camera data...")
 
         val currentCountry = detectCountry(lat, lon) ?: dbHelper.getLastCountry() ?: "DEFAULT"
         val lastCountry = dbHelper.getLastCountry()
 
+        AppLogger.log("OverpassSyncManager", "detectCountry", true, "Detected country: $currentCountry (Last: $lastCountry)")
+
         val isFreshOrNewCountry = (lastCountry == null || lastCountry != currentCountry)
         if (isFreshOrNewCountry) {
             dbHelper.clearCameras()
             dbHelper.setLastCountry(currentCountry)
+            AppLogger.log("OverpassSyncManager", "performSync", true, "Country changed/fresh install. Wiped camera table.")
         }
 
         val south = lat - 0.45
@@ -85,6 +90,7 @@ class OverpassSyncManager(
 
         var success = false
         for (mirror in MIRRORS) {
+            AppLogger.log("OverpassSyncManager", "executePost", true, "Connecting to mirror: $mirror")
             val response = executePost(mirror, query)
             if (response != null) {
                 val cameras = parseOverpassJson(response)
@@ -95,6 +101,7 @@ class OverpassSyncManager(
                     lastSyncedLon = lon
                     success = true
                     val count = dbHelper.getCameraCount()
+                    AppLogger.log("OverpassSyncManager", "performSync", true, "Downloaded and saved ${cameras.size} cameras from $mirror. Total DB count: $count")
                     onStatusUpdate("Active. Cameras in DB: $count")
                     break
                 }
@@ -102,6 +109,7 @@ class OverpassSyncManager(
         }
 
         if (!success) {
+            AppLogger.log("OverpassSyncManager", "performSync", false, "All Overpass mirrors failed or timed out.")
             onStatusUpdate("Network error. Retrying...")
         }
     }
@@ -122,7 +130,7 @@ class OverpassSyncManager(
                         if (nameEn.isNotEmpty()) return nameEn
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    AppLogger.log("OverpassSyncManager", "detectCountry", false, "Parse error: ${e.message}")
                 }
             }
         }
@@ -144,15 +152,17 @@ class OverpassSyncManager(
                 writer.write("data=" + java.net.URLEncoder.encode(body, "UTF-8"))
                 writer.flush()
             }
-            if (conn.responseCode == 200) {
+            val code = conn.responseCode
+            if (code == 200) {
                 BufferedReader(InputStreamReader(conn.inputStream)).use { br ->
                     br.readText()
                 }
             } else {
+                AppLogger.log("OverpassSyncManager", "executePost", false, "HTTP Error code $code from $urlStr")
                 null
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.log("OverpassSyncManager", "executePost", false, "Network error on $urlStr: ${e.message}")
             null
         } finally {
             conn?.disconnect()
@@ -184,7 +194,7 @@ class OverpassSyncManager(
             }
             cameras
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.log("OverpassSyncManager", "parseOverpassJson", false, "JSON Error: ${e.message}")
             null
         }
     }
@@ -217,5 +227,6 @@ class OverpassSyncManager(
 
     fun shutdown() {
         executor.shutdownNow()
+        AppLogger.log("OverpassSyncManager", "shutdown", true, "Sync executor shutdown.")
     }
 }

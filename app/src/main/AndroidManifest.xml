@@ -28,6 +28,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".LogViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Transparent" />
+
         <service
             android:name=".service.RadarForegroundService"
             android:exported="false"

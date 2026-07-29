@@ -14,11 +14,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.example.radardetector.LogViewerActivity
 import com.example.radardetector.audio.AcousticRadarEngine
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.math.RadarMath
 import com.example.radardetector.network.OverpassSyncManager
+import com.example.radardetector.util.AppLogger
 
 class RadarForegroundService : Service(), LocationListener {
 
@@ -46,10 +48,15 @@ class RadarForegroundService : Service(), LocationListener {
     private var cachedBoxMaxLon = 0.0
 
     private var lastStationaryTimeMs = 0L
+    private var lastLoggedSpeedMode: String = ""
 
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+
+        AppLogger.initNewSession(this)
+        AppLogger.log("RadarForegroundService", "onCreate", true, "Service instance created.")
+
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         dbHelper = DatabaseHelper(this)
         syncManager = OverpassSyncManager(this, dbHelper) { statusMsg ->
@@ -66,6 +73,7 @@ class RadarForegroundService : Service(), LocationListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_SERVICE) {
+            AppLogger.log("RadarForegroundService", "onStartCommand", true, "Received ACTION_STOP_SERVICE intent.")
             stopSelfAndCleanup()
             return START_NOT_STICKY
         }
@@ -83,16 +91,21 @@ class RadarForegroundService : Service(), LocationListener {
                 0f,
                 this
             )
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling interval set to: ${intervalMs}ms")
         } catch (e: SecurityException) {
-            e.printStackTrace()
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Permission missing: ${e.message}")
             updateNotificationText("Weak GPS signal (>15m)")
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Error: ${e.message}")
         }
     }
 
     override fun onLocationChanged(location: Location) {
         if (location.hasAccuracy() && location.accuracy > 15f) {
+            if (lastLoggedSpeedMode != "WEAK_GPS") {
+                lastLoggedSpeedMode = "WEAK_GPS"
+                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy dropped (>15m: ${location.accuracy}m). Alerts paused.")
+            }
             updateNotificationText("Weak GPS signal (>15m)")
             audioEngine.stopAlert()
             return
@@ -120,14 +133,39 @@ class RadarForegroundService : Service(), LocationListener {
             cachedBoxMinLon = lon - 0.045
             cachedBoxMaxLon = lon + 0.045
             cachedCameras = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
+            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Refreshed camera bounding cache: ${cachedCameras.size} cameras loaded.")
         }
 
         val hasNearbyCameraIn3km = hasCameraWithinRadius(location, cachedCameras, 3000.0)
         val targetInterval = when {
-            speedKmh <= 30f -> 10000L
-            speedKmh <= 70f -> 3000L
-            speedKmh > 70f && !hasNearbyCameraIn3km -> 15000L
-            else -> 1000L
+            speedKmh <= 30f -> {
+                if (lastLoggedSpeedMode != "SLOW") {
+                    lastLoggedSpeedMode = "SLOW"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Mode: Speed <= 30 km/h ($speedKmh km/h). GPS interval: 10s.")
+                }
+                10000L
+            }
+            speedKmh <= 70f -> {
+                if (lastLoggedSpeedMode != "CITY") {
+                    lastLoggedSpeedMode = "CITY"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Mode: City 31-70 km/h ($speedKmh km/h). GPS interval: 3s.")
+                }
+                3000L
+            }
+            speedKmh > 70f && !hasNearbyCameraIn3km -> {
+                if (lastLoggedSpeedMode != "SMART_SLEEP") {
+                    lastLoggedSpeedMode = "SMART_SLEEP"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Mode: Smart Sleep (>70 km/h, no cameras in 3km horizon). GPS interval: 15s.")
+                }
+                15000L
+            }
+            else -> {
+                if (lastLoggedSpeedMode != "HIGHWAY") {
+                    lastLoggedSpeedMode = "HIGHWAY"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Mode: Highway (>70 km/h with cameras). GPS interval: 1s.")
+                }
+                1000L
+            }
         }
         registerGpsUpdates(targetInterval)
 
@@ -213,12 +251,21 @@ class RadarForegroundService : Service(), LocationListener {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val logIntent = Intent(this, LogViewerActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pLogIntent = PendingIntent.getActivity(
+            this, 1, logIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Radar Detector Active")
             .setContentText(contentText)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .addAction(android.R.drawable.ic_menu_info_details, "Logs", pLogIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn Off", pStopIntent)
             .build()
     }
@@ -229,6 +276,7 @@ class RadarForegroundService : Service(), LocationListener {
     }
 
     private fun stopSelfAndCleanup() {
+        AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cleaning up resources and stopping service.")
         isRunning = false
         try {
             locationManager.removeUpdates(this)

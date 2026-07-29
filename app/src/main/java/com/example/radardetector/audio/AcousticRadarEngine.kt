@@ -6,6 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Build
+import com.example.radardetector.util.AppLogger
 
 class AcousticRadarEngine(private val context: Context) {
 
@@ -25,8 +26,9 @@ class AcousticRadarEngine(private val context: Context) {
         if (toneGenerator == null) {
             try {
                 toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+                AppLogger.log("AcousticRadarEngine", "initToneGenerator", true, "Hardware ToneGenerator initialized.")
             } catch (e: Exception) {
-                e.printStackTrace()
+                AppLogger.log("AcousticRadarEngine", "initToneGenerator", false, "Failed: ${e.message}")
             }
         }
     }
@@ -53,8 +55,9 @@ class AcousticRadarEngine(private val context: Context) {
                 )
                 hasAudioFocus = (res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
             }
+            AppLogger.log("AcousticRadarEngine", "requestFocus", hasAudioFocus, "Audio focus granted: $hasAudioFocus")
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.log("AcousticRadarEngine", "requestFocus", false, "Failed: ${e.message}")
         }
     }
 
@@ -67,8 +70,9 @@ class AcousticRadarEngine(private val context: Context) {
                 @Suppress("DEPRECATION")
                 audioManager.abandonAudioFocus(null)
             }
+            AppLogger.log("AcousticRadarEngine", "abandonFocus", true, "Audio focus abandoned.")
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.log("AcousticRadarEngine", "abandonFocus", false, "Failed: ${e.message}")
         }
         hasAudioFocus = false
     }
@@ -80,6 +84,7 @@ class AcousticRadarEngine(private val context: Context) {
             isBeeping = true
             requestFocus()
             initToneGenerator()
+            AppLogger.log("AcousticRadarEngine", "startAlert", true, "Beep thread started with delay: ${delayMs}ms")
             beepThread = Thread {
                 while (isBeeping) {
                     try {
@@ -106,6 +111,7 @@ class AcousticRadarEngine(private val context: Context) {
             beepThread?.interrupt()
             beepThread = null
             abandonFocus()
+            AppLogger.log("AcousticRadarEngine", "stopAlert", true, "Beep thread stopped.")
         }
     }
 
@@ -114,5 +120,6 @@ class AcousticRadarEngine(private val context: Context) {
         stopAlert()
         toneGenerator?.release()
         toneGenerator = null
+        AppLogger.log("AcousticRadarEngine", "release", true, "ToneGenerator released.")
     }
 }
