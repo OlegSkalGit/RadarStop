@@ -59,20 +59,8 @@ class OverpassSyncManager(
     }
 
     private fun performSync(lat: Double, lon: Double) {
-        AppLogger.log("OverpassSyncManager", "performSync", true, "Starting sync for coords: ($lat, $lon)")
+        AppLogger.log("OverpassSyncManager", "performSync", true, "Starting 100x100 km Bounding Box sync for coords: ($lat, $lon)")
         onStatusUpdate("Downloading camera data...")
-
-        val currentCountry = detectCountry(lat, lon) ?: dbHelper.getLastCountry() ?: "DEFAULT"
-        val lastCountry = dbHelper.getLastCountry()
-
-        AppLogger.log("OverpassSyncManager", "detectCountry", true, "Detected country: $currentCountry (Last: $lastCountry)")
-
-        val isFreshOrNewCountry = (lastCountry == null || lastCountry != currentCountry)
-        if (isFreshOrNewCountry) {
-            dbHelper.clearCameras()
-            dbHelper.setLastCountry(currentCountry)
-            AppLogger.log("OverpassSyncManager", "performSync", true, "Country changed/fresh install. Wiped camera table.")
-        }
 
         val south = lat - 0.45
         val north = lat + 0.45
@@ -95,13 +83,14 @@ class OverpassSyncManager(
             if (response != null) {
                 val cameras = parseOverpassJson(response)
                 if (cameras != null) {
+                    dbHelper.clearCameras()
                     dbHelper.insertCameras(cameras)
                     lastSyncTimeMs = System.currentTimeMillis()
                     lastSyncedLat = lat
                     lastSyncedLon = lon
                     success = true
                     val count = dbHelper.getCameraCount()
-                    AppLogger.log("OverpassSyncManager", "performSync", true, "Downloaded and saved ${cameras.size} cameras from $mirror. Total DB count: $count")
+                    AppLogger.log("OverpassSyncManager", "performSync", true, "Downloaded and saved ${cameras.size} cameras from $mirror. DB count: $count")
                     onStatusUpdate("Active. Cameras in DB: $count")
                     break
                 }
@@ -112,29 +101,6 @@ class OverpassSyncManager(
             AppLogger.log("OverpassSyncManager", "performSync", false, "All Overpass mirrors failed or timed out.")
             onStatusUpdate("Network error. Retrying...")
         }
-    }
-
-    private fun detectCountry(lat: Double, lon: Double): String? {
-        val query = "[out:json][timeout:15];is_in($lat,$lon);area._[admin_level=2];out tags;"
-        for (mirror in MIRRORS) {
-            val response = executePost(mirror, query)
-            if (response != null) {
-                try {
-                    val root = JSONObject(response)
-                    val elements = root.getJSONArray("elements")
-                    for (i in 0 until elements.length()) {
-                        val tags = elements.getJSONObject(i).optJSONObject("tags") ?: continue
-                        val iso = tags.optString("ISO3166-1", "")
-                        if (iso.isNotEmpty()) return iso
-                        val nameEn = tags.optString("name:en", "")
-                        if (nameEn.isNotEmpty()) return nameEn
-                    }
-                } catch (e: Exception) {
-                    AppLogger.log("OverpassSyncManager", "detectCountry", false, "Parse error: ${e.message}")
-                }
-            }
-        }
-        return null
     }
 
     private fun executePost(urlStr: String, body: String): String? {
