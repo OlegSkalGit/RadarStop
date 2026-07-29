@@ -1,6 +1,7 @@
 package com.example.radardetector
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -49,6 +50,10 @@ class LogViewerActivity : Activity() {
             text = "Refresh"
             setOnClickListener { refreshLog() }
         }
+        val btnShare = Button(this).apply {
+            text = "Share / External"
+            setOnClickListener { shareLog() }
+        }
         val btnClear = Button(this).apply {
             text = "Clear Log"
             setOnClickListener {
@@ -62,6 +67,7 @@ class LogViewerActivity : Activity() {
         }
 
         btnLayout.addView(btnRefresh)
+        btnLayout.addView(btnShare)
         btnLayout.addView(btnClear)
         btnLayout.addView(btnClose)
         rootLayout.addView(btnLayout)
@@ -91,5 +97,20 @@ class LogViewerActivity : Activity() {
 
     private fun refreshLog() {
         textViewLog.text = AppLogger.readLogText()
+    }
+
+    private fun shareLog() {
+        try {
+            val logText = AppLogger.readLogText()
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Radar Detector Log")
+                putExtra(Intent.EXTRA_TEXT, logText)
+            }
+            startActivity(Intent.createChooser(intent, "Share / Open Log"))
+            AppLogger.log("LogViewerActivity", "shareLog", true, "Triggered system share chooser.")
+        } catch (e: Exception) {
+            AppLogger.log("LogViewerActivity", "shareLog", false, "Error: ${e.message}")
+        }
     }
 }
