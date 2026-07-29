@@ -22,3 +22,6 @@
 *.ico binary
 *.jar binary
 *.apk binary
+
+.gitattributes export-ignore
+.gitignore export-ignore
