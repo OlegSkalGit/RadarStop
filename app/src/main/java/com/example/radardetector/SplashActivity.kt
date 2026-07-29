@@ -28,7 +28,7 @@ class SplashActivity : Activity() {
 
         if (RadarForegroundService.isRunning) {
             AppLogger.log("SplashActivity", "onCreate", true, "RadarForegroundService is already running. Toast shown.")
-            Toast.makeText(this, "RadarStop Active", Toast.LENGTH_SHORT).show()
+            Toast.makeText(applicationContext, "RadarStop Active", Toast.LENGTH_SHORT).show()
             finish()
             return
         }
@@ -66,7 +66,7 @@ class SplashActivity : Activity() {
             if (allGranted) {
                 onForegroundPermissionsGranted()
             } else {
-                Toast.makeText(this, "Location and notification permissions are required.", Toast.LENGTH_LONG).show()
+                Toast.makeText(applicationContext, "Location and notification permissions are required.", Toast.LENGTH_LONG).show()
                 finish()
             }
         }
@@ -130,7 +130,6 @@ class SplashActivity : Activity() {
 
     private fun startRadarServiceAndFinish() {
         AppLogger.log("SplashActivity", "startRadarServiceAndFinish", true, "Starting RadarForegroundService...")
-        Toast.makeText(this, "RadarStop Active", Toast.LENGTH_SHORT).show()
         val serviceIntent = Intent(this, RadarForegroundService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)

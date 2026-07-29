@@ -65,6 +65,8 @@ class RadarForegroundService : Service(), LocationListener {
         AppLogger.initNewSession(this)
         AppLogger.log("RadarForegroundService", "onCreate", true, "Foreground Service created. App Version: v$appVersionName")
 
+        Toast.makeText(applicationContext, "RadarStop Active", Toast.LENGTH_SHORT).show()
+
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         dbHelper = DatabaseHelper(this)
         syncManager = OverpassSyncManager(
