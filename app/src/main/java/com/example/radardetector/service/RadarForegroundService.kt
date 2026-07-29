@@ -13,6 +13,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.example.radardetector.LogViewerActivity
 import com.example.radardetector.audio.AcousticRadarEngine
@@ -49,6 +50,7 @@ class RadarForegroundService : Service(), LocationListener {
 
     private var lastStationaryTimeMs = 0L
     private var lastLoggedSpeedMode: String = ""
+    private var currentAlertCameraId: Long? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -170,6 +172,7 @@ class RadarForegroundService : Service(), LocationListener {
         registerGpsUpdates(targetInterval)
 
         if (speedKmh <= 30f) {
+            currentAlertCameraId = null
             audioEngine.stopAlert()
             val totalInDb = dbHelper.getCameraCount()
             updateNotificationText("Active. Cameras in DB: $totalInDb")
@@ -194,6 +197,19 @@ class RadarForegroundService : Service(), LocationListener {
         }
 
         if (closestAlertCamera != null) {
+            val speedInt = maxVApproach.toInt()
+            val distInt = minDistanceToAlert.toInt()
+
+            if (currentAlertCameraId != closestAlertCamera.id) {
+                currentAlertCameraId = closestAlertCamera.id
+                Toast.makeText(
+                    applicationContext,
+                    "Radar! Approaching: $speedInt km/h (${distInt}m)",
+                    Toast.LENGTH_LONG
+                ).show()
+                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Triggered 5s Toast alert for Camera #${closestAlertCamera.id}")
+            }
+
             val timeToCollisionSec = minDistanceToAlert / (maxVApproach / 3.6f)
             val delayMs = when {
                 timeToCollisionSec > 15f -> 1500L
@@ -205,10 +221,9 @@ class RadarForegroundService : Service(), LocationListener {
             audioEngine.startAlert(delayMs)
             audioEngine.updateDelay(delayMs)
 
-            val speedInt = maxVApproach.toInt()
-            val distInt = minDistanceToAlert.toInt()
             updateNotificationText("Radar! Approaching: $speedInt km/h (${distInt}m)")
         } else {
+            currentAlertCameraId = null
             audioEngine.stopAlert()
             val totalInDb = dbHelper.getCameraCount()
             updateNotificationText("Active. Cameras in DB: $totalInDb")
