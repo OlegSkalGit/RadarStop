@@ -15,7 +15,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import com.example.radardetector.LogViewerActivity
+import com.example.radardetector.HelpActivity
 import com.example.radardetector.audio.AcousticRadarEngine
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
@@ -336,11 +336,11 @@ class RadarForegroundService : Service(), LocationListener {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val logIntent = Intent(this, LogViewerActivity::class.java).apply {
+        val helpIntent = Intent(this, HelpActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val pLogIntent = PendingIntent.getActivity(
-            this, 1, logIntent,
+        val pHelpIntent = PendingIntent.getActivity(
+            this, 1, helpIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -350,7 +350,7 @@ class RadarForegroundService : Service(), LocationListener {
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(android.R.drawable.ic_menu_info_details, "ADB", pLogIntent)
+            .addAction(android.R.drawable.ic_menu_help, "Help", pHelpIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn Off", pStopIntent)
             .build()
     }

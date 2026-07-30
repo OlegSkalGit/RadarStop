@@ -13,15 +13,18 @@ object AppLogger {
     private var logFile: File? = null
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
 
+    @Volatile
+    var isLoggingEnabled: Boolean = false
+
     @Synchronized
     fun initNewSession(context: Context) {
         try {
+            isLoggingEnabled = false
             logFile = File(context.filesDir, LOG_FILE_NAME)
             if (logFile?.exists() == true) {
                 logFile?.delete()
             }
             logFile?.createNewFile()
-            log("AppLogger", "initNewSession", true, "New logging session initialized. Stale log cleared.")
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -29,6 +32,7 @@ object AppLogger {
 
     @Synchronized
     fun log(module: String, functionName: String, isSuccess: Boolean, details: String) {
+        if (!isLoggingEnabled) return
         try {
             val file = logFile ?: return
             val timestamp = dateFormat.format(Date())

@@ -62,7 +62,8 @@ class OverpassSyncManager(
 
     fun onLocationUpdate(location: Location, speedKmh: Float, isStationaryFor3Hours: Boolean) {
         if (isSyncing) return
-        if (isStationaryFor3Hours && speedKmh <= 30f) return
+        if (speedKmh <= 0f) return // Do not download data while vehicle is stationary at 0 km/h
+        if (isStationaryFor3Hours) return
 
         val now = System.currentTimeMillis()
         if (lastSyncAttemptMs != 0L && now - lastSyncAttemptMs < RETRY_PAUSE_MS) {

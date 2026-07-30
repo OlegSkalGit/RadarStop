@@ -25,7 +25,7 @@ class LogViewerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        title = "Application Logs"
+        title = "ADB Logs"
         audioEngine = AcousticRadarEngine(this)
 
         scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -68,20 +68,6 @@ class LogViewerActivity : Activity() {
             setPadding(0, 12, 0, 12)
         }
 
-        val btnZoomOut = Button(this).apply {
-            text = " - "
-            setOnClickListener {
-                currentTextSizeSp = (currentTextSizeSp - 2f).coerceAtLeast(8f)
-                textViewLog.textSize = currentTextSizeSp
-            }
-        }
-        val btnZoomIn = Button(this).apply {
-            text = " + "
-            setOnClickListener {
-                currentTextSizeSp = (currentTextSizeSp + 2f).coerceAtMost(32f)
-                textViewLog.textSize = currentTextSizeSp
-            }
-        }
         val btnBeep = Button(this).apply {
             text = "Beep"
             setOnClickListener {
@@ -108,8 +94,6 @@ class LogViewerActivity : Activity() {
             setOnClickListener { finish() }
         }
 
-        btnLayout.addView(btnZoomOut)
-        btnLayout.addView(btnZoomIn)
         btnLayout.addView(btnBeep)
         btnLayout.addView(btnRefresh)
         btnLayout.addView(btnShare)
