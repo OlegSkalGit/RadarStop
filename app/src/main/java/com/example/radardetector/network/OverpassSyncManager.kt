@@ -26,7 +26,7 @@ class OverpassSyncManager(
             "https://overpass.kumi.systems/api/interpreter",
             "https://api.openstreetmap.fr/oapi/interpreter"
         )
-        private const val SYNC_THROTTLE_MS = 10 * 60 * 1000L
+        private const val SYNC_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
     }
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -45,7 +45,7 @@ class OverpassSyncManager(
         val distanceMoved = FloatArray(1)
         Location.distanceBetween(location.latitude, location.longitude, lastSyncedLat, lastSyncedLon, distanceMoved)
 
-        if (now - lastSyncTimeMs < SYNC_THROTTLE_MS && distanceMoved[0] < 40000f && lastSyncTimeMs != 0L) {
+        if (now - lastSyncTimeMs < SYNC_THROTTLE_MS && distanceMoved[0] < 80000f && lastSyncTimeMs != 0L) {
             return
         }
 
