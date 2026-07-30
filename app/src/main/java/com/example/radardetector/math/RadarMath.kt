@@ -44,4 +44,17 @@ object RadarMath {
         val diff = abs(angleDifference(carBearing, cameraDir))
         return diff <= 45f || abs(angleDifference(carBearing, (cameraDir + 180f) % 360f)) <= 45f
     }
+
+    /**
+     * Symmetrically calculates beep interval delay based on distance (0..300m)
+     * for both approach (300m -> 0m) and departure (0m -> 300m).
+     */
+    fun calculateBeepDelay(distanceMeters: Float): Long {
+        return when {
+            distanceMeters > 200f -> 1500L
+            distanceMeters > 100f -> 800L
+            distanceMeters > 50f  -> 400L
+            else                  -> 100L
+        }
+    }
 }

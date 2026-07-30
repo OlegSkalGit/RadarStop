@@ -243,53 +243,42 @@ class RadarForegroundService : Service(), LocationListener {
         }
 
         var closestAlertCamera: Camera? = null
-        var maxVApproach = 0f
         var minDistanceToAlert = Float.MAX_VALUE
 
         for (camera in cachedCameras) {
-            val (vApproach, distance) = RadarMath.calculateApproachSpeed(location, camera.lat, camera.lon)
-            if (distance <= 300f && vApproach > 30f) {
-                if (RadarMath.isAzimuthValid(location.bearing, camera.dir)) {
-                    if (distance < minDistanceToAlert) {
-                        minDistanceToAlert = distance
-                        maxVApproach = vApproach
-                        closestAlertCamera = camera
-                    }
+            val (_, distance) = RadarMath.calculateApproachSpeed(location, camera.lat, camera.lon)
+            if (distance <= 300f && RadarMath.isAzimuthValid(location.bearing, camera.dir)) {
+                if (distance < minDistanceToAlert) {
+                    minDistanceToAlert = distance
+                    closestAlertCamera = camera
                 }
             }
         }
 
         if (closestAlertCamera != null) {
-            val speedInt = maxVApproach.toInt()
+            val speedInt = speedKmh.toInt()
             val distInt = minDistanceToAlert.toInt()
 
             if (currentAlertCameraId != closestAlertCamera.id) {
                 currentAlertCameraId = closestAlertCamera.id
                 Toast.makeText(
                     applicationContext,
-                    "Radar! Approaching: $speedInt km/h (${distInt}m)",
+                    "Radar! Distance: ${distInt}m (${speedInt} km/h)",
                     Toast.LENGTH_LONG
                 ).show()
                 AppLogger.log(
                     "RadarForegroundService",
                     "onLocationChanged",
                     true,
-                    "CAMERA DETECTED in 300m: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}"
+                    "CAMERA ALERT DETECTED (300m Zone): Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}"
                 )
             }
 
-            val timeToCollisionSec = minDistanceToAlert / (maxVApproach / 3.6f)
-            val delayMs = when {
-                timeToCollisionSec > 15f -> 1500L
-                timeToCollisionSec >= 8f -> 800L
-                timeToCollisionSec >= 4f -> 400L
-                else -> 100L
-            }
-
+            val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert)
             audioEngine.startAlert(delayMs)
             audioEngine.updateDelay(delayMs)
 
-            updateNotificationText("Radar! Approaching: $speedInt km/h (${distInt}m)")
+            updateNotificationText("Radar! Distance: ${distInt}m (${speedInt} km/h)")
         } else {
             if (currentAlertCameraId != null) {
                 AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Camera #${currentAlertCameraId} cleared).")
