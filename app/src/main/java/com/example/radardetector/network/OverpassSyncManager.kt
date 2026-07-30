@@ -107,7 +107,7 @@ class OverpassSyncManager(
             [out:json][timeout:25];
             (
               node["highway"="speed_camera"]($south,$west,$north,$east);
-              node["enforcement"="maxspeed"]($south,$west,$north,$east);
+              node["enforcement"]($south,$west,$north,$east);
             );
             out body;
         """.trimIndent()
@@ -132,7 +132,7 @@ class OverpassSyncManager(
                         "OverpassSyncManager",
                         "performSync",
                         true,
-                        "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras from Overpass ($mirror) for 100x100km box around ($lat, $lon). Total in DB: $count"
+                        "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras (100% all enforcement types) from Overpass ($mirror) for 100x100km box around ($lat, $lon). Total in DB: $count"
                     )
                     onSyncSuccess(cameras.size, count)
                     break

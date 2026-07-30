@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
-import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
@@ -21,7 +20,7 @@ class HelpActivity : Activity() {
 
     private lateinit var textViewHelp: TextView
     private lateinit var scaleGestureDetector: ScaleGestureDetector
-    private var currentTextSizeSp = 16f
+    private var currentTextSizeSp = 15f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +69,18 @@ RadarStop
 An ultra-lightweight driver assistant running silently in the background to alert you of speed cameras in advance while driving.
 
 No manual configuration is required.
+
+Sound Alerts & Radar Tracking:
+
+• Speed threshold:
+  Sound warnings are issued only when your speed exceeds 30 km/h, provided GPS and internet connectivity are available.
+
+• Point Speed Cameras (300m approach & departure tracking):
+  - On approach (300m to camera): Beep frequency accelerates (from 1.5s interval down to 0.1s near the camera).
+  - On departure (up to 300m past camera): Beep frequency decelerates in reverse (from 0.1s near the camera up to 1.5s at 300m past it).
+
+• Average Speed Control Zones (Linear Cameras):
+  - Upon entering an average speed control zone, the app maintains continuous sound alerts throughout the entire section until passing the exit camera and departing 300m beyond it.
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {
