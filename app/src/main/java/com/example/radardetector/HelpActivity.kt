@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
@@ -66,9 +67,9 @@ class HelpActivity : Activity() {
         val helpContentText = """
 RadarStop
 
-Це легкий та простий помічник водія, який працює у фоні та завчасно попереджає про камери фіксації швидкості під час поїздки.
+An ultra-lightweight driver assistant running silently in the background to alert you of speed cameras in advance while driving.
 
-Вам не потрібно нічого налаштовувати вручну.
+No manual configuration is required.
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {
