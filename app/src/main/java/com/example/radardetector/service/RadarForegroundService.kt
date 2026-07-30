@@ -55,6 +55,9 @@ class RadarForegroundService : Service(), LocationListener {
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
 
+    private var activeLinearZoneStartLoc: Location? = null
+    private var activeLinearZoneStartMs: Long = 0L
+
     override fun onCreate() {
         super.onCreate()
         isRunning = true
@@ -259,6 +262,11 @@ class RadarForegroundService : Service(), LocationListener {
             val speedInt = speedKmh.toInt()
             val distInt = minDistanceToAlert.toInt()
 
+            if (closestAlertCamera.isLinear) {
+                activeLinearZoneStartLoc = location
+                activeLinearZoneStartMs = now
+            }
+
             if (currentAlertCameraId != closestAlertCamera.id) {
                 currentAlertCameraId = closestAlertCamera.id
                 Toast.makeText(
@@ -270,7 +278,7 @@ class RadarForegroundService : Service(), LocationListener {
                     "RadarForegroundService",
                     "onLocationChanged",
                     true,
-                    "CAMERA ALERT DETECTED (300m Zone): Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}"
+                    "CAMERA ALERT DETECTED (300m Zone): Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}, Linear: ${closestAlertCamera.isLinear}"
                 )
             }
 
@@ -280,6 +288,21 @@ class RadarForegroundService : Service(), LocationListener {
 
             updateNotificationText("Radar! Distance: ${distInt}m (${speedInt} km/h)")
         } else {
+            val startLoc = activeLinearZoneStartLoc
+            if (startLoc != null) {
+                val distFromLinearStart = location.distanceTo(startLoc)
+                if (distFromLinearStart <= 5000f && (now - activeLinearZoneStartMs) <= 10 * 60 * 1000L) {
+                    val speedInt = speedKmh.toInt()
+                    val delayMs = 1500L // Steady 1.5s rhythm for linear section
+                    audioEngine.startAlert(delayMs)
+                    audioEngine.updateDelay(delayMs)
+                    updateNotificationText("Radar! Linear Zone Alert (${speedInt} km/h)")
+                    return
+                } else {
+                    activeLinearZoneStartLoc = null
+                }
+            }
+
             if (currentAlertCameraId != null) {
                 AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Camera #${currentAlertCameraId} cleared).")
                 currentAlertCameraId = null

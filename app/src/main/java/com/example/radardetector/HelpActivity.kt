@@ -80,7 +80,7 @@ Sound Alerts & Radar Tracking:
   - On departure (up to 300m past camera): Beep frequency decelerates in reverse (from 0.1s near the camera up to 1.5s at 300m past it).
 
 • Average Speed Control Zones (Linear Cameras):
-  - Upon entering an average speed control zone, the app maintains continuous sound alerts throughout the entire section until passing the exit camera and departing 300m beyond it.
+  - Upon entering an average speed control zone, the app maintains continuous steady sound alerts (1.5s interval) throughout the entire section until passing the exit camera and departing 300m beyond it.
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {

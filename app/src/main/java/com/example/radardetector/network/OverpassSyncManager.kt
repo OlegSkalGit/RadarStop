@@ -201,6 +201,8 @@ class OverpassSyncManager(
                 val lon = elem.getDouble("lon")
 
                 var dir: Float? = null
+                var isLinear = false
+
                 if (elem.has("tags")) {
                     val tags = elem.getJSONObject("tags")
                     if (tags.has("direction")) {
@@ -208,8 +210,15 @@ class OverpassSyncManager(
                     } else if (tags.has("camera:direction")) {
                         dir = parseDirection(tags.getString("camera:direction"))
                     }
+
+                    val enf = tags.optString("enforcement", "")
+                    val camType = tags.optString("camera:type", "")
+                    val enfType = tags.optString("enforcement:type", "")
+                    if (enf.contains("average_speed") || camType.contains("average_speed") || enfType.contains("average_speed") || enf.contains("section")) {
+                        isLinear = true
+                    }
                 }
-                cameras.add(Camera(id, lat, lon, dir))
+                cameras.add(Camera(id, lat, lon, dir, isLinear))
             }
             cameras
         } catch (e: Exception) {
