@@ -49,6 +49,7 @@ class RadarForegroundService : Service(), LocationListener {
     private var cachedBoxMaxLon = 0.0
 
     private var lastStationaryTimeMs = 0L
+    private var speedDropBelow30TimeMs = 0L
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
 
@@ -80,6 +81,7 @@ class RadarForegroundService : Service(), LocationListener {
             }
         )
         audioEngine = AcousticRadarEngine(this)
+        audioEngine.playSingleBeep()
 
         createNotificationChannel()
         startForeground(NOTIF_ID, buildNotification("Starting up..."))
@@ -147,14 +149,14 @@ class RadarForegroundService : Service(), LocationListener {
 
         lastLocation = location
         val speedKmh = location.speed * 3.6f
+        val now = System.currentTimeMillis()
 
         if (speedKmh == 0f) {
-            if (lastStationaryTimeMs == 0L) lastStationaryTimeMs = System.currentTimeMillis()
+            if (lastStationaryTimeMs == 0L) lastStationaryTimeMs = now
         } else {
             lastStationaryTimeMs = 0L
         }
-        val isStationaryFor3Hours = lastStationaryTimeMs > 0 &&
-                (System.currentTimeMillis() - lastStationaryTimeMs >= 3 * 3600 * 1000L)
+        val isStationaryFor3Hours = lastStationaryTimeMs > 0 && (now - lastStationaryTimeMs >= 3 * 3600 * 1000L)
 
         if (isStationaryFor3Hours && lastLoggedSpeedMode != "STATIONARY_3H") {
             lastLoggedSpeedMode = "STATIONARY_3H"
@@ -171,34 +173,49 @@ class RadarForegroundService : Service(), LocationListener {
         }
 
         val hasNearbyCameraIn3km = hasCameraWithinRadius(location, cachedCameras, 3000.0)
-        val targetInterval = when {
-            speedKmh <= 30f -> {
+
+        val targetInterval = if (speedKmh <= 30f) {
+            if (speedDropBelow30TimeMs == 0L) {
+                speedDropBelow30TimeMs = now
+            }
+            val timeBelow30Ms = now - speedDropBelow30TimeMs
+            if (timeBelow30Ms < 3 * 60 * 1000L) {
+                if (lastLoggedSpeedMode != "SLOW_GRACE_3MIN") {
+                    lastLoggedSpeedMode = "SLOW_GRACE_3MIN"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h (${speedKmh.toInt()} km/h). 3-min Grace Period active: Polling interval kept at 3s.")
+                }
+                3000L
+            } else {
                 if (lastLoggedSpeedMode != "SLOW") {
                     lastLoggedSpeedMode = "SLOW"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h (${speedKmh.toInt()} km/h). Polling interval: 10s. Beep alerts inactive.")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h for >3 minutes (${speedKmh.toInt()} km/h). Polling interval: 10s. Beep alerts inactive.")
                 }
                 10000L
             }
-            speedKmh <= 70f -> {
-                if (lastLoggedSpeedMode != "CITY") {
-                    lastLoggedSpeedMode = "CITY"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: City Mode 31-70 km/h (${speedKmh.toInt()} km/h). Polling interval: 3s.")
+        } else {
+            speedDropBelow30TimeMs = 0L
+            when {
+                speedKmh <= 70f -> {
+                    if (lastLoggedSpeedMode != "CITY") {
+                        lastLoggedSpeedMode = "CITY"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: City Mode 31-70 km/h (${speedKmh.toInt()} km/h). Polling interval: 3s.")
+                    }
+                    3000L
                 }
-                3000L
-            }
-            speedKmh > 70f && !hasNearbyCameraIn3km -> {
-                if (lastLoggedSpeedMode != "SMART_SLEEP") {
-                    lastLoggedSpeedMode = "SMART_SLEEP"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (>70 km/h, no cameras within 3km). Polling interval: 15s.")
+                speedKmh > 70f && !hasNearbyCameraIn3km -> {
+                    if (lastLoggedSpeedMode != "SMART_SLEEP") {
+                        lastLoggedSpeedMode = "SMART_SLEEP"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (>70 km/h, no cameras within 3km). Polling interval: 15s.")
+                    }
+                    15000L
                 }
-                15000L
-            }
-            else -> {
-                if (lastLoggedSpeedMode != "HIGHWAY") {
-                    lastLoggedSpeedMode = "HIGHWAY"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Highway Mode >70 km/h (${speedKmh.toInt()} km/h) near cameras. Polling interval: 1s.")
+                else -> {
+                    if (lastLoggedSpeedMode != "HIGHWAY") {
+                        lastLoggedSpeedMode = "HIGHWAY"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Highway Mode >70 km/h (${speedKmh.toInt()} km/h) near cameras. Polling interval: 1s.")
+                    }
+                    1000L
                 }
-                1000L
             }
         }
         registerGpsUpdates(targetInterval)
@@ -246,7 +263,7 @@ class RadarForegroundService : Service(), LocationListener {
                     "RadarForegroundService",
                     "onLocationChanged",
                     true,
-                    "CAMERA ALERT DETECTED: Approaching Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}"
+                    "CAMERA DETECTED in 300m: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}"
                 )
             }
 
@@ -323,7 +340,7 @@ class RadarForegroundService : Service(), LocationListener {
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(android.R.drawable.ic_menu_info_details, "Logs", pLogIntent)
+            .addAction(android.R.drawable.ic_menu_info_details, "ADB", pLogIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn Off", pStopIntent)
             .build()
     }

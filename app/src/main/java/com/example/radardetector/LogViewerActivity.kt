@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.example.radardetector.audio.AcousticRadarEngine
 import com.example.radardetector.util.AppLogger
 
 class LogViewerActivity : Activity() {
@@ -20,10 +21,12 @@ class LogViewerActivity : Activity() {
     private lateinit var textViewLog: TextView
     private lateinit var scaleGestureDetector: ScaleGestureDetector
     private var currentTextSizeSp = 12f
+    private lateinit var audioEngine: AcousticRadarEngine
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = "Application Logs"
+        audioEngine = AcousticRadarEngine(this)
 
         scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -79,6 +82,12 @@ class LogViewerActivity : Activity() {
                 textViewLog.textSize = currentTextSizeSp
             }
         }
+        val btnBeep = Button(this).apply {
+            text = "Beep"
+            setOnClickListener {
+                audioEngine.playBeeps(5, 500L)
+            }
+        }
         val btnRefresh = Button(this).apply {
             text = "Refresh"
             setOnClickListener { refreshLog() }
@@ -101,6 +110,7 @@ class LogViewerActivity : Activity() {
 
         btnLayout.addView(btnZoomOut)
         btnLayout.addView(btnZoomIn)
+        btnLayout.addView(btnBeep)
         btnLayout.addView(btnRefresh)
         btnLayout.addView(btnShare)
         btnLayout.addView(btnClear)
@@ -152,5 +162,10 @@ class LogViewerActivity : Activity() {
         } catch (e: Exception) {
             AppLogger.log("LogViewerActivity", "shareLog", false, "Error: ${e.message}")
         }
+    }
+
+    override fun onDestroy() {
+        audioEngine.release()
+        super.onDestroy()
     }
 }
