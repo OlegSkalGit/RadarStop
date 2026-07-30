@@ -2,6 +2,9 @@ package com.example.radardetector.network
 
 import android.content.Context
 import android.location.Location
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.util.AppLogger
@@ -27,25 +30,49 @@ class OverpassSyncManager(
             "https://api.openstreetmap.fr/oapi/interpreter"
         )
         private const val SYNC_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
+        private const val RETRY_PAUSE_MS = 5 * 60 * 1000L // 5 minutes retry delay on network failure
     }
 
     private val executor = Executors.newSingleThreadExecutor()
     @Volatile
     private var lastSyncTimeMs = 0L
     @Volatile
+    private var lastSyncAttemptMs = 0L
+    @Volatile
     private var isSyncing = false
     private var lastSyncedLat = 0.0
     private var lastSyncedLon = 0.0
+
+    private fun isInternetAvailable(): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val network = cm.activeNetwork ?: return false
+                val caps = cm.getNetworkCapabilities(network) ?: return false
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            } else {
+                @Suppress("DEPRECATION")
+                val info = cm.activeNetworkInfo
+                info != null && info.isConnected
+            }
+        } catch (e: Exception) {
+            true // Fallback if system check fails
+        }
+    }
 
     fun onLocationUpdate(location: Location, speedKmh: Float, isStationaryFor3Hours: Boolean) {
         if (isSyncing) return
         if (isStationaryFor3Hours && speedKmh <= 30f) return
 
         val now = System.currentTimeMillis()
+        if (lastSyncAttemptMs != 0L && now - lastSyncAttemptMs < RETRY_PAUSE_MS) {
+            return
+        }
+
         val distanceMoved = FloatArray(1)
         Location.distanceBetween(location.latitude, location.longitude, lastSyncedLat, lastSyncedLon, distanceMoved)
 
-        if (now - lastSyncTimeMs < SYNC_THROTTLE_MS && distanceMoved[0] < 80000f && lastSyncTimeMs != 0L) {
+        if (lastSyncTimeMs != 0L && now - lastSyncTimeMs < SYNC_THROTTLE_MS && distanceMoved[0] < 40000f) {
             return
         }
 
@@ -60,6 +87,13 @@ class OverpassSyncManager(
     }
 
     private fun performSync(lat: Double, lon: Double) {
+        if (!isInternetAvailable()) {
+            AppLogger.log("OverpassSyncManager", "performSync", false, "No internet connection available. Setting 5m retry pause.")
+            lastSyncAttemptMs = System.currentTimeMillis()
+            onStatusUpdate("No Internet. Retry in 5m...")
+            return
+        }
+
         AppLogger.log("OverpassSyncManager", "performSync", true, "Starting 100x100 km Bounding Box sync for coords: ($lat, $lon)")
         onStatusUpdate("Downloading camera data...")
 
@@ -78,8 +112,9 @@ class OverpassSyncManager(
         """.trimIndent()
 
         var success = false
-        for (mirror in MIRRORS) {
-            AppLogger.log("OverpassSyncManager", "executePost", true, "Connecting to mirror: $mirror")
+        for (i in MIRRORS.indices) {
+            val mirror = MIRRORS[i]
+            AppLogger.log("OverpassSyncManager", "executePost", true, "Connecting to mirror [${i + 1}/${MIRRORS.size}]: $mirror")
             val response = executePost(mirror, query)
             if (response != null) {
                 val cameras = parseOverpassJson(response)
@@ -87,6 +122,7 @@ class OverpassSyncManager(
                     dbHelper.clearCameras()
                     dbHelper.insertCameras(cameras)
                     lastSyncTimeMs = System.currentTimeMillis()
+                    lastSyncAttemptMs = 0L
                     lastSyncedLat = lat
                     lastSyncedLon = lon
                     success = true
@@ -97,16 +133,25 @@ class OverpassSyncManager(
                         true,
                         "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras from Overpass ($mirror) for 100x100km box around ($lat, $lon). Total in DB: $count"
                     )
-                    onStatusUpdate("Active. Cameras in DB: $count")
                     onSyncSuccess(cameras.size, count)
+                    break
+                }
+            }
+
+            if (i < MIRRORS.size - 1) {
+                AppLogger.log("OverpassSyncManager", "performSync", false, "Mirror failed. Waiting 5s before next mirror attempt...")
+                try {
+                    Thread.sleep(5000L)
+                } catch (e: InterruptedException) {
                     break
                 }
             }
         }
 
         if (!success) {
-            AppLogger.log("OverpassSyncManager", "performSync", false, "All Overpass mirrors failed or timed out.")
-            onStatusUpdate("Network error. Retrying...")
+            lastSyncAttemptMs = System.currentTimeMillis()
+            AppLogger.log("OverpassSyncManager", "performSync", false, "All Overpass mirrors failed. Setting 5m retry pause.")
+            onStatusUpdate("Network error. Retry in 5m...")
         }
     }
 
@@ -117,7 +162,7 @@ class OverpassSyncManager(
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 10000
-                readTimeout = 15000
+                readTimeout = 10000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             }

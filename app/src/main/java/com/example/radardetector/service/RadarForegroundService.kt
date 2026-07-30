@@ -47,6 +47,8 @@ class RadarForegroundService : Service(), LocationListener {
     private var cachedBoxMaxLat = 0.0
     private var cachedBoxMinLon = 0.0
     private var cachedBoxMaxLon = 0.0
+    private var lastRamReloadLat = 0.0
+    private var lastRamReloadLon = 0.0
 
     private var lastStationaryTimeMs = 0L
     private var speedDropBelow30TimeMs = 0L
@@ -122,6 +124,8 @@ class RadarForegroundService : Service(), LocationListener {
     private fun reloadCameraCacheForLocation(location: Location) {
         val lat = location.latitude
         val lon = location.longitude
+        lastRamReloadLat = lat
+        lastRamReloadLon = lon
         cachedBoxMinLat = lat - 0.045
         cachedBoxMaxLat = lat + 0.045
         cachedBoxMinLon = lon - 0.045
@@ -132,7 +136,7 @@ class RadarForegroundService : Service(), LocationListener {
             "RadarForegroundService",
             "reloadCameraCacheForLocation",
             true,
-            "DATABASE LOAD: Loaded ${cachedCameras.size} cameras from SQLite DB for current location ($lat, $lon). Total in DB: $totalInDb"
+            "DATABASE LOAD: Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $totalInDb"
         )
     }
 
@@ -168,7 +172,12 @@ class RadarForegroundService : Service(), LocationListener {
         val lat = location.latitude
         val lon = location.longitude
 
-        if (cachedCameras.isEmpty() || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
+        val distFromRamReload = FloatArray(1)
+        if (lastRamReloadLat != 0.0 || lastRamReloadLon != 0.0) {
+            Location.distanceBetween(lat, lon, lastRamReloadLat, lastRamReloadLon, distFromRamReload)
+        }
+
+        if (cachedCameras.isEmpty() || distFromRamReload[0] >= 4000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
             reloadCameraCacheForLocation(location)
         }
 
@@ -220,14 +229,16 @@ class RadarForegroundService : Service(), LocationListener {
         }
         registerGpsUpdates(targetInterval)
 
+        val totalInDb = dbHelper.getCameraCount()
+        val defaultStatusText = "Active. Cameras: ${cachedCameras.size} nearby / $totalInDb total"
+
         if (speedKmh <= 30f) {
             if (currentAlertCameraId != null) {
                 AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Speed dropped <= 30 km/h).")
                 currentAlertCameraId = null
             }
             audioEngine.stopAlert()
-            val totalInDb = dbHelper.getCameraCount()
-            updateNotificationText("Active. Cameras in DB: $totalInDb")
+            updateNotificationText(defaultStatusText)
             return
         }
 
@@ -285,8 +296,7 @@ class RadarForegroundService : Service(), LocationListener {
                 currentAlertCameraId = null
             }
             audioEngine.stopAlert()
-            val totalInDb = dbHelper.getCameraCount()
-            updateNotificationText("Active. Cameras in DB: $totalInDb")
+            updateNotificationText(defaultStatusText)
         }
     }
 
