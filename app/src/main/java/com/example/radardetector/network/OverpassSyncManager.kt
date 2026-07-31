@@ -5,20 +5,23 @@ import android.location.Location
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.util.JsonReader
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.util.AppLogger
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.concurrent.Executors
 
 class OverpassSyncManager(
     private val context: Context,
     private val dbHelper: DatabaseHelper,
-    private val onStatusUpdate: (String) -> Unit,
-    private val onSyncSuccess: (downloadedCount: Int, totalInDb: Int) -> Unit
+    private val onStatusUpdate: (String) -> Unit = {},
+    private val onSyncSuccess: (downloadedCount: Int, totalInDb: Int) -> Unit = { _, _ -> }
 ) {
 
     companion object {
@@ -320,6 +323,121 @@ class OverpassSyncManager(
         if (!success) {
             onStatusUpdate("Failed to load $countryName cameras. Check network.")
         }
+    }
+
+    @Volatile
+    private var lastCountrySyncTimeMs: Long = 0L
+
+    fun fetchOrGetCachedCountries(onResult: (List<Pair<String, String>>) -> Unit) {
+        val now = System.currentTimeMillis()
+        val cached = dbHelper.getCountries()
+        if (cached.isNotEmpty() && (now - lastCountrySyncTimeMs < 24 * 60 * 60 * 1000L)) {
+            AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Returning ${cached.size} cached countries from SQLite DB.")
+            onResult(cached)
+            return
+        }
+
+        executor.execute {
+            if (!isInternetAvailable()) {
+                AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", false, "No internet connection. Returning ${cached.size} cached countries.")
+                onResult(cached)
+                return@execute
+            }
+
+            val query = """
+                [out:json][timeout:30];
+                area["ISO3166-1"]["admin_level"="2"];
+                out tags;
+            """.trimIndent()
+
+            var fetched: List<Pair<String, String>>? = null
+            for (mirror in MIRRORS) {
+                fetched = executePostAndParseCountriesStream(mirror, query)
+                if (fetched != null && fetched.isNotEmpty()) {
+                    dbHelper.insertCountries(fetched)
+                    lastCountrySyncTimeMs = System.currentTimeMillis()
+                    AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Fetched ${fetched.size} countries from Overpass ($mirror) and cached to SQLite DB.")
+                    break
+                }
+            }
+            val resultList = if (fetched != null && fetched.isNotEmpty()) fetched else cached
+            onResult(resultList)
+        }
+    }
+
+    private fun executePostAndParseCountriesStream(urlStr: String, query: String): List<Pair<String, String>>? {
+        try {
+            val url = URL(urlStr)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 10000
+            conn.readTimeout = 30000
+            conn.setRequestProperty("User-Agent", "RadarStop/1.0")
+
+            val postData = "data=" + URLEncoder.encode(query, "UTF-8")
+            conn.outputStream.use { os ->
+                os.write(postData.toByteArray(Charsets.UTF_8))
+            }
+
+            val code = conn.responseCode
+            if (code == 200) {
+                return parseCountriesStream(conn.inputStream)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    private fun parseCountriesStream(inputStream: InputStream): List<Pair<String, String>> {
+        val list = ArrayList<Pair<String, String>>()
+        val reader = JsonReader(InputStreamReader(inputStream, Charsets.UTF_8))
+        reader.use {
+            reader.beginObject()
+            while (reader.hasNext()) {
+                val name = reader.nextName()
+                if (name == "elements") {
+                    reader.beginArray()
+                    while (reader.hasNext()) {
+                        reader.beginObject()
+                        var countryCode: String? = null
+                        var countryName: String? = null
+                        while (reader.hasNext()) {
+                            val elementName = reader.nextName()
+                            if (elementName == "tags") {
+                                reader.beginObject()
+                                while (reader.hasNext()) {
+                                    val tagKey = reader.nextName()
+                                    when (tagKey) {
+                                        "ISO3166-1" -> countryCode = reader.nextString()
+                                        "name:en" -> countryName = reader.nextString()
+                                        "name" -> {
+                                            if (countryName == null) countryName = reader.nextString()
+                                            else reader.skipValue()
+                                        }
+                                        else -> reader.skipValue()
+                                    }
+                                }
+                                reader.endObject()
+                            } else {
+                                reader.skipValue()
+                            }
+                        }
+                        reader.endObject()
+                        if (countryCode != null && countryName != null) {
+                            list.add(Pair(countryName, countryCode))
+                        }
+                    }
+                    reader.endArray()
+                } else {
+                    reader.skipValue()
+                }
+            }
+            reader.endObject()
+        }
+        list.sortBy { it.first }
+        return list
     }
 
     fun shutdown() {

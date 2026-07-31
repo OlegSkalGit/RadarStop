@@ -10,7 +10,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     companion object {
         private const val DATABASE_NAME = "radar_detector.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
 
         const val TABLE_CAMERAS = "cameras"
         const val COLUMN_ID = "id"
@@ -18,6 +18,10 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         const val COLUMN_LON = "lon"
         const val COLUMN_DIR = "dir"
         const val COLUMN_IS_LINEAR = "is_linear"
+
+        const val TABLE_COUNTRIES = "countries"
+        const val COLUMN_COUNTRY_CODE = "code"
+        const val COLUMN_COUNTRY_NAME = "name"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -34,11 +38,21 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         )
 
         db.execSQL("CREATE INDEX idx_coords ON $TABLE_CAMERAS($COLUMN_LAT, $COLUMN_LON)")
-        AppLogger.log("DatabaseHelper", "onCreate", true, "Database table ($TABLE_CAMERAS) and spatial index created.")
+
+        db.execSQL(
+            """
+            CREATE TABLE $TABLE_COUNTRIES (
+                $COLUMN_COUNTRY_CODE TEXT PRIMARY KEY,
+                $COLUMN_COUNTRY_NAME TEXT NOT NULL
+            )
+            """.trimIndent()
+        )
+        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_CAMERAS, $TABLE_COUNTRIES) and spatial index created.")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         db.execSQL("DROP TABLE IF EXISTS $TABLE_CAMERAS")
+        db.execSQL("DROP TABLE IF EXISTS $TABLE_COUNTRIES")
         onCreate(db)
         AppLogger.log("DatabaseHelper", "onUpgrade", true, "Upgraded DB from v$oldVersion to v$newVersion.")
     }
@@ -121,5 +135,41 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             }
         }
         return 0
+    }
+
+    fun insertCountries(countries: List<Pair<String, String>>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val stmt = db.compileStatement("INSERT OR REPLACE INTO $TABLE_COUNTRIES ($COLUMN_COUNTRY_CODE, $COLUMN_COUNTRY_NAME) VALUES (?, ?)")
+            for ((name, code) in countries) {
+                stmt.clearBindings()
+                stmt.bindString(1, code)
+                stmt.bindString(2, name)
+                stmt.executeInsert()
+            }
+            db.setTransactionSuccessful()
+            AppLogger.log("DatabaseHelper", "insertCountries", true, "Inserted ${countries.size} countries into SQLite DB.")
+        } catch (e: Exception) {
+            AppLogger.log("DatabaseHelper", "insertCountries", false, "Error inserting countries: ${e.message}")
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun getCountries(): List<Pair<String, String>> {
+        val list = ArrayList<Pair<String, String>>()
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT $COLUMN_COUNTRY_NAME, $COLUMN_COUNTRY_CODE FROM $TABLE_COUNTRIES ORDER BY $COLUMN_COUNTRY_NAME ASC", null)
+        cursor.use {
+            val nameIdx = cursor.getColumnIndexOrThrow(COLUMN_COUNTRY_NAME)
+            val codeIdx = cursor.getColumnIndexOrThrow(COLUMN_COUNTRY_CODE)
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameIdx)
+                val code = cursor.getString(codeIdx)
+                list.add(Pair(name, code))
+            }
+        }
+        return list
     }
 }

@@ -23,6 +23,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.example.radardetector.db.DatabaseHelper
+import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
 
@@ -204,6 +206,9 @@ Sound Alerts & Radar Tracking:
     )
 
     private fun showCountrySelectionDialog() {
+        val dbHelper = DatabaseHelper(this)
+        val syncManager = OverpassSyncManager(this, dbHelper)
+
         val dialog = Dialog(this)
         dialog.setTitle("Select Country")
 
@@ -232,9 +237,11 @@ Sound Alerts & Radar Tracking:
             orientation = LinearLayout.VERTICAL
         }
 
+        var activeCountriesList = countries
+
         fun populateList(query: String) {
             listContainer.removeAllViews()
-            val filtered = countries.filter {
+            val filtered = activeCountriesList.filter {
                 it.name.contains(query, ignoreCase = true) || it.code.contains(query, ignoreCase = true)
             }
             for (item in filtered) {
@@ -251,6 +258,7 @@ Sound Alerts & Radar Tracking:
                     layoutParams = params
                     setOnClickListener {
                         dialog.dismiss()
+                        syncManager.shutdown()
                         startCountrySync(item.code, item.name)
                     }
                 }
@@ -259,6 +267,15 @@ Sound Alerts & Radar Tracking:
         }
 
         populateList("")
+
+        syncManager.fetchOrGetCachedCountries { fetched ->
+            runOnUiThread {
+                if (fetched.isNotEmpty()) {
+                    activeCountriesList = fetched.map { CountryItem(it.first, it.second) }
+                    populateList(searchInput.text?.toString() ?: "")
+                }
+            }
+        }
 
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
