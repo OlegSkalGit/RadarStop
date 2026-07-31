@@ -21,8 +21,9 @@ app/build/
 .venv/
 __pycache__/
 BAK/
-example/
+/example/
 setup/
 *.pyc
 .last_state.json
 *.log
+local.properties

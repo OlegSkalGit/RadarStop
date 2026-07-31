@@ -20,6 +20,7 @@ if [ "${PLATFORM}" = "unknown" ]; then
     exit 1
 fi
 
+# 1. JDK Setup
 JDK_DIR="${HOME}/.jdk17"
 JAVA_BIN="${JDK_DIR}/jdk-17.0.10+7/bin/java"
 if [ "${PLATFORM}" = "mac" ] && [ -d "${JDK_DIR}/jdk-17.0.10+7/Contents/Home" ]; then
@@ -27,7 +28,7 @@ if [ "${PLATFORM}" = "mac" ] && [ -d "${JDK_DIR}/jdk-17.0.10+7/Contents/Home" ];
 fi
 
 if [ ! -f "${JAVA_BIN}" ]; then
-    echo "[1/3] Downloading OpenJDK 17 for ${PLATFORM} (${ARCH})..."
+    echo "[1/4] Downloading OpenJDK 17 for ${PLATFORM} (${ARCH})..."
     mkdir -p "${JDK_DIR}"
     
     if [ "${PLATFORM}" = "linux" ]; then
@@ -46,7 +47,7 @@ if [ ! -f "${JAVA_BIN}" ]; then
         curl -sL "${JDK_URL}" | tar -xz -C "${JDK_DIR}"
     fi
 else
-    echo "[1/3] OpenJDK 17 is ready."
+    echo "[1/4] OpenJDK 17 is ready."
 fi
 
 if [ -d "${JDK_DIR}/jdk-17.0.10+7/Contents/Home" ]; then
@@ -54,12 +55,14 @@ if [ -d "${JDK_DIR}/jdk-17.0.10+7/Contents/Home" ]; then
 else
     export JAVA_HOME="${JDK_DIR}/jdk-17.0.10+7"
 fi
+export PATH="${JAVA_HOME}/bin:${PATH}"
 
+# 2. Gradle Setup
 GRADLE_DIR="${HOME}/.gradle87"
 GRADLE_BIN="${GRADLE_DIR}/gradle-8.7/bin/gradle"
 
 if [ ! -f "${GRADLE_BIN}" ]; then
-    echo "[2/3] Downloading Gradle 8.7..."
+    echo "[2/4] Downloading Gradle 8.7..."
     mkdir -p "${GRADLE_DIR}"
     TMP_ZIP="/tmp/gradle87.zip"
     curl -sL "https://services.gradle.org/distributions/gradle-8.7-bin.zip" -o "${TMP_ZIP}"
@@ -67,18 +70,92 @@ if [ ! -f "${GRADLE_BIN}" ]; then
     rm -f "${TMP_ZIP}"
     chmod +x "${GRADLE_BIN}"
 else
-    echo "[2/3] Gradle 8.7 is ready."
+    echo "[2/4] Gradle 8.7 is ready."
 fi
 
-if [ -z "${ANDROID_HOME}" ]; then
-    if [ "${PLATFORM}" = "mac" ] && [ -d "${HOME}/Library/Android/sdk" ]; then
-        export ANDROID_HOME="${HOME}/Library/Android/sdk"
-    elif [ -d "${HOME}/Android/Sdk" ]; then
-        export ANDROID_HOME="${HOME}/Android/Sdk"
+# 3. Android SDK Resolution
+FOUND_SDK=""
+if [ -n "${ANDROID_HOME}" ] && [ -d "${ANDROID_HOME}/platforms" ]; then
+    FOUND_SDK="${ANDROID_HOME}"
+elif [ -n "${ANDROID_SDK_ROOT}" ] && [ -d "${ANDROID_SDK_ROOT}/platforms" ]; then
+    FOUND_SDK="${ANDROID_SDK_ROOT}"
+elif [ "${PLATFORM}" = "mac" ] && [ -d "${HOME}/Library/Android/sdk/platforms" ]; then
+    FOUND_SDK="${HOME}/Library/Android/sdk"
+elif [ -d "${HOME}/Android/Sdk/platforms" ]; then
+    FOUND_SDK="${HOME}/Android/Sdk"
+elif [ -d "${HOME}/.android-sdk/platforms" ]; then
+    FOUND_SDK="${HOME}/.android-sdk"
+fi
+
+AUTO_SDK_DIR="${HOME}/.android-sdk"
+
+if [ -z "${FOUND_SDK}" ]; then
+    echo "[3/4] Android SDK not found on system. Setting up Portable Android SDK..."
+    FOUND_SDK="${AUTO_SDK_DIR}"
+else
+    echo "[3/4] Android SDK detected at: ${FOUND_SDK}"
+fi
+
+export ANDROID_HOME="${FOUND_SDK}"
+export ANDROID_SDK_ROOT="${FOUND_SDK}"
+
+# Auto-accept Android SDK licenses
+mkdir -p "${FOUND_SDK}/licenses"
+cat << 'EOF' > "${FOUND_SDK}/licenses/android-sdk-license"
+89330172541f4551b1178f38e95c3ee68e7d6999
+24333f8a63718c1552590efe79888997432559c9
+d56f5187479451eabf01fb78af6dfcb131a6481e
+EOF
+
+cat << 'EOF' > "${FOUND_SDK}/licenses/android-sdk-preview-license"
+84831b9409646a918e30573bab4c9c91346d8abd
+EOF
+
+cat << 'EOF' > "${FOUND_SDK}/licenses/intel-android-sysimage-license"
+d9588965420b39818571765178210000a30e6649
+EOF
+
+# Install SDK components if platform-34 is missing
+if [ ! -d "${FOUND_SDK}/platforms/android-34" ]; then
+    CMDLINE_DIR="${AUTO_SDK_DIR}/cmdline-tools/latest"
+    SDKMANAGER="${CMDLINE_DIR}/bin/sdkmanager"
+
+    if [ ! -f "${SDKMANAGER}" ]; then
+        echo "[3/4] Downloading Android Command-Line Tools..."
+        mkdir -p "${AUTO_SDK_DIR}"
+        TMP_CMDLINE="/tmp/cmdline-tools.zip"
+        
+        if [ "${PLATFORM}" = "mac" ]; then
+            CMDLINE_URL="https://dl.google.com/android/repository/commandlinetools-mac-11076708_latest.zip"
+        else
+            CMDLINE_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+        fi
+        
+        curl -sL "${CMDLINE_URL}" -o "${TMP_CMDLINE}"
+        TMP_EXTRACT="/tmp/cmdline-extract"
+        mkdir -p "${TMP_EXTRACT}"
+        unzip -q "${TMP_CMDLINE}" -d "${TMP_EXTRACT}"
+        rm -f "${TMP_CMDLINE}"
+
+        if [ -d "${TMP_EXTRACT}/cmdline-tools" ]; then
+            mkdir -p "${AUTO_SDK_DIR}/cmdline-tools"
+            rm -rf "${CMDLINE_DIR}"
+            mv "${TMP_EXTRACT}/cmdline-tools" "${CMDLINE_DIR}"
+        fi
+        rm -rf "${TMP_EXTRACT}"
+    fi
+
+    if [ -f "${SDKMANAGER}" ]; then
+        chmod +x "${SDKMANAGER}"
+        echo "[3/4] Downloading Android Platform 34 and Build-Tools 34.0.0..."
+        yes | "${SDKMANAGER}" --sdk_root="${FOUND_SDK}" "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null 2>&1 || true
     fi
 fi
 
-echo "[3/3] Building Release APK..."
+# Write local.properties for Gradle
+echo "sdk.dir=${FOUND_SDK}" > local.properties
+
+echo "[4/4] Building Release APK..."
 echo ""
 
 "${GRADLE_BIN}" assembleRelease

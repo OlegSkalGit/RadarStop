@@ -171,7 +171,24 @@ class RadarForegroundService : Service(), LocationListener {
             reloadCameraCacheForLocation(location)
         }
 
-        val hasNearbyCameraIn3km = hasCameraWithinRadius(location, cachedCameras, 3000.0)
+        var minDistToAnyCamera = Float.MAX_VALUE
+        var closestAlertCamera: Camera? = null
+        var minDistanceToAlert = Float.MAX_VALUE
+
+        for (camera in cachedCameras) {
+            val distance = RadarMath.calculateDistance(location, camera.lat, camera.lon)
+            if (distance < minDistToAnyCamera) {
+                minDistToAnyCamera = distance
+            }
+            if (distance <= 300f && RadarMath.isAzimuthValid(location.bearing, camera.dir)) {
+                if (distance < minDistanceToAlert) {
+                    minDistanceToAlert = distance
+                    closestAlertCamera = camera
+                }
+            }
+        }
+
+        val hasNearbyCameraIn3km = (minDistToAnyCamera <= 3000f)
 
         val targetInterval = if (speedKmh <= 30f) {
             if (speedDropBelow30TimeMs == 0L) {
@@ -187,9 +204,9 @@ class RadarForegroundService : Service(), LocationListener {
             } else {
                 if (lastLoggedSpeedMode != "SLOW") {
                     lastLoggedSpeedMode = "SLOW"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h for >3 minutes (${speedKmh.toInt()} km/h). Polling interval: 10s. Beep alerts inactive.")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h for >3 minutes (${speedKmh.toInt()} km/h). Polling interval: 30s. Beep alerts inactive.")
                 }
-                10000L
+                30000L
             }
         } else {
             speedDropBelow30TimeMs = 0L
@@ -232,19 +249,6 @@ class RadarForegroundService : Service(), LocationListener {
             return
         }
 
-        var closestAlertCamera: Camera? = null
-        var minDistanceToAlert = Float.MAX_VALUE
-
-        for (camera in cachedCameras) {
-            val (_, distance) = RadarMath.calculateApproachSpeed(location, camera.lat, camera.lon)
-            if (distance <= 300f && RadarMath.isAzimuthValid(location.bearing, camera.dir)) {
-                if (distance < minDistanceToAlert) {
-                    minDistanceToAlert = distance
-                    closestAlertCamera = camera
-                }
-            }
-        }
-
         if (closestAlertCamera != null) {
             val speedInt = speedKmh.toInt()
             val distInt = minDistanceToAlert.toInt()
@@ -277,16 +281,29 @@ class RadarForegroundService : Service(), LocationListener {
         } else {
             val startLoc = activeLinearZoneStartLoc
             if (startLoc != null) {
-                val distFromLinearStart = location.distanceTo(startLoc)
-                if (distFromLinearStart <= 5000f && (now - activeLinearZoneStartMs) <= 10 * 60 * 1000L) {
+                val distFromStart = location.distanceTo(startLoc)
+                val isMovingAwayFromStart = distFromStart > 300f
+
+                // Find candidate exit cameras in RAM cache
+                val candidateExitCam = cachedCameras.filter { it.isLinear && it.id != currentAlertCameraId }
+                    .minByOrNull { location.distanceTo(Location("").apply { latitude = it.lat; longitude = it.lon }) }
+
+                val isApproachingExit = if (candidateExitCam != null) {
+                    val exitLoc = Location("").apply { latitude = candidateExitCam.lat; longitude = candidateExitCam.lon }
+                    location.distanceTo(exitLoc) < 3000f
+                } else false
+
+                // Geometric exit check: if moving away from entry point AND not approaching any exit point, deactivate
+                if (isMovingAwayFromStart && !isApproachingExit) {
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Geometrically exited linear section (moving away from entry & no exit camera ahead).")
+                    activeLinearZoneStartLoc = null
+                } else {
                     val speedInt = speedKmh.toInt()
-                    val delayMs = 1500L // Steady 1.5s rhythm for linear section
+                    val delayMs = 1500L
                     audioEngine.startAlert(delayMs)
                     audioEngine.updateDelay(delayMs)
                     updateNotificationText("Radar! Linear Zone Alert (${speedInt} km/h)")
                     return
-                } else {
-                    activeLinearZoneStartLoc = null
                 }
             }
 
@@ -297,19 +314,6 @@ class RadarForegroundService : Service(), LocationListener {
             audioEngine.stopAlert()
             updateNotificationText(defaultStatusText)
         }
-    }
-
-    private fun hasCameraWithinRadius(userLoc: Location, cameras: List<Camera>, radiusMeters: Double): Boolean {
-        for (cam in cameras) {
-            val camLoc = Location("").apply {
-                latitude = cam.lat
-                longitude = cam.lon
-            }
-            if (userLoc.distanceTo(camLoc) <= radiusMeters) {
-                return true
-            }
-        }
-        return false
     }
 
     private fun createNotificationChannel() {
@@ -379,7 +383,6 @@ class RadarForegroundService : Service(), LocationListener {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
     override fun onProviderEnabled(provider: String) {
         AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system.")
     }

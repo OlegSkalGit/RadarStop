@@ -8,8 +8,6 @@ import android.os.Build
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.util.AppLogger
-import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -115,27 +113,24 @@ class OverpassSyncManager(
         for (i in MIRRORS.indices) {
             val mirror = MIRRORS[i]
             AppLogger.log("OverpassSyncManager", "executePost", true, "Connecting to mirror [${i + 1}/${MIRRORS.size}]: $mirror")
-            val response = executePost(mirror, query)
-            if (response != null) {
-                val cameras = parseOverpassJson(response)
-                if (cameras != null) {
-                    dbHelper.clearCameras()
-                    dbHelper.insertCameras(cameras)
-                    lastSyncTimeMs = System.currentTimeMillis()
-                    lastSyncAttemptMs = 0L
-                    lastSyncedLat = lat
-                    lastSyncedLon = lon
-                    success = true
-                    val count = dbHelper.getCameraCount()
-                    AppLogger.log(
-                        "OverpassSyncManager",
-                        "performSync",
-                        true,
-                        "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras (100% all enforcement types) from Overpass ($mirror) for 100x100km box around ($lat, $lon). Total in DB: $count"
-                    )
-                    onSyncSuccess(cameras.size, count)
-                    break
-                }
+            val cameras = executePostAndParseStream(mirror, query)
+            if (cameras != null) {
+                dbHelper.clearCameras()
+                dbHelper.insertCameras(cameras)
+                lastSyncTimeMs = System.currentTimeMillis()
+                lastSyncAttemptMs = 0L
+                lastSyncedLat = lat
+                lastSyncedLon = lon
+                success = true
+                val count = dbHelper.getCameraCount()
+                AppLogger.log(
+                    "OverpassSyncManager",
+                    "performSync",
+                    true,
+                    "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras via JsonReader stream from Overpass ($mirror) for 100x100km box around ($lat, $lon). Total in DB: $count"
+                )
+                onSyncSuccess(cameras.size, count)
+                break
             }
 
             if (i < MIRRORS.size - 1) {
@@ -155,7 +150,7 @@ class OverpassSyncManager(
         }
     }
 
-    private fun executePost(urlStr: String, body: String): String? {
+    private fun executePostAndParseStream(urlStr: String, body: String): List<Camera>? {
         var conn: HttpURLConnection? = null
         return try {
             val url = URL(urlStr)
@@ -172,56 +167,77 @@ class OverpassSyncManager(
             }
             val code = conn.responseCode
             if (code == 200) {
-                BufferedReader(InputStreamReader(conn.inputStream)).use { br ->
-                    br.readText()
+                conn.inputStream.use { inputStream ->
+                    parseOverpassStream(inputStream)
                 }
             } else {
-                AppLogger.log("OverpassSyncManager", "executePost", false, "HTTP Error code $code from $urlStr")
+                AppLogger.log("OverpassSyncManager", "executePostAndParseStream", false, "HTTP Error code $code from $urlStr")
                 null
             }
         } catch (e: Exception) {
-            AppLogger.log("OverpassSyncManager", "executePost", false, "Network error on $urlStr: ${e.message}")
+            AppLogger.log("OverpassSyncManager", "executePostAndParseStream", false, "Network error on $urlStr: ${e.message}")
             null
         } finally {
             conn?.disconnect()
         }
     }
 
-    private fun parseOverpassJson(jsonStr: String): List<Camera>? {
+    private fun parseOverpassStream(inputStream: java.io.InputStream): List<Camera>? {
         return try {
-            val root = JSONObject(jsonStr)
-            val elements = root.getJSONArray("elements")
+            val reader = android.util.JsonReader(InputStreamReader(inputStream, "UTF-8"))
             val cameras = ArrayList<Camera>()
 
-            for (i in 0 until elements.length()) {
-                val elem = elements.getJSONObject(i)
-                val id = elem.getLong("id")
-                val lat = elem.getDouble("lat")
-                val lon = elem.getDouble("lon")
+            reader.beginObject()
+            while (reader.hasNext()) {
+                val name = reader.nextName()
+                if (name == "elements") {
+                    reader.beginArray()
+                    while (reader.hasNext()) {
+                        reader.beginObject()
+                        var id = 0L
+                        var lat = 0.0
+                        var lon = 0.0
+                        var dir: Float? = null
+                        var isLinear = false
 
-                var dir: Float? = null
-                var isLinear = false
-
-                if (elem.has("tags")) {
-                    val tags = elem.getJSONObject("tags")
-                    if (tags.has("direction")) {
-                        dir = parseDirection(tags.getString("direction"))
-                    } else if (tags.has("camera:direction")) {
-                        dir = parseDirection(tags.getString("camera:direction"))
+                        while (reader.hasNext()) {
+                            val elementName = reader.nextName()
+                            when (elementName) {
+                                "id" -> id = reader.nextLong()
+                                "lat" -> lat = reader.nextDouble()
+                                "lon" -> lon = reader.nextDouble()
+                                "tags" -> {
+                                    reader.beginObject()
+                                    while (reader.hasNext()) {
+                                        val tagName = reader.nextName()
+                                        val tagValue = reader.nextString()
+                                        if (tagName == "direction" || tagName == "camera:direction") {
+                                            dir = parseDirection(tagValue)
+                                        }
+                                        if (tagName == "enforcement" || tagName == "camera:type" || tagName == "enforcement:type") {
+                                            if (tagValue.contains("average_speed") || tagValue.contains("section")) {
+                                                isLinear = true
+                                            }
+                                        }
+                                    }
+                                    reader.endObject()
+                                }
+                                else -> reader.skipValue()
+                            }
+                        }
+                        reader.endObject()
+                        cameras.add(Camera(id, lat, lon, dir, isLinear))
                     }
-
-                    val enf = tags.optString("enforcement", "")
-                    val camType = tags.optString("camera:type", "")
-                    val enfType = tags.optString("enforcement:type", "")
-                    if (enf.contains("average_speed") || camType.contains("average_speed") || enfType.contains("average_speed") || enf.contains("section")) {
-                        isLinear = true
-                    }
+                    reader.endArray()
+                } else {
+                    reader.skipValue()
                 }
-                cameras.add(Camera(id, lat, lon, dir, isLinear))
             }
+            reader.endObject()
+            reader.close()
             cameras
         } catch (e: Exception) {
-            AppLogger.log("OverpassSyncManager", "parseOverpassJson", false, "JSON Error: ${e.message}")
+            AppLogger.log("OverpassSyncManager", "parseOverpassStream", false, "Stream JSON Error: ${e.message}")
             null
         }
     }

@@ -2,7 +2,6 @@ package com.example.radardetector.math
 
 import android.location.Location
 import kotlin.math.abs
-import kotlin.math.cos
 
 object RadarMath {
 
@@ -14,25 +13,14 @@ object RadarMath {
     }
 
     /**
-     * Calculates V_approach = V_car * cos(Delta_alpha)
-     * Returns Pair(V_approach in km/h, distance in meters)
+     * Calculates geodesic distance in meters between car and camera coordinates.
      */
-    fun calculateApproachSpeed(carLocation: Location, cameraLat: Double, cameraLon: Double): Pair<Float, Float> {
+    fun calculateDistance(carLocation: Location, cameraLat: Double, cameraLon: Double): Float {
         val cameraLocation = Location("").apply {
             latitude = cameraLat
             longitude = cameraLon
         }
-        val distance = carLocation.distanceTo(cameraLocation)
-        val bearingToCamera = carLocation.bearingTo(cameraLocation)
-        val carBearing = carLocation.bearing
-
-        val deltaAlphaDegrees = angleDifference(carBearing, bearingToCamera)
-        val deltaAlphaRad = Math.toRadians(deltaAlphaDegrees.toDouble())
-
-        val speedKmh = carLocation.speed * 3.6f
-        val vApproach = (speedKmh * cos(deltaAlphaRad)).toFloat()
-
-        return Pair(vApproach, distance)
+        return carLocation.distanceTo(cameraLocation)
     }
 
     /**

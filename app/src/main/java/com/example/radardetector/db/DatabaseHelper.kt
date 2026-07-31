@@ -18,11 +18,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         const val COLUMN_LON = "lon"
         const val COLUMN_DIR = "dir"
         const val COLUMN_IS_LINEAR = "is_linear"
-
-        const val TABLE_CONFIG = "config"
-        const val COLUMN_KEY = "key"
-        const val COLUMN_VALUE = "value"
-        const val KEY_LAST_COUNTRY = "last_country"
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -39,48 +34,13 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         )
 
         db.execSQL("CREATE INDEX idx_coords ON $TABLE_CAMERAS($COLUMN_LAT, $COLUMN_LON)")
-
-        db.execSQL(
-            """
-            CREATE TABLE $TABLE_CONFIG (
-                $COLUMN_KEY TEXT PRIMARY KEY,
-                $COLUMN_VALUE TEXT
-            )
-            """.trimIndent()
-        )
-        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_CAMERAS, $TABLE_CONFIG) and spatial index created.")
+        AppLogger.log("DatabaseHelper", "onCreate", true, "Database table ($TABLE_CAMERAS) and spatial index created.")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         db.execSQL("DROP TABLE IF EXISTS $TABLE_CAMERAS")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_CONFIG")
         onCreate(db)
         AppLogger.log("DatabaseHelper", "onUpgrade", true, "Upgraded DB from v$oldVersion to v$newVersion.")
-    }
-
-    fun getLastCountry(): String? {
-        val db = readableDatabase
-        db.query(
-            TABLE_CONFIG,
-            arrayOf(COLUMN_VALUE),
-            "$COLUMN_KEY = ?",
-            arrayOf(KEY_LAST_COUNTRY),
-            null, null, null
-        ).use { cursor ->
-            if (cursor.moveToFirst()) {
-                return cursor.getString(0)
-            }
-        }
-        return null
-    }
-
-    fun setLastCountry(country: String) {
-        val db = writableDatabase
-        val values = ContentValues().apply {
-            put(COLUMN_KEY, KEY_LAST_COUNTRY)
-            put(COLUMN_VALUE, country)
-        }
-        db.insertWithOnConflict(TABLE_CONFIG, null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
     fun clearCameras() {
