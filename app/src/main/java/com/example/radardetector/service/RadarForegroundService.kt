@@ -331,6 +331,7 @@ class RadarForegroundService : Service(), LocationListener {
     }
 
     private var cachedNotificationBuilder: NotificationCompat.Builder? = null
+    private var lastNotificationText: String? = null
 
     private fun initNotificationBuilder() {
         if (cachedNotificationBuilder == null) {
@@ -368,6 +369,8 @@ class RadarForegroundService : Service(), LocationListener {
     }
 
     private fun updateNotificationText(text: String) {
+        if (text == lastNotificationText) return
+        lastNotificationText = text
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(text))
     }
