@@ -50,7 +50,6 @@ class RadarForegroundService : Service(), LocationListener {
     private var lastRamReloadLat = 0.0
     private var lastRamReloadLon = 0.0
 
-    private var lastStationaryTimeMs = 0L
     private var speedDropBelow30TimeMs = 0L
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
@@ -158,19 +157,7 @@ class RadarForegroundService : Service(), LocationListener {
         val speedKmh = location.speed * 3.6f
         val now = System.currentTimeMillis()
 
-        if (speedKmh == 0f) {
-            if (lastStationaryTimeMs == 0L) lastStationaryTimeMs = now
-        } else {
-            lastStationaryTimeMs = 0L
-        }
-        val isStationaryFor3Hours = lastStationaryTimeMs > 0 && (now - lastStationaryTimeMs >= 3 * 3600 * 1000L)
-
-        if (isStationaryFor3Hours && lastLoggedSpeedMode != "STATIONARY_3H") {
-            lastLoggedSpeedMode = "STATIONARY_3H"
-            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Vehicle stationary for >= 3 hours. Overpass network sync paused.")
-        }
-
-        syncManager.onLocationUpdate(location, speedKmh, isStationaryFor3Hours)
+        syncManager.onLocationUpdate(location, speedKmh)
 
         val lat = location.latitude
         val lon = location.longitude
@@ -207,19 +194,19 @@ class RadarForegroundService : Service(), LocationListener {
         } else {
             speedDropBelow30TimeMs = 0L
             when {
+                !hasNearbyCameraIn3km -> {
+                    if (lastLoggedSpeedMode != "SMART_SLEEP") {
+                        lastLoggedSpeedMode = "SMART_SLEEP"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (Speed > 30 km/h, no cameras within 3km). Polling interval: 15s.")
+                    }
+                    15000L
+                }
                 speedKmh <= 70f -> {
                     if (lastLoggedSpeedMode != "CITY") {
                         lastLoggedSpeedMode = "CITY"
                         AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: City Mode 31-70 km/h (${speedKmh.toInt()} km/h). Polling interval: 3s.")
                     }
                     3000L
-                }
-                speedKmh > 70f && !hasNearbyCameraIn3km -> {
-                    if (lastLoggedSpeedMode != "SMART_SLEEP") {
-                        lastLoggedSpeedMode = "SMART_SLEEP"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (>70 km/h, no cameras within 3km). Polling interval: 15s.")
-                    }
-                    15000L
                 }
                 else -> {
                     if (lastLoggedSpeedMode != "HIGHWAY") {
