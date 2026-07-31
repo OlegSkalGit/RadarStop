@@ -130,7 +130,7 @@ Sound Alerts & Radar Tracking:
             setOnClickListener {
                 AlertDialog.Builder(this@HelpActivity)
                     .setTitle("Download All Cameras")
-                    .setMessage("Warning: Downloading speed cameras for the entire region requires 15 to 50 MB of mobile data and may take 1 to 2 minutes depending on network connection. Proceed?")
+                    .setMessage("Warning: Downloading all speed cameras in the world requires 15 to 50 MB of mobile data and may take 1 to 2 minutes depending on network connection. Proceed?")
                     .setPositiveButton("Download") { _, _ ->
                         val serviceIntent = Intent(this@HelpActivity, RadarForegroundService::class.java).apply {
                             action = RadarForegroundService.ACTION_LOAD_ALL_CAMS
@@ -140,7 +140,7 @@ Sound Alerts & Radar Tracking:
                         } else {
                             startService(serviceIntent)
                         }
-                        Toast.makeText(this@HelpActivity, "Full region camera sync started...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@HelpActivity, "Global camera sync started...", Toast.LENGTH_SHORT).show()
                     }
                     .setNegativeButton("Cancel", null)
                     .show()

@@ -273,36 +273,31 @@ class OverpassSyncManager(
         }
     }
 
-    fun triggerFullRegionSync(lat: Double, lon: Double) {
+    fun triggerGlobalCameraSync() {
         if (isSyncing) return
         isSyncing = true
         executor.execute {
             try {
-                performFullRegionSync(lat, lon)
+                performGlobalCameraSync()
             } finally {
                 isSyncing = false
             }
         }
     }
 
-    private fun performFullRegionSync(lat: Double, lon: Double) {
+    private fun performGlobalCameraSync() {
         if (!isInternetAvailable()) {
-            onStatusUpdate("No Internet. Cannot load full region.")
+            onStatusUpdate("No Internet. Cannot load global cameras.")
             return
         }
-        onStatusUpdate("Downloading full region cameras...")
-        AppLogger.log("OverpassSyncManager", "performFullRegionSync", true, "Starting Full Region sync around ($lat, $lon)")
-
-        val south = lat - 2.5
-        val north = lat + 2.5
-        val west = lon - 2.5
-        val east = lon + 2.5
+        onStatusUpdate("Downloading all global speed cameras...")
+        AppLogger.log("OverpassSyncManager", "performGlobalCameraSync", true, "Starting Worldwide Global Speed Camera Sync...")
 
         val query = """
-            [out:json][timeout:60];
+            [out:json][timeout:180];
             (
-              node["highway"="speed_camera"]($south,$west,$north,$east);
-              node["enforcement"]($south,$west,$north,$east);
+              node["highway"="speed_camera"];
+              node["enforcement"];
             );
             out body;
         """.trimIndent()
@@ -312,18 +307,17 @@ class OverpassSyncManager(
             val mirror = MIRRORS[i]
             val cameras = executePostAndParseStream(mirror, query)
             if (cameras != null) {
-                dbHelper.clearCamerasInBox(south, north, west, east)
                 dbHelper.insertCameras(cameras)
                 success = true
                 val count = dbHelper.getCameraCount()
-                AppLogger.log("OverpassSyncManager", "performFullRegionSync", true, "FULL REGION SYNC SUCCESS: Downloaded ${cameras.size} cameras. Total in DB: $count")
+                AppLogger.log("OverpassSyncManager", "performGlobalCameraSync", true, "GLOBAL SYNC SUCCESS: Downloaded ${cameras.size} global cameras. Total in DB: $count")
                 onSyncSuccess(cameras.size, count)
-                onStatusUpdate("Full region load complete! ($count total in DB)")
+                onStatusUpdate("Global load complete! ($count total in DB)")
                 break
             }
         }
         if (!success) {
-            onStatusUpdate("Full region load failed. Check network.")
+            onStatusUpdate("Global load failed. Check network.")
         }
     }
 

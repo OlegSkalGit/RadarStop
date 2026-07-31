@@ -102,11 +102,7 @@ class RadarForegroundService : Service(), LocationListener {
             stopSelfAndCleanup()
             return START_NOT_STICKY
         } else if (intent?.action == ACTION_LOAD_ALL_CAMS) {
-            lastLocation?.let { loc ->
-                syncManager.triggerFullRegionSync(loc.latitude, loc.longitude)
-            } ?: run {
-                Toast.makeText(applicationContext, "GPS location not available yet. Please wait...", Toast.LENGTH_SHORT).show()
-            }
+            syncManager.triggerGlobalCameraSync()
             return START_STICKY
         }
         return START_STICKY
