@@ -1,6 +1,7 @@
 package com.example.radardetector.network
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.location.Location
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -35,6 +36,7 @@ class OverpassSyncManager(
     }
 
     private val executor = Executors.newSingleThreadExecutor()
+    private val prefs: SharedPreferences = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
     @Volatile
     private var lastSyncTimeMs = 0L
     @Volatile
@@ -158,14 +160,14 @@ class OverpassSyncManager(
         }
     }
 
-    private fun executePostAndParseStream(urlStr: String, body: String): List<Camera>? {
+    private fun executePostAndParseStream(urlStr: String, body: String, readTimeoutMs: Int = 10000): List<Camera>? {
         var conn: HttpURLConnection? = null
         return try {
             val url = URL(urlStr)
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 10000
-                readTimeout = 10000
+                this.readTimeout = readTimeoutMs
                 doOutput = true
                 setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             }
@@ -309,7 +311,7 @@ class OverpassSyncManager(
         var success = false
         for (i in MIRRORS.indices) {
             val mirror = MIRRORS[i]
-            val cameras = executePostAndParseStream(mirror, query)
+            val cameras = executePostAndParseStream(mirror, query, readTimeoutMs = 120000)
             if (cameras != null) {
                 dbHelper.insertCameras(cameras)
                 success = true
@@ -325,12 +327,10 @@ class OverpassSyncManager(
         }
     }
 
-    @Volatile
-    private var lastCountrySyncTimeMs: Long = 0L
-
     fun fetchOrGetCachedCountries(onResult: (List<Pair<String, String>>) -> Unit) {
         val now = System.currentTimeMillis()
         val cached = dbHelper.getCountries()
+        val lastCountrySyncTimeMs = prefs.getLong("last_country_sync_ms", 0L)
         if (cached.isNotEmpty() && (now - lastCountrySyncTimeMs < 24 * 60 * 60 * 1000L)) {
             AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Returning ${cached.size} cached countries from SQLite DB.")
             onResult(cached)
@@ -355,7 +355,7 @@ class OverpassSyncManager(
                 fetched = executePostAndParseCountriesStream(mirror, query)
                 if (fetched != null && fetched.isNotEmpty()) {
                     dbHelper.insertCountries(fetched)
-                    lastCountrySyncTimeMs = System.currentTimeMillis()
+                    prefs.edit().putLong("last_country_sync_ms", System.currentTimeMillis()).apply()
                     AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Fetched ${fetched.size} countries from Overpass ($mirror) and cached to SQLite DB.")
                     break
                 }
@@ -366,14 +366,16 @@ class OverpassSyncManager(
     }
 
     private fun executePostAndParseCountriesStream(urlStr: String, query: String): List<Pair<String, String>>? {
-        try {
+        var conn: HttpURLConnection? = null
+        return try {
             val url = URL(urlStr)
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.connectTimeout = 10000
-            conn.readTimeout = 30000
-            conn.setRequestProperty("User-Agent", "RadarStop/1.0")
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 10000
+                readTimeout = 30000
+                setRequestProperty("User-Agent", "RadarStop/1.0")
+            }
 
             val postData = "data=" + URLEncoder.encode(query, "UTF-8")
             conn.outputStream.use { os ->
@@ -382,12 +384,16 @@ class OverpassSyncManager(
 
             val code = conn.responseCode
             if (code == 200) {
-                return parseCountriesStream(conn.inputStream)
+                parseCountriesStream(conn.inputStream)
+            } else {
+                null
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.log("OverpassSyncManager", "executePostAndParseCountriesStream", false, "Error fetching countries from $urlStr: ${e.message}")
+            null
+        } finally {
+            conn?.disconnect()
         }
-        return null
     }
 
     private fun parseCountriesStream(inputStream: InputStream): List<Pair<String, String>> {

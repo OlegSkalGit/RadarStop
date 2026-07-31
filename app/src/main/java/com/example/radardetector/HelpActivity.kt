@@ -1,7 +1,6 @@
 package com.example.radardetector
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
 import android.content.Intent
@@ -97,8 +96,8 @@ Sound Alerts & Radar Tracking:
   - Upon entering an average speed control zone, the app maintains continuous steady sound alerts (1.5s interval) throughout the entire section until passing the exit camera and departing 300m beyond it.
 
 • Accumulative Database & Offline Navigation:
-  - Speed cameras for every 100x100 km region are saved to your local SQLite database and remain stored permanently across trips.
-  - Tap "Load All Cams" to pre-download regional camera coverage for offline navigation without internet.
+   - Speed cameras for every 100x100 km region are saved to your local SQLite database and remain stored permanently across trips.
+   - Tap "Load Country Cams" to pre-download camera coverage for a selected country for offline navigation without internet.
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {
@@ -173,6 +172,7 @@ Sound Alerts & Radar Tracking:
 
         val dialog = Dialog(this)
         dialog.setTitle("Select Country")
+        dialog.setOnDismissListener { syncManager.shutdown() }
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -191,7 +191,8 @@ Sound Alerts & Radar Tracking:
         val scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                800
+                0,
+                1f
             )
         }
 
@@ -229,7 +230,6 @@ Sound Alerts & Radar Tracking:
                     layoutParams = params
                     setOnClickListener {
                         dialog.dismiss()
-                        syncManager.shutdown()
                         startCountrySync(item.code, item.name)
                     }
                 }
