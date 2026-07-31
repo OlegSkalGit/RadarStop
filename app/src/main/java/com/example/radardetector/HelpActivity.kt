@@ -89,6 +89,10 @@ Sound Alerts & Radar Tracking:
 
 • Average Speed Control Zones (Linear Cameras):
   - Upon entering an average speed control zone, the app maintains continuous steady sound alerts (1.5s interval) throughout the entire section until passing the exit camera and departing 300m beyond it.
+
+• Accumulative Database & Offline Navigation:
+  - Speed cameras for every 100x100 km region are saved to your local SQLite database and remain stored permanently across trips.
+  - Tap "Load All Cams" to pre-download regional camera coverage for offline navigation without internet.
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {
