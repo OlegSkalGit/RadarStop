@@ -30,11 +30,16 @@ object AppLogger {
         }
     }
 
+    private const val MAX_LOG_SIZE_BYTES = 256 * 1024L // 256 KB limit
+
     @Synchronized
     fun log(module: String, functionName: String, isSuccess: Boolean, details: String) {
         if (!isLoggingEnabled) return
         try {
             val file = logFile ?: return
+            if (file.exists() && file.length() >= MAX_LOG_SIZE_BYTES) {
+                file.writeText("[AppLogger] Log file auto-rotated at 256 KB limit.\n")
+            }
             val timestamp = dateFormat.format(Date())
             val statusStr = if (isSuccess) "SUCCESS" else "FAILURE"
             val line = "[$timestamp] [$module::$functionName] $statusStr: $details\n"
