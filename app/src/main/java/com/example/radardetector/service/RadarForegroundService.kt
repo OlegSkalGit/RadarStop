@@ -88,9 +88,10 @@ class RadarForegroundService : Service(), LocationListener {
         audioEngine.playSingleBeep()
 
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification("Starting up..."))
+        val initialText = "Searching for GPS..."
+        lastNotificationText = initialText
+        startForeground(NOTIF_ID, buildNotification(initialText))
 
-        updateNotificationText("Searching for GPS...")
         registerGpsUpdates(3000L)
     }
 
