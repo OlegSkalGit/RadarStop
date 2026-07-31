@@ -330,32 +330,41 @@ class RadarForegroundService : Service(), LocationListener {
         }
     }
 
+    private var cachedNotificationBuilder: NotificationCompat.Builder? = null
+
+    private fun initNotificationBuilder() {
+        if (cachedNotificationBuilder == null) {
+            val stopIntent = Intent(this, RadarForegroundService::class.java).apply {
+                action = ACTION_STOP_SERVICE
+            }
+            val pStopIntent = PendingIntent.getService(
+                this, 0, stopIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val helpIntent = Intent(this, HelpActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val pHelpIntent = PendingIntent.getActivity(
+                this, 1, helpIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            cachedNotificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("RadarStop Active")
+                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .addAction(android.R.drawable.ic_menu_help, "Help", pHelpIntent)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn Off", pStopIntent)
+        }
+    }
+
     private fun buildNotification(contentText: String): Notification {
-        val stopIntent = Intent(this, RadarForegroundService::class.java).apply {
-            action = ACTION_STOP_SERVICE
-        }
-        val pStopIntent = PendingIntent.getService(
-            this, 0, stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val helpIntent = Intent(this, HelpActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pHelpIntent = PendingIntent.getActivity(
-            this, 1, helpIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("RadarStop Active")
-            .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(android.R.drawable.ic_menu_help, "Help", pHelpIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn Off", pStopIntent)
-            .build()
+        initNotificationBuilder()
+        val builder = cachedNotificationBuilder!!
+        builder.setContentText(contentText)
+        return builder.build()
     }
 
     private fun updateNotificationText(text: String) {
