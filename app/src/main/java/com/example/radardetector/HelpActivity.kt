@@ -2,12 +2,15 @@ package com.example.radardetector
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -15,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -124,26 +128,11 @@ Sound Alerts & Radar Tracking:
             }
         }
 
-        val btnLoadAllCams = Button(this).apply {
-            text = "Load All Cams"
-            textSize = 12f
+        val btnLoadCountryCams = Button(this).apply {
+            text = "Load Country Cams"
+            textSize = 11f
             setOnClickListener {
-                AlertDialog.Builder(this@HelpActivity)
-                    .setTitle("Download All Cameras")
-                    .setMessage("Warning: Downloading all speed cameras in the world requires 15 to 50 MB of mobile data and may take 1 to 2 minutes depending on network connection. Proceed?")
-                    .setPositiveButton("Download") { _, _ ->
-                        val serviceIntent = Intent(this@HelpActivity, RadarForegroundService::class.java).apply {
-                            action = RadarForegroundService.ACTION_LOAD_ALL_CAMS
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(serviceIntent)
-                        } else {
-                            startService(serviceIntent)
-                        }
-                        Toast.makeText(this@HelpActivity, "Global camera sync started...", Toast.LENGTH_SHORT).show()
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
+                showCountrySelectionDialog()
             }
         }
 
@@ -165,13 +154,140 @@ Sound Alerts & Radar Tracking:
         }
 
         bottomBar.addView(checkBoxAutostart)
-        bottomBar.addView(btnLoadAllCams)
+        bottomBar.addView(btnLoadCountryCams)
         bottomBar.addView(spaceLayout)
         bottomBar.addView(btnAdb)
         bottomBar.addView(btnClose)
         rootLayout.addView(bottomBar)
 
         setContentView(rootLayout)
+    }
+
+    private data class CountryItem(val name: String, val code: String)
+
+    private val countries = listOf(
+        CountryItem("Ukraine", "UA"),
+        CountryItem("Poland", "PL"),
+        CountryItem("Germany", "DE"),
+        CountryItem("France", "FR"),
+        CountryItem("Italy", "IT"),
+        CountryItem("Spain", "ES"),
+        CountryItem("Czechia", "CZ"),
+        CountryItem("Romania", "RO"),
+        CountryItem("Hungary", "HU"),
+        CountryItem("Slovakia", "SK"),
+        CountryItem("United Kingdom", "GB"),
+        CountryItem("United States", "US"),
+        CountryItem("Canada", "CA"),
+        CountryItem("Turkey", "TR"),
+        CountryItem("Bulgaria", "BG"),
+        CountryItem("Austria", "AT"),
+        CountryItem("Netherlands", "NL"),
+        CountryItem("Belgium", "BE"),
+        CountryItem("Switzerland", "CH"),
+        CountryItem("Moldova", "MD"),
+        CountryItem("Lithuania", "LT"),
+        CountryItem("Latvia", "LV"),
+        CountryItem("Estonia", "EE"),
+        CountryItem("Georgia", "GE"),
+        CountryItem("Armenia", "AM"),
+        CountryItem("Azerbaijan", "AZ"),
+        CountryItem("Norway", "NO"),
+        CountryItem("Sweden", "SE"),
+        CountryItem("Finland", "FI"),
+        CountryItem("Denmark", "DK"),
+        CountryItem("Portugal", "PT"),
+        CountryItem("Greece", "GR"),
+        CountryItem("Croatia", "HR"),
+        CountryItem("Slovenia", "SI"),
+        CountryItem("Serbia", "RS")
+    )
+
+    private fun showCountrySelectionDialog() {
+        val dialog = Dialog(this)
+        dialog.setTitle("Select Country")
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
+            setBackgroundColor(Color.parseColor("#252525"))
+        }
+
+        val searchInput = EditText(this).apply {
+            hint = "Search country..."
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#333333"))
+            setPadding(16, 16, 16, 16)
+        }
+
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                800
+            )
+        }
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        fun populateList(query: String) {
+            listContainer.removeAllViews()
+            val filtered = countries.filter {
+                it.name.contains(query, ignoreCase = true) || it.code.contains(query, ignoreCase = true)
+            }
+            for (item in filtered) {
+                val btn = Button(this@HelpActivity).apply {
+                    text = "${item.name} (${item.code})"
+                    setTextColor(Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#3A3A3A"))
+                    val params = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 4, 0, 4)
+                    }
+                    layoutParams = params
+                    setOnClickListener {
+                        dialog.dismiss()
+                        startCountrySync(item.code, item.name)
+                    }
+                }
+                listContainer.addView(btn)
+            }
+        }
+
+        populateList("")
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                populateList(s?.toString() ?: "")
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        container.addView(searchInput)
+        scrollView.addView(listContainer)
+        container.addView(scrollView)
+
+        dialog.setContentView(container)
+        dialog.show()
+    }
+
+    private fun startCountrySync(countryCode: String, countryName: String) {
+        val serviceIntent = Intent(this, RadarForegroundService::class.java).apply {
+            action = RadarForegroundService.ACTION_LOAD_COUNTRY_CAMS
+            putExtra(RadarForegroundService.EXTRA_COUNTRY_CODE, countryCode)
+            putExtra(RadarForegroundService.EXTRA_COUNTRY_NAME, countryName)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        Toast.makeText(this, "Downloading speed cameras for $countryName...", Toast.LENGTH_SHORT).show()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

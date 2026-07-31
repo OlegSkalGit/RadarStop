@@ -273,31 +273,32 @@ class OverpassSyncManager(
         }
     }
 
-    fun triggerGlobalCameraSync() {
+    fun triggerCountryCameraSync(countryCode: String, countryName: String) {
         if (isSyncing) return
         isSyncing = true
         executor.execute {
             try {
-                performGlobalCameraSync()
+                performCountryCameraSync(countryCode, countryName)
             } finally {
                 isSyncing = false
             }
         }
     }
 
-    private fun performGlobalCameraSync() {
+    private fun performCountryCameraSync(countryCode: String, countryName: String) {
         if (!isInternetAvailable()) {
-            onStatusUpdate("No Internet. Cannot load global cameras.")
+            onStatusUpdate("No Internet. Cannot load $countryName cameras.")
             return
         }
-        onStatusUpdate("Downloading all global speed cameras...")
-        AppLogger.log("OverpassSyncManager", "performGlobalCameraSync", true, "Starting Worldwide Global Speed Camera Sync...")
+        onStatusUpdate("Downloading $countryName speed cameras...")
+        AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "Starting Overpass sync for country: $countryName ($countryCode)")
 
         val query = """
-            [out:json][timeout:180];
+            [out:json][timeout:120];
+            area["ISO3166-1"="$countryCode"][admin_level=2]->.searchArea;
             (
-              node["highway"="speed_camera"];
-              node["enforcement"];
+              node["highway"="speed_camera"](area.searchArea);
+              node["enforcement"](area.searchArea);
             );
             out body;
         """.trimIndent()
@@ -310,14 +311,14 @@ class OverpassSyncManager(
                 dbHelper.insertCameras(cameras)
                 success = true
                 val count = dbHelper.getCameraCount()
-                AppLogger.log("OverpassSyncManager", "performGlobalCameraSync", true, "GLOBAL SYNC SUCCESS: Downloaded ${cameras.size} global cameras. Total in DB: $count")
+                AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "COUNTRY SYNC SUCCESS: Downloaded ${cameras.size} cameras for $countryName. Total in DB: $count")
                 onSyncSuccess(cameras.size, count)
-                onStatusUpdate("Global load complete! ($count total in DB)")
+                onStatusUpdate("$countryName cameras loaded! (${cameras.size} added, $count total in DB)")
                 break
             }
         }
         if (!success) {
-            onStatusUpdate("Global load failed. Check network.")
+            onStatusUpdate("Failed to load $countryName cameras. Check network.")
         }
     }
 

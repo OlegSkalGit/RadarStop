@@ -29,7 +29,9 @@ class RadarForegroundService : Service(), LocationListener {
         const val CHANNEL_ID = "radar_detector_channel"
         const val NOTIF_ID = 1001
         const val ACTION_STOP_SERVICE = "com.example.radardetector.ACTION_STOP_SERVICE"
-        const val ACTION_LOAD_ALL_CAMS = "com.example.radardetector.ACTION_LOAD_ALL_CAMS"
+        const val ACTION_LOAD_COUNTRY_CAMS = "com.example.radardetector.ACTION_LOAD_COUNTRY_CAMS"
+        const val EXTRA_COUNTRY_CODE = "extra_country_code"
+        const val EXTRA_COUNTRY_NAME = "extra_country_name"
 
         @Volatile
         var isRunning = false
@@ -101,8 +103,10 @@ class RadarForegroundService : Service(), LocationListener {
             AppLogger.log("RadarForegroundService", "onStartCommand", true, "Received ACTION_STOP_SERVICE intent. Stopping service...")
             stopSelfAndCleanup()
             return START_NOT_STICKY
-        } else if (intent?.action == ACTION_LOAD_ALL_CAMS) {
-            syncManager.triggerGlobalCameraSync()
+        } else if (intent?.action == ACTION_LOAD_COUNTRY_CAMS) {
+            val code = intent.getStringExtra(EXTRA_COUNTRY_CODE) ?: "UA"
+            val name = intent.getStringExtra(EXTRA_COUNTRY_NAME) ?: "Ukraine"
+            syncManager.triggerCountryCameraSync(code, name)
             return START_STICKY
         }
         return START_STICKY
