@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -65,7 +66,7 @@ class LogViewerActivity : Activity() {
         val btnLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, 12, 0, 12)
+            setPadding(0, 12, 0, 8)
         }
 
         val btnBeep = Button(this).apply {
@@ -100,6 +101,29 @@ class LogViewerActivity : Activity() {
         btnLayout.addView(btnClear)
         btnLayout.addView(btnClose)
         rootLayout.addView(btnLayout)
+
+        val loggingBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, 0, 0, 8)
+        }
+
+        val checkBoxLogging = CheckBox(this).apply {
+            text = "Logging"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            isChecked = AppLogger.isLoggingEnabled
+            setOnCheckedChangeListener { _, isChecked ->
+                AppLogger.isLoggingEnabled = isChecked
+                if (isChecked) {
+                    AppLogger.log("LogViewerActivity", "onCheckedChanged", true, "ADB file logging enabled by user.")
+                }
+                refreshLog()
+            }
+        }
+
+        loggingBar.addView(checkBoxLogging)
+        rootLayout.addView(loggingBar)
 
         val scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(

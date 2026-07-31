@@ -105,29 +105,6 @@ Sound Alerts & Radar Tracking:
             setPadding(0, 16, 0, 0)
         }
 
-        val btnOpenAdb = Button(this).apply {
-            text = "Open"
-            visibility = if (AppLogger.isLoggingEnabled) View.VISIBLE else View.GONE
-            setOnClickListener {
-                val intent = Intent(this@HelpActivity, LogViewerActivity::class.java)
-                startActivity(intent)
-            }
-        }
-
-        val checkBoxEnableAdb = CheckBox(this).apply {
-            text = "Enable ADB"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            isChecked = AppLogger.isLoggingEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                AppLogger.isLoggingEnabled = isChecked
-                btnOpenAdb.visibility = if (isChecked) View.VISIBLE else View.GONE
-                if (isChecked) {
-                    AppLogger.log("HelpActivity", "onCheckedChanged", true, "ADB logging enabled by user.")
-                }
-            }
-        }
-
         val checkBoxAutostart = CheckBox(this).apply {
             text = "Autostart"
             setTextColor(Color.WHITE)
@@ -136,6 +113,14 @@ Sound Alerts & Radar Tracking:
             setOnCheckedChangeListener { _, isChecked ->
                 prefs.edit().putBoolean("autostart", isChecked).apply()
                 AppLogger.log("HelpActivity", "onCheckedChanged", true, "Autostart on boot setting changed: $isChecked")
+            }
+        }
+
+        val btnAdb = Button(this).apply {
+            text = "ADB"
+            setOnClickListener {
+                val intent = Intent(this@HelpActivity, LogViewerActivity::class.java)
+                startActivity(intent)
             }
         }
 
@@ -148,10 +133,9 @@ Sound Alerts & Radar Tracking:
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        bottomBar.addView(checkBoxEnableAdb)
         bottomBar.addView(checkBoxAutostart)
         bottomBar.addView(spaceLayout)
-        bottomBar.addView(btnOpenAdb)
+        bottomBar.addView(btnAdb)
         bottomBar.addView(btnClose)
         rootLayout.addView(bottomBar)
 
