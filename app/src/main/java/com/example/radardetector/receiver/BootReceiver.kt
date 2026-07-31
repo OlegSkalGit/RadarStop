@@ -1,0 +1,37 @@
+package com.example.radardetector.receiver
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import com.example.radardetector.service.RadarForegroundService
+import com.example.radardetector.util.AppLogger
+
+class BootReceiver : BroadcastReceiver() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action
+        if (action == Intent.ACTION_BOOT_COMPLETED ||
+            action == "android.intent.action.QUICKBOOT_POWERON" ||
+            action == "com.htc.intent.action.QUICKBOOT_POWERON"
+        ) {
+            val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+            val isAutostartEnabled = prefs.getBoolean("autostart", false)
+            AppLogger.log("BootReceiver", "onReceive", true, "System boot event received ($action). Autostart setting: $isAutostartEnabled")
+
+            if (isAutostartEnabled) {
+                try {
+                    val serviceIntent = Intent(context, RadarForegroundService::class.java)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(serviceIntent)
+                    } else {
+                        context.startService(serviceIntent)
+                    }
+                    AppLogger.log("BootReceiver", "onReceive", true, "RadarForegroundService automatically launched on system boot.")
+                } catch (e: Exception) {
+                    AppLogger.log("BootReceiver", "onReceive", false, "Failed to start service on boot: ${e.message}")
+                }
+            }
+        }
+    }
+}
