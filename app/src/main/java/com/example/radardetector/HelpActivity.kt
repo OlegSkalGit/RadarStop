@@ -167,44 +167,6 @@ Sound Alerts & Radar Tracking:
 
     private data class CountryItem(val name: String, val code: String)
 
-    private val countries = listOf(
-        CountryItem("Ukraine", "UA"),
-        CountryItem("Poland", "PL"),
-        CountryItem("Germany", "DE"),
-        CountryItem("France", "FR"),
-        CountryItem("Italy", "IT"),
-        CountryItem("Spain", "ES"),
-        CountryItem("Czechia", "CZ"),
-        CountryItem("Romania", "RO"),
-        CountryItem("Hungary", "HU"),
-        CountryItem("Slovakia", "SK"),
-        CountryItem("United Kingdom", "GB"),
-        CountryItem("United States", "US"),
-        CountryItem("Canada", "CA"),
-        CountryItem("Turkey", "TR"),
-        CountryItem("Bulgaria", "BG"),
-        CountryItem("Austria", "AT"),
-        CountryItem("Netherlands", "NL"),
-        CountryItem("Belgium", "BE"),
-        CountryItem("Switzerland", "CH"),
-        CountryItem("Moldova", "MD"),
-        CountryItem("Lithuania", "LT"),
-        CountryItem("Latvia", "LV"),
-        CountryItem("Estonia", "EE"),
-        CountryItem("Georgia", "GE"),
-        CountryItem("Armenia", "AM"),
-        CountryItem("Azerbaijan", "AZ"),
-        CountryItem("Norway", "NO"),
-        CountryItem("Sweden", "SE"),
-        CountryItem("Finland", "FI"),
-        CountryItem("Denmark", "DK"),
-        CountryItem("Portugal", "PT"),
-        CountryItem("Greece", "GR"),
-        CountryItem("Croatia", "HR"),
-        CountryItem("Slovenia", "SI"),
-        CountryItem("Serbia", "RS")
-    )
-
     private fun showCountrySelectionDialog() {
         val dbHelper = DatabaseHelper(this)
         val syncManager = OverpassSyncManager(this, dbHelper)
@@ -237,7 +199,16 @@ Sound Alerts & Radar Tracking:
             orientation = LinearLayout.VERTICAL
         }
 
-        var activeCountriesList = countries
+        val loadingLabel = TextView(this).apply {
+            text = "Loading countries..."
+            setTextColor(Color.GRAY)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(0, 32, 0, 32)
+        }
+        listContainer.addView(loadingLabel)
+
+        var activeCountriesList = emptyList<CountryItem>()
 
         fun populateList(query: String) {
             listContainer.removeAllViews()
@@ -266,13 +237,21 @@ Sound Alerts & Radar Tracking:
             }
         }
 
-        populateList("")
-
         syncManager.fetchOrGetCachedCountries { fetched ->
             runOnUiThread {
                 if (fetched.isNotEmpty()) {
                     activeCountriesList = fetched.map { CountryItem(it.first, it.second) }
                     populateList(searchInput.text?.toString() ?: "")
+                } else {
+                    listContainer.removeAllViews()
+                    val errorLabel = TextView(this@HelpActivity).apply {
+                        text = "No countries available. Check internet."
+                        setTextColor(Color.RED)
+                        textSize = 14f
+                        gravity = Gravity.CENTER
+                        setPadding(0, 32, 0, 32)
+                    }
+                    listContainer.addView(errorLabel)
                 }
             }
         }
