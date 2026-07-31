@@ -58,9 +58,13 @@ class OverpassSyncManager(
         }
     }
 
+    @Volatile
+    private var hasDoneInitialSync = false
+
     fun onLocationUpdate(location: Location, speedKmh: Float) {
         if (isSyncing) return
-        if (speedKmh <= 0f) return // Do not download data while vehicle is stationary at 0 km/h
+        val isInitialSyncNeeded = !hasDoneInitialSync
+        if (speedKmh <= 0f && !isInitialSyncNeeded) return
 
         val now = System.currentTimeMillis()
         if (lastSyncAttemptMs != 0L && now - lastSyncAttemptMs < RETRY_PAUSE_MS) {
@@ -70,7 +74,7 @@ class OverpassSyncManager(
         val distanceMoved = FloatArray(1)
         Location.distanceBetween(location.latitude, location.longitude, lastSyncedLat, lastSyncedLon, distanceMoved)
 
-        if (lastSyncTimeMs != 0L && now - lastSyncTimeMs < SYNC_THROTTLE_MS && distanceMoved[0] < 40000f) {
+        if (!isInitialSyncNeeded && lastSyncTimeMs != 0L && now - lastSyncTimeMs < SYNC_THROTTLE_MS && distanceMoved[0] < 40000f) {
             return
         }
 
@@ -78,6 +82,7 @@ class OverpassSyncManager(
         executor.execute {
             try {
                 performSync(location.latitude, location.longitude)
+                hasDoneInitialSync = true
             } finally {
                 isSyncing = false
             }
@@ -115,7 +120,7 @@ class OverpassSyncManager(
             AppLogger.log("OverpassSyncManager", "executePost", true, "Connecting to mirror [${i + 1}/${MIRRORS.size}]: $mirror")
             val cameras = executePostAndParseStream(mirror, query)
             if (cameras != null) {
-                dbHelper.clearCameras()
+                dbHelper.clearCamerasInBox(south, north, west, east)
                 dbHelper.insertCameras(cameras)
                 lastSyncTimeMs = System.currentTimeMillis()
                 lastSyncAttemptMs = 0L
@@ -265,6 +270,60 @@ class OverpassSyncManager(
             "NW" -> 315.0f
             "NNW" -> 337.5f
             else -> null
+        }
+    }
+
+    fun triggerFullRegionSync(lat: Double, lon: Double) {
+        if (isSyncing) return
+        isSyncing = true
+        executor.execute {
+            try {
+                performFullRegionSync(lat, lon)
+            } finally {
+                isSyncing = false
+            }
+        }
+    }
+
+    private fun performFullRegionSync(lat: Double, lon: Double) {
+        if (!isInternetAvailable()) {
+            onStatusUpdate("No Internet. Cannot load full region.")
+            return
+        }
+        onStatusUpdate("Downloading full region cameras...")
+        AppLogger.log("OverpassSyncManager", "performFullRegionSync", true, "Starting Full Region sync around ($lat, $lon)")
+
+        val south = lat - 2.5
+        val north = lat + 2.5
+        val west = lon - 2.5
+        val east = lon + 2.5
+
+        val query = """
+            [out:json][timeout:60];
+            (
+              node["highway"="speed_camera"]($south,$west,$north,$east);
+              node["enforcement"]($south,$west,$north,$east);
+            );
+            out body;
+        """.trimIndent()
+
+        var success = false
+        for (i in MIRRORS.indices) {
+            val mirror = MIRRORS[i]
+            val cameras = executePostAndParseStream(mirror, query)
+            if (cameras != null) {
+                dbHelper.clearCamerasInBox(south, north, west, east)
+                dbHelper.insertCameras(cameras)
+                success = true
+                val count = dbHelper.getCameraCount()
+                AppLogger.log("OverpassSyncManager", "performFullRegionSync", true, "FULL REGION SYNC SUCCESS: Downloaded ${cameras.size} cameras. Total in DB: $count")
+                onSyncSuccess(cameras.size, count)
+                onStatusUpdate("Full region load complete! ($count total in DB)")
+                break
+            }
+        }
+        if (!success) {
+            onStatusUpdate("Full region load failed. Check network.")
         }
     }
 

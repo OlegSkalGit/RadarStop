@@ -29,6 +29,7 @@ class RadarForegroundService : Service(), LocationListener {
         const val CHANNEL_ID = "radar_detector_channel"
         const val NOTIF_ID = 1001
         const val ACTION_STOP_SERVICE = "com.example.radardetector.ACTION_STOP_SERVICE"
+        const val ACTION_LOAD_ALL_CAMS = "com.example.radardetector.ACTION_LOAD_ALL_CAMS"
 
         @Volatile
         var isRunning = false
@@ -100,6 +101,13 @@ class RadarForegroundService : Service(), LocationListener {
             AppLogger.log("RadarForegroundService", "onStartCommand", true, "Received ACTION_STOP_SERVICE intent. Stopping service...")
             stopSelfAndCleanup()
             return START_NOT_STICKY
+        } else if (intent?.action == ACTION_LOAD_ALL_CAMS) {
+            lastLocation?.let { loc ->
+                syncManager.triggerFullRegionSync(loc.latitude, loc.longitude)
+            } ?: run {
+                Toast.makeText(applicationContext, "GPS location not available yet. Please wait...", Toast.LENGTH_SHORT).show()
+            }
+            return START_STICKY
         }
         return START_STICKY
     }

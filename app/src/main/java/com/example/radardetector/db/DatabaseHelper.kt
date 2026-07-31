@@ -48,6 +48,14 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         AppLogger.log("DatabaseHelper", "clearCameras", true, "Cleared all camera records from SQLite DB.")
     }
 
+    fun clearCamerasInBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {
+        writableDatabase.execSQL(
+            "DELETE FROM $TABLE_CAMERAS WHERE $COLUMN_LAT BETWEEN ? AND ? AND $COLUMN_LON BETWEEN ? AND ?",
+            arrayOf(minLat, maxLat, minLon, maxLon)
+        )
+        AppLogger.log("DatabaseHelper", "clearCamerasInBox", true, "Targeted clear of cameras in bounding box [$minLat, $maxLat, $minLon, $maxLon].")
+    }
+
     fun insertCameras(cameras: List<Camera>) {
         val startMs = System.currentTimeMillis()
         val db = writableDatabase

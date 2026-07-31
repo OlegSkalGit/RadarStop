@@ -1,10 +1,12 @@
 package com.example.radardetector
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
@@ -16,6 +18,8 @@ import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
+import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
 
 class HelpActivity : Activity() {
@@ -116,6 +120,29 @@ Sound Alerts & Radar Tracking:
             }
         }
 
+        val btnLoadAllCams = Button(this).apply {
+            text = "Load All Cams"
+            textSize = 12f
+            setOnClickListener {
+                AlertDialog.Builder(this@HelpActivity)
+                    .setTitle("Download All Cameras")
+                    .setMessage("Warning: Downloading speed cameras for the entire region requires 15 to 50 MB of mobile data and may take 1 to 2 minutes depending on network connection. Proceed?")
+                    .setPositiveButton("Download") { _, _ ->
+                        val serviceIntent = Intent(this@HelpActivity, RadarForegroundService::class.java).apply {
+                            action = RadarForegroundService.ACTION_LOAD_ALL_CAMS
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(serviceIntent)
+                        } else {
+                            startService(serviceIntent)
+                        }
+                        Toast.makeText(this@HelpActivity, "Full region camera sync started...", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
+
         val btnAdb = Button(this).apply {
             text = "ADB"
             setOnClickListener {
@@ -134,6 +161,7 @@ Sound Alerts & Radar Tracking:
         }
 
         bottomBar.addView(checkBoxAutostart)
+        bottomBar.addView(btnLoadAllCams)
         bottomBar.addView(spaceLayout)
         bottomBar.addView(btnAdb)
         bottomBar.addView(btnClose)
