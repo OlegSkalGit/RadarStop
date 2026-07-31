@@ -1,6 +1,7 @@
 package com.example.radardetector
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -8,6 +9,7 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
@@ -25,6 +27,8 @@ class HelpActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = "Help"
+
+        val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
 
         scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -101,6 +105,15 @@ Sound Alerts & Radar Tracking:
             setPadding(0, 16, 0, 0)
         }
 
+        val btnOpenAdb = Button(this).apply {
+            text = "Open"
+            visibility = if (AppLogger.isLoggingEnabled) View.VISIBLE else View.GONE
+            setOnClickListener {
+                val intent = Intent(this@HelpActivity, LogViewerActivity::class.java)
+                startActivity(intent)
+            }
+        }
+
         val checkBoxEnableAdb = CheckBox(this).apply {
             text = "Enable ADB"
             setTextColor(Color.WHITE)
@@ -108,17 +121,21 @@ Sound Alerts & Radar Tracking:
             isChecked = AppLogger.isLoggingEnabled
             setOnCheckedChangeListener { _, isChecked ->
                 AppLogger.isLoggingEnabled = isChecked
+                btnOpenAdb.visibility = if (isChecked) View.VISIBLE else View.GONE
                 if (isChecked) {
                     AppLogger.log("HelpActivity", "onCheckedChanged", true, "ADB logging enabled by user.")
                 }
             }
         }
 
-        val btnOpenAdb = Button(this).apply {
-            text = "Open"
-            setOnClickListener {
-                val intent = Intent(this@HelpActivity, LogViewerActivity::class.java)
-                startActivity(intent)
+        val checkBoxAutostart = CheckBox(this).apply {
+            text = "Autostart"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            isChecked = prefs.getBoolean("autostart", false)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("autostart", isChecked).apply()
+                AppLogger.log("HelpActivity", "onCheckedChanged", true, "Autostart on boot setting changed: $isChecked")
             }
         }
 
@@ -132,6 +149,7 @@ Sound Alerts & Radar Tracking:
         }
 
         bottomBar.addView(checkBoxEnableAdb)
+        bottomBar.addView(checkBoxAutostart)
         bottomBar.addView(spaceLayout)
         bottomBar.addView(btnOpenAdb)
         bottomBar.addView(btnClose)
