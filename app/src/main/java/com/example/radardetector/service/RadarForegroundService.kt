@@ -245,7 +245,35 @@ class RadarForegroundService : Service(), LocationListener {
         val isInActiveLinearZone = (activeLinearZoneStartLoc != null)
         val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
 
-        val targetInterval = if (speedKmh <= 30f) {
+        val targetInterval = if (speedKmh <= 5f) {
+            if (speedDropBelow30TimeMs == 0L) {
+                speedDropBelow30TimeMs = now
+            }
+            val timeBelow5Ms = now - speedDropBelow30TimeMs
+            when {
+                timeBelow5Ms < 10 * 1000L -> {
+                    if (lastLoggedSpeedMode != "STATIC_GRACE_10S") {
+                        lastLoggedSpeedMode = "STATIC_GRACE_10S"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Stationary (<=5 km/h). Grace period 10s: 3s polling.")
+                    }
+                    3000L
+                }
+                timeBelow5Ms < 60 * 1000L -> {
+                    if (lastLoggedSpeedMode != "STATIC_MED_1MIN") {
+                        lastLoggedSpeedMode = "STATIC_MED_1MIN"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Stationary >10s. Polling interval: 15s.")
+                    }
+                    15000L
+                }
+                else -> {
+                    if (lastLoggedSpeedMode != "STATIC_DEEP") {
+                        lastLoggedSpeedMode = "STATIC_DEEP"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Stationary >1min (Parked/Passive). Deep battery save: Polling interval 60s.")
+                    }
+                    60000L
+                }
+            }
+        } else if (speedKmh <= 30f) {
             if (speedDropBelow30TimeMs == 0L) {
                 speedDropBelow30TimeMs = now
             }
