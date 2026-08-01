@@ -166,7 +166,7 @@ if [ ! -f "${APK_PATH}" ]; then
 fi
 
 if [ -f "${APK_PATH}" ]; then
-    VERSION_STR=$(date +"%y.%m.%d_%H%M")
+    VERSION_STR=$(date +"%y.%m.%d_%H")
     DEST_APK="RadarStop_${VERSION_STR}.apk"
     cp -f "${APK_PATH}" "${DEST_APK}"
 

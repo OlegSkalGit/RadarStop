@@ -109,7 +109,7 @@ echo.
 call "%GRADLE_BAT%" assembleRelease
 
 echo.
-for /f "tokens=*" %%V in ('powershell -Command "Get-Date -Format 'yy.MM.dd_HHmm'"') do set "VERSION_STR=%%V"
+for /f "tokens=*" %%V in ('powershell -Command "Get-Date -Format 'yy.MM.dd_HH'"') do set "VERSION_STR=%%V"
 set "ROOT_APK=RadarStop_!VERSION_STR!.apk"
 
 if exist "app\build\outputs\apk\release\app-release.apk" (
