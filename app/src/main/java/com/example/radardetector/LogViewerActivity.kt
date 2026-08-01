@@ -159,22 +159,35 @@ class LogViewerActivity : Activity() {
     }
 
     private fun refreshLog() {
-        textViewLog.text = AppLogger.readLogText()
+        Thread {
+            val text = AppLogger.readLogText()
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    textViewLog.text = text
+                }
+            }
+        }.start()
     }
 
     private fun shareLog() {
-        try {
-            val logText = AppLogger.readLogText()
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "RadarStop Log")
-                putExtra(Intent.EXTRA_TEXT, logText)
+        Thread {
+            try {
+                val logText = AppLogger.readLogText()
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, "RadarStop Log")
+                            putExtra(Intent.EXTRA_TEXT, logText)
+                        }
+                        startActivity(Intent.createChooser(intent, "Share / Open Log"))
+                        AppLogger.log("LogViewerActivity", "shareLog", true, "Triggered system share chooser.")
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.log("LogViewerActivity", "shareLog", false, "Error: ${e.message}")
             }
-            startActivity(Intent.createChooser(intent, "Share / Open Log"))
-            AppLogger.log("LogViewerActivity", "shareLog", true, "Triggered system share chooser.")
-        } catch (e: Exception) {
-            AppLogger.log("LogViewerActivity", "shareLog", false, "Error: ${e.message}")
-        }
+        }.start()
     }
 
     override fun onDestroy() {

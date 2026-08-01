@@ -1,13 +1,15 @@
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
-val formattedVersionName = SimpleDateFormat("yy.MM.dd").format(Date())
-val formattedVersionCode = SimpleDateFormat("yyMMddHH").format(Date()).toInt()
+val now = Date()
+val formattedVersionName = SimpleDateFormat("yy.MM.dd_HHmm", Locale.US).format(now)
+val formattedVersionCode = SimpleDateFormat("yyDDDHHmm", Locale.US).format(now).toInt()
 
 android {
     namespace = "com.example.radardetector"

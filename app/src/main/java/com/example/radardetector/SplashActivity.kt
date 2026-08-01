@@ -140,10 +140,15 @@ class SplashActivity : Activity() {
     private fun startRadarServiceAndFinish() {
         AppLogger.log("SplashActivity", "startRadarServiceAndFinish", true, "Starting RadarForegroundService...")
         val serviceIntent = Intent(this, RadarForegroundService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            AppLogger.log("SplashActivity", "startRadarServiceAndFinish", false, "Failed to start service: ${e.message}")
+            Toast.makeText(applicationContext, "Failed to start RadarStop service: ${e.message}", Toast.LENGTH_LONG).show()
         }
         finish()
     }

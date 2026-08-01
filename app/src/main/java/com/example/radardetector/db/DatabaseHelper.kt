@@ -78,6 +78,40 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         }
     }
 
+    fun replaceCamerasInBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, cameras: List<Camera>) {
+        val startMs = System.currentTimeMillis()
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.execSQL(
+                "DELETE FROM $TABLE_CAMERAS WHERE $COLUMN_LAT BETWEEN ? AND ? AND $COLUMN_LON BETWEEN ? AND ?",
+                arrayOf(minLat, maxLat, minLon, maxLon)
+            )
+            db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_DIR, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?, ?)").use { stmt ->
+                for (cam in cameras) {
+                    stmt.clearBindings()
+                    stmt.bindLong(1, cam.id)
+                    stmt.bindDouble(2, cam.lat)
+                    stmt.bindDouble(3, cam.lon)
+                    if (cam.dir != null) {
+                        stmt.bindDouble(4, cam.dir.toDouble())
+                    } else {
+                        stmt.bindNull(4)
+                    }
+                    stmt.bindLong(5, if (cam.isLinear) 1L else 0L)
+                    stmt.executeInsert()
+                }
+            }
+            db.setTransactionSuccessful()
+            val duration = System.currentTimeMillis() - startMs
+            AppLogger.log("DatabaseHelper", "replaceCamerasInBox", true, "Atomic replace of ${cameras.size} cameras in box [$minLat, $maxLat, $minLon, $maxLon] in ${duration}ms.")
+        } catch (e: Exception) {
+            AppLogger.log("DatabaseHelper", "replaceCamerasInBox", false, "Error during atomic replace: ${e.message}")
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun insertCameras(cameras: List<Camera>) {
         val startMs = System.currentTimeMillis()
         val db = writableDatabase

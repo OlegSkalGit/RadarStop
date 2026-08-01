@@ -155,7 +155,10 @@ fi
 # Write local.properties for Gradle
 echo "sdk.dir=${FOUND_SDK}" > local.properties
 
-echo "[4/4] Building Release APK..."
+VERSION_STR=$(date +"%y.%m.%d_%H%M")
+DEST_APK="RadarStop_${VERSION_STR}.apk"
+
+echo "[4/4] Building Release APK (v${VERSION_STR})..."
 echo ""
 
 "${GRADLE_BIN}" assembleRelease
@@ -166,8 +169,6 @@ if [ ! -f "${APK_PATH}" ]; then
 fi
 
 if [ -f "${APK_PATH}" ]; then
-    VERSION_STR=$(date +"%y.%m.%d_%H")
-    DEST_APK="RadarStop_${VERSION_STR}.apk"
     cp -f "${APK_PATH}" "${DEST_APK}"
 
     echo "========================================================"

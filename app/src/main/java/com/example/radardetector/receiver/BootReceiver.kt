@@ -23,12 +23,18 @@ class BootReceiver : BroadcastReceiver() {
             AppLogger.log("BootReceiver", "onReceive", true, "System boot event received ($action). Autostart setting: $isAutostartEnabled")
 
             if (isAutostartEnabled) {
-                val hasLocationPermission = ContextCompat.checkSelfPermission(
+                val hasFineLocation = ContextCompat.checkSelfPermission(
                     context, Manifest.permission.ACCESS_FINE_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
 
-                if (!hasLocationPermission) {
-                    AppLogger.log("BootReceiver", "onReceive", false, "Location permission not granted. Skipping autostart.")
+                val hasBgLocation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                } else true
+
+                if (!hasFineLocation || !hasBgLocation) {
+                    AppLogger.log("BootReceiver", "onReceive", false, "Required location permissions (Fine/Background) missing. Skipping autostart.")
                     return
                 }
 
@@ -40,6 +46,8 @@ class BootReceiver : BroadcastReceiver() {
                         context.startService(serviceIntent)
                     }
                     AppLogger.log("BootReceiver", "onReceive", true, "RadarForegroundService automatically launched on system boot.")
+                } catch (e: IllegalStateException) {
+                    AppLogger.log("BootReceiver", "onReceive", false, "ForegroundServiceStartNotAllowedException / Background start restricted by Android OS: ${e.message}")
                 } catch (e: Exception) {
                     AppLogger.log("BootReceiver", "onReceive", false, "Failed to start service on boot: ${e.message}")
                 }

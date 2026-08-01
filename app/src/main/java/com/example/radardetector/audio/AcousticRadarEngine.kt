@@ -8,6 +8,8 @@ import android.media.ToneGenerator
 import android.os.Build
 import com.example.radardetector.util.AppLogger
 
+import java.util.concurrent.Executors
+
 class AcousticRadarEngine(private val context: Context) {
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -18,6 +20,7 @@ class AcousticRadarEngine(private val context: Context) {
     @Volatile
     private var currentDelayMs: Long = 1500
 
+    private val audioExecutor = Executors.newSingleThreadExecutor()
     private var focusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
 
@@ -83,13 +86,11 @@ class AcousticRadarEngine(private val context: Context) {
     }
 
     fun playSingleBeep() {
-        Thread {
+        audioExecutor.execute {
             try {
                 synchronized(this@AcousticRadarEngine) {
                     requestFocus()
                     initToneGenerator()
-                }
-                synchronized(this@AcousticRadarEngine) {
                     toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
                 }
                 Thread.sleep(250)
@@ -100,11 +101,11 @@ class AcousticRadarEngine(private val context: Context) {
             } catch (e: Exception) {
                 AppLogger.log("AcousticRadarEngine", "playSingleBeep", false, "Error: ${e.message}")
             }
-        }.start()
+        }
     }
 
     fun playBeeps(count: Int, intervalMs: Long) {
-        Thread {
+        audioExecutor.execute {
             try {
                 synchronized(this@AcousticRadarEngine) {
                     requestFocus()
@@ -126,7 +127,7 @@ class AcousticRadarEngine(private val context: Context) {
             } catch (e: Exception) {
                 AppLogger.log("AcousticRadarEngine", "playBeeps", false, "Error: ${e.message}")
             }
-        }.start()
+        }
     }
 
     @Synchronized
@@ -137,11 +138,14 @@ class AcousticRadarEngine(private val context: Context) {
             requestFocus()
             initToneGenerator()
             AppLogger.log("AcousticRadarEngine", "startAlert", true, "Beep thread started with delay: ${delayMs}ms")
+            beepThread?.interrupt()
             beepThread = Thread {
                 while (isBeeping) {
                     try {
                         synchronized(this@AcousticRadarEngine) {
-                            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                            if (isBeeping && toneGenerator != null) {
+                                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                            }
                         }
                         Thread.sleep(currentDelayMs)
                     } catch (e: InterruptedException) {
@@ -171,7 +175,14 @@ class AcousticRadarEngine(private val context: Context) {
 
     @Synchronized
     fun release() {
+        val threadToJoin = beepThread
         stopAlert()
+        try {
+            threadToJoin?.join(500)
+        } catch (e: InterruptedException) {
+            // Ignore
+        }
+        audioExecutor.shutdownNow()
         toneGenerator?.release()
         toneGenerator = null
         AppLogger.log("AcousticRadarEngine", "release", true, "ToneGenerator released.")

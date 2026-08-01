@@ -37,11 +37,11 @@ object AppLogger {
 
     fun log(module: String, functionName: String, isSuccess: Boolean, details: String) {
         if (!isLoggingEnabled) return
-        val timestamp = dateFormat.format(Date())
-        val statusStr = if (isSuccess) "SUCCESS" else "FAILURE"
-        val line = "[$timestamp] [$module::$functionName] $statusStr: $details\n"
         writeExecutor.execute {
             try {
+                val timestamp = dateFormat.format(Date())
+                val statusStr = if (isSuccess) "SUCCESS" else "FAILURE"
+                val line = "[$timestamp] [$module::$functionName] $statusStr: $details\n"
                 val file = logFile ?: return@execute
                 if (file.exists() && file.length() >= MAX_LOG_SIZE_BYTES) {
                     file.writeText("[AppLogger] Log file auto-rotated at 256 KB limit.\n")
@@ -61,7 +61,13 @@ object AppLogger {
             val file = logFile
             if (file != null && file.exists()) {
                 val text = file.readText()
-                if (text.isEmpty()) "Log file is empty." else text
+                if (text.isEmpty()) {
+                    "Log file is empty."
+                } else if (text.length > 50000) {
+                    "... (older logs truncated)\n" + text.takeLast(50000)
+                } else {
+                    text
+                }
             } else {
                 "No log file found."
             }

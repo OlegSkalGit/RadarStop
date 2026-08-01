@@ -103,14 +103,15 @@ if not exist "!FOUND_SDK!\platforms\android-34" (
 set "ESCAPED_SDK=!FOUND_SDK:\=/!"
 echo sdk.dir=!ESCAPED_SDK!> local.properties
 
-echo [4/4] Building Release APK...
+for /f "tokens=*" %%V in ('powershell -Command "Get-Date -Format 'yy.MM.dd_HHmm'"') do set "VERSION_STR=%%V"
+set "ROOT_APK=RadarStop_!VERSION_STR!.apk"
+
+echo [4/4] Building Release APK (v!VERSION_STR!)...
 echo.
 
 call "%GRADLE_BAT%" assembleRelease
 
 echo.
-for /f "tokens=*" %%V in ('powershell -Command "Get-Date -Format 'yy.MM.dd_HH'"') do set "VERSION_STR=%%V"
-set "ROOT_APK=RadarStop_!VERSION_STR!.apk"
 
 if exist "app\build\outputs\apk\release\app-release.apk" (
     copy /y "app\build\outputs\apk\release\app-release.apk" "!ROOT_APK!" >nul

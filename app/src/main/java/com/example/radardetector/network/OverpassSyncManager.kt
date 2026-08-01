@@ -111,8 +111,10 @@ class OverpassSyncManager(
 
         val south = lat - 0.45
         val north = lat + 0.45
-        val west = lon - 0.45
-        val east = lon + 0.45
+        val cosLat = Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1)
+        val deltaLon = (0.45 / cosLat).coerceIn(0.45, 2.0)
+        val west = lon - deltaLon
+        val east = lon + deltaLon
 
         val query = """
             [out:json][timeout:25];
@@ -129,8 +131,7 @@ class OverpassSyncManager(
             AppLogger.log("OverpassSyncManager", "executePost", true, "Connecting to mirror [${i + 1}/${MIRRORS.size}]: $mirror")
             val cameras = executePostAndParseStream(mirror, query)
             if (cameras != null) {
-                dbHelper.clearCamerasInBox(south, north, west, east)
-                dbHelper.insertCameras(cameras)
+                dbHelper.replaceCamerasInBox(south, north, west, east, cameras)
                 lastSyncTimeMs = System.currentTimeMillis()
                 lastSyncAttemptMs = 0L
                 lastSyncedLat = lat
@@ -331,16 +332,16 @@ class OverpassSyncManager(
     }
 
     fun fetchOrGetCachedCountries(onResult: (List<Pair<String, String>>) -> Unit) {
-        val now = System.currentTimeMillis()
-        val cached = dbHelper.getCountries()
-        val lastCountrySyncTimeMs = prefs.getLong("last_country_sync_ms", 0L)
-        if (cached.isNotEmpty() && (now - lastCountrySyncTimeMs < 24 * 60 * 60 * 1000L)) {
-            AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Returning ${cached.size} cached countries from SQLite DB.")
-            onResult(cached)
-            return
-        }
-
         executor.execute {
+            val now = System.currentTimeMillis()
+            val cached = dbHelper.getCountries()
+            val lastCountrySyncTimeMs = prefs.getLong("last_country_sync_ms", 0L)
+            if (cached.isNotEmpty() && (now - lastCountrySyncTimeMs < 24 * 60 * 60 * 1000L)) {
+                AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Returning ${cached.size} cached countries from SQLite DB.")
+                onResult(cached)
+                return@execute
+            }
+
             if (!isInternetAvailable()) {
                 AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", false, "No internet connection. Returning ${cached.size} cached countries.")
                 onResult(cached)

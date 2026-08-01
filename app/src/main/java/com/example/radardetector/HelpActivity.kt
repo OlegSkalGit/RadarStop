@@ -170,14 +170,21 @@ Sound Alerts & Tracking:
     }
 
     private data class CountryItem(val name: String, val code: String)
+    private var activeSyncManager: OverpassSyncManager? = null
 
     private fun showCountrySelectionDialog() {
         val dbHelper = DatabaseHelper(applicationContext)
         val syncManager = OverpassSyncManager(applicationContext, dbHelper)
+        activeSyncManager = syncManager
 
         val dialog = Dialog(this)
         dialog.setTitle("Select Country")
-        dialog.setOnDismissListener { syncManager.shutdown() }
+        dialog.setOnDismissListener {
+            syncManager.shutdown()
+            if (activeSyncManager == syncManager) {
+                activeSyncManager = null
+            }
+        }
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -284,16 +291,27 @@ Sound Alerts & Tracking:
             putExtra(RadarForegroundService.EXTRA_COUNTRY_CODE, countryCode)
             putExtra(RadarForegroundService.EXTRA_COUNTRY_NAME, countryName)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            Toast.makeText(this, "Downloading speed cameras for $countryName...", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            AppLogger.log("HelpActivity", "startCountrySync", false, "Failed to start service for country sync: ${e.message}")
+            Toast.makeText(this, "Failed to start camera download: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        Toast.makeText(this, "Downloading speed cameras for $countryName...", Toast.LENGTH_SHORT).show()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         scaleGestureDetector.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
+    }
+
+    override fun onDestroy() {
+        activeSyncManager?.shutdown()
+        activeSyncManager = null
+        super.onDestroy()
     }
 }
