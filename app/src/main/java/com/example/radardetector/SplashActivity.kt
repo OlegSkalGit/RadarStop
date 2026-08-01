@@ -18,8 +18,18 @@ import com.example.radardetector.util.AppLogger
 
 class SplashActivity : Activity() {
 
+    private var awaitingSettings = false
+
     companion object {
         private const val REQ_FOREGROUND_PERMS = 1001
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (awaitingSettings) {
+            awaitingSettings = false
+            checkBackgroundLocationAndBattery()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,6 +108,7 @@ class SplashActivity : Activity() {
             .setTitle("Background & Battery Settings")
             .setMessage("RadarStop requires continuous background location access ('Allow all the time') and battery optimization exemption to alert you of speed cameras while driving.")
             .setPositiveButton("Configure") { _, _ ->
+                awaitingSettings = true
                 if (needsBgLoc && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     try {
                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -107,8 +118,7 @@ class SplashActivity : Activity() {
                     } catch (e: Exception) {
                         AppLogger.log("SplashActivity", "showExplanationDialog", false, "Error launching app settings: ${e.message}")
                     }
-                }
-                if (needsBattery && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                } else if (needsBattery && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     try {
                         val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                             data = Uri.parse("package:$packageName")
@@ -118,7 +128,6 @@ class SplashActivity : Activity() {
                         AppLogger.log("SplashActivity", "showExplanationDialog", false, "Error launching battery settings: ${e.message}")
                     }
                 }
-                startRadarServiceAndFinish()
             }
             .setNegativeButton("Cancel") { _, _ ->
                 AppLogger.log("SplashActivity", "showExplanationDialog", false, "User cancelled configuration dialog.")

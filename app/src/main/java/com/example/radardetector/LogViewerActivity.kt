@@ -39,7 +39,12 @@ class LogViewerActivity : Activity() {
         })
 
         val appVersionName = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0L)).versionName
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).versionName
+            }
         } catch (e: Exception) {
             "1.0"
         }

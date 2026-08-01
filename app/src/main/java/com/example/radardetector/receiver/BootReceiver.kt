@@ -3,7 +3,10 @@ package com.example.radardetector.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
 
@@ -20,6 +23,15 @@ class BootReceiver : BroadcastReceiver() {
             AppLogger.log("BootReceiver", "onReceive", true, "System boot event received ($action). Autostart setting: $isAutostartEnabled")
 
             if (isAutostartEnabled) {
+                val hasLocationPermission = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+
+                if (!hasLocationPermission) {
+                    AppLogger.log("BootReceiver", "onReceive", false, "Location permission not granted. Skipping autostart.")
+                    return
+                }
+
                 try {
                     val serviceIntent = Intent(context, RadarForegroundService::class.java)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

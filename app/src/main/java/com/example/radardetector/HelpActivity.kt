@@ -172,8 +172,8 @@ Sound Alerts & Tracking:
     private data class CountryItem(val name: String, val code: String)
 
     private fun showCountrySelectionDialog() {
-        val dbHelper = DatabaseHelper(this)
-        val syncManager = OverpassSyncManager(this, dbHelper)
+        val dbHelper = DatabaseHelper(applicationContext)
+        val syncManager = OverpassSyncManager(applicationContext, dbHelper)
 
         val dialog = Dialog(this)
         dialog.setTitle("Select Country")
@@ -244,6 +244,7 @@ Sound Alerts & Tracking:
 
         syncManager.fetchOrGetCachedCountries { fetched ->
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 if (fetched.isNotEmpty()) {
                     activeCountriesList = fetched.map { CountryItem(it.first, it.second) }
                     populateList(searchInput.text?.toString() ?: "")

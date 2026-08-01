@@ -22,6 +22,7 @@ import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.math.RadarMath
 import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.util.AppLogger
+import java.util.concurrent.Executors
 
 class RadarForegroundService : Service(), LocationListener {
 
@@ -45,7 +46,11 @@ class RadarForegroundService : Service(), LocationListener {
     private var currentIntervalMs: Long = 0L
     private var lastLocation: Location? = null
 
+    @Volatile
     private var cachedCameras: List<Camera> = emptyList()
+    private val dbExecutor = Executors.newSingleThreadExecutor()
+    private var lastProcessedMs: Long = 0L
+    private var softwareIntervalMs: Long = 3000L
     private var cachedBoxMinLat = 0.0
     private var cachedBoxMaxLat = 0.0
     private var cachedBoxMinLon = 0.0
@@ -65,7 +70,12 @@ class RadarForegroundService : Service(), LocationListener {
         isRunning = true
 
         val appVersionName = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
+            if (Build.VERSION.SDK_INT >= 33) {
+                packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0L)).versionName
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).versionName
+            }
         } catch (e: Exception) {
             "1.0"
         }
@@ -112,18 +122,19 @@ class RadarForegroundService : Service(), LocationListener {
         return START_STICKY
     }
 
+    private var isGpsRegistered = false
+
     private fun registerGpsUpdates(intervalMs: Long) {
-        if (currentIntervalMs == intervalMs) return
-        currentIntervalMs = intervalMs
+        if (isGpsRegistered) return
+        isGpsRegistered = true
         try {
-            locationManager.removeUpdates(this)
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
-                intervalMs,
+                1000L,
                 0f,
                 this
             )
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling interval changed -> ${intervalMs}ms")
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered once at 1000ms")
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
             updateNotificationText("Weak GPS signal (>15m)")
@@ -133,22 +144,24 @@ class RadarForegroundService : Service(), LocationListener {
     }
 
     private fun reloadCameraCacheForLocation(location: Location) {
-        val lat = location.latitude
-        val lon = location.longitude
-        lastRamReloadLat = lat
-        lastRamReloadLon = lon
-        cachedBoxMinLat = lat - 0.045
-        cachedBoxMaxLat = lat + 0.045
-        cachedBoxMinLon = lon - 0.045
-        cachedBoxMaxLon = lon + 0.045
-        cachedCameras = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
-        val totalInDb = dbHelper.getCameraCount()
-        AppLogger.log(
-            "RadarForegroundService",
-            "reloadCameraCacheForLocation",
-            true,
-            "DATABASE LOAD: Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $totalInDb"
-        )
+        dbExecutor.execute {
+            val lat = location.latitude
+            val lon = location.longitude
+            lastRamReloadLat = lat
+            lastRamReloadLon = lon
+            cachedBoxMinLat = lat - 0.045
+            cachedBoxMaxLat = lat + 0.045
+            cachedBoxMinLon = lon - 0.045
+            cachedBoxMaxLon = lon + 0.045
+            cachedCameras = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
+            val totalInDb = dbHelper.getCameraCount()
+            AppLogger.log(
+                "RadarForegroundService",
+                "reloadCameraCacheForLocation",
+                true,
+                "DATABASE LOAD: Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $totalInDb"
+            )
+        }
     }
 
     override fun onLocationChanged(location: Location) {
@@ -162,9 +175,12 @@ class RadarForegroundService : Service(), LocationListener {
             return
         }
 
+        val now = System.currentTimeMillis()
+        if (now - lastProcessedMs < softwareIntervalMs) return
+        lastProcessedMs = now
+
         lastLocation = location
         val speedKmh = location.speed * 3.6f
-        val now = System.currentTimeMillis()
 
         syncManager.onLocationUpdate(location, speedKmh)
 
@@ -252,7 +268,7 @@ class RadarForegroundService : Service(), LocationListener {
                 }
             }
         }
-        registerGpsUpdates(targetInterval)
+        softwareIntervalMs = targetInterval
 
         val totalInDb = dbHelper.getCameraCount()
         val defaultStatusText = "Active. Cameras: ${cachedCameras.size} nearby / $totalInDb total"
@@ -404,6 +420,7 @@ class RadarForegroundService : Service(), LocationListener {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        dbExecutor.shutdownNow()
         audioEngine.release()
         syncManager.shutdown()
         stopForeground(true)

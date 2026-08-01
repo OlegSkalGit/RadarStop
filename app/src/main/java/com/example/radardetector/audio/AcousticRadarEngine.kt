@@ -85,11 +85,17 @@ class AcousticRadarEngine(private val context: Context) {
     fun playSingleBeep() {
         Thread {
             try {
-                requestFocus()
-                initToneGenerator()
-                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                synchronized(this@AcousticRadarEngine) {
+                    requestFocus()
+                    initToneGenerator()
+                }
+                synchronized(this@AcousticRadarEngine) {
+                    toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                }
                 Thread.sleep(250)
-                abandonFocus()
+                synchronized(this@AcousticRadarEngine) {
+                    abandonFocus()
+                }
                 AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played.")
             } catch (e: Exception) {
                 AppLogger.log("AcousticRadarEngine", "playSingleBeep", false, "Error: ${e.message}")
@@ -100,17 +106,23 @@ class AcousticRadarEngine(private val context: Context) {
     fun playBeeps(count: Int, intervalMs: Long) {
         Thread {
             try {
-                requestFocus()
-                initToneGenerator()
+                synchronized(this@AcousticRadarEngine) {
+                    requestFocus()
+                    initToneGenerator()
+                }
                 AppLogger.log("AcousticRadarEngine", "playBeeps", true, "Playing $count test beeps at ${intervalMs}ms interval...")
                 for (i in 1..count) {
-                    toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                    synchronized(this@AcousticRadarEngine) {
+                        toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                    }
                     if (i < count) {
                         Thread.sleep(intervalMs)
                     }
                 }
                 Thread.sleep(250)
-                abandonFocus()
+                synchronized(this@AcousticRadarEngine) {
+                    abandonFocus()
+                }
             } catch (e: Exception) {
                 AppLogger.log("AcousticRadarEngine", "playBeeps", false, "Error: ${e.message}")
             }
@@ -128,7 +140,9 @@ class AcousticRadarEngine(private val context: Context) {
             beepThread = Thread {
                 while (isBeeping) {
                     try {
-                        toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                        synchronized(this@AcousticRadarEngine) {
+                            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+                        }
                         Thread.sleep(currentDelayMs)
                     } catch (e: InterruptedException) {
                         break

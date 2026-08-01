@@ -6,12 +6,15 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 
 object AppLogger {
 
     private const val LOG_FILE_NAME = "radar_app.log"
     private var logFile: File? = null
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+
+    private val writeExecutor = Executors.newSingleThreadExecutor()
 
     @Volatile
     var isLoggingEnabled: Boolean = false
@@ -32,23 +35,23 @@ object AppLogger {
 
     private const val MAX_LOG_SIZE_BYTES = 256 * 1024L // 256 KB limit
 
-    @Synchronized
     fun log(module: String, functionName: String, isSuccess: Boolean, details: String) {
         if (!isLoggingEnabled) return
-        try {
-            val file = logFile ?: return
-            if (file.exists() && file.length() >= MAX_LOG_SIZE_BYTES) {
-                file.writeText("[AppLogger] Log file auto-rotated at 256 KB limit.\n")
+        val timestamp = dateFormat.format(Date())
+        val statusStr = if (isSuccess) "SUCCESS" else "FAILURE"
+        val line = "[$timestamp] [$module::$functionName] $statusStr: $details\n"
+        writeExecutor.execute {
+            try {
+                val file = logFile ?: return@execute
+                if (file.exists() && file.length() >= MAX_LOG_SIZE_BYTES) {
+                    file.writeText("[AppLogger] Log file auto-rotated at 256 KB limit.\n")
+                }
+                FileWriter(file, true).use { writer ->
+                    writer.write(line)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            val timestamp = dateFormat.format(Date())
-            val statusStr = if (isSuccess) "SUCCESS" else "FAILURE"
-            val line = "[$timestamp] [$module::$functionName] $statusStr: $details\n"
-
-            FileWriter(file, true).use { writer ->
-                writer.write(line)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 

@@ -6,6 +6,8 @@ import android.location.Location
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.JsonReader
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
@@ -19,11 +21,12 @@ import java.net.URLEncoder
 import java.util.concurrent.Executors
 
 class OverpassSyncManager(
-    private val context: Context,
+    context: Context,
     private val dbHelper: DatabaseHelper,
     private val onStatusUpdate: (String) -> Unit = {},
     private val onSyncSuccess: (downloadedCount: Int, totalInDb: Int) -> Unit = { _, _ -> }
 ) {
+    private val context: Context = context.applicationContext
 
     companion object {
         private val MIRRORS = arrayOf(
@@ -36,13 +39,14 @@ class OverpassSyncManager(
     }
 
     private val executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val prefs: SharedPreferences = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
     @Volatile
     private var lastSyncTimeMs = 0L
     @Volatile
     private var lastSyncAttemptMs = 0L
-    @Volatile
-    private var isSyncing = false
+
+    private val isSyncing = java.util.concurrent.atomic.AtomicBoolean(false)
     private var lastSyncedLat = 0.0
     private var lastSyncedLon = 0.0
 
@@ -67,7 +71,7 @@ class OverpassSyncManager(
     private var hasDoneInitialSync = false
 
     fun onLocationUpdate(location: Location, speedKmh: Float) {
-        if (isSyncing) return
+        if (isSyncing.get()) return
         val isInitialSyncNeeded = !hasDoneInitialSync
         if (speedKmh <= 0f && !isInitialSyncNeeded) return
 
@@ -83,13 +87,13 @@ class OverpassSyncManager(
             return
         }
 
-        isSyncing = true
+        if (!isSyncing.compareAndSet(false, true)) return
         executor.execute {
             try {
                 performSync(location.latitude, location.longitude)
                 hasDoneInitialSync = true
             } finally {
-                isSyncing = false
+                isSyncing.set(false)
             }
         }
     }
@@ -98,12 +102,12 @@ class OverpassSyncManager(
         if (!isInternetAvailable()) {
             AppLogger.log("OverpassSyncManager", "performSync", false, "No internet connection available. Setting 5m retry pause.")
             lastSyncAttemptMs = System.currentTimeMillis()
-            onStatusUpdate("No Internet. Retry in 5m...")
+            mainHandler.post { onStatusUpdate("No Internet. Retry in 5m...") }
             return
         }
 
         AppLogger.log("OverpassSyncManager", "performSync", true, "Starting 100x100 km Bounding Box sync for coords: ($lat, $lon)")
-        onStatusUpdate("Downloading camera data...")
+        mainHandler.post { onStatusUpdate("Downloading camera data...") }
 
         val south = lat - 0.45
         val north = lat + 0.45
@@ -139,7 +143,7 @@ class OverpassSyncManager(
                     true,
                     "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras via JsonReader stream from Overpass ($mirror) for 100x100km box around ($lat, $lon). Total in DB: $count"
                 )
-                onSyncSuccess(cameras.size, count)
+                mainHandler.post { onSyncSuccess(cameras.size, count) }
                 break
             }
 
@@ -156,7 +160,7 @@ class OverpassSyncManager(
         if (!success) {
             lastSyncAttemptMs = System.currentTimeMillis()
             AppLogger.log("OverpassSyncManager", "performSync", false, "All Overpass mirrors failed. Setting 5m retry pause.")
-            onStatusUpdate("Network error. Retry in 5m...")
+            mainHandler.post { onStatusUpdate("Network error. Retry in 5m...") }
         }
     }
 
@@ -279,23 +283,22 @@ class OverpassSyncManager(
     }
 
     fun triggerCountryCameraSync(countryCode: String, countryName: String) {
-        if (isSyncing) return
-        isSyncing = true
+        if (!isSyncing.compareAndSet(false, true)) return
         executor.execute {
             try {
                 performCountryCameraSync(countryCode, countryName)
             } finally {
-                isSyncing = false
+                isSyncing.set(false)
             }
         }
     }
 
     private fun performCountryCameraSync(countryCode: String, countryName: String) {
         if (!isInternetAvailable()) {
-            onStatusUpdate("No Internet. Cannot load $countryName cameras.")
+            mainHandler.post { onStatusUpdate("No Internet. Cannot load $countryName cameras.") }
             return
         }
-        onStatusUpdate("Downloading $countryName speed cameras...")
+        mainHandler.post { onStatusUpdate("Downloading $countryName speed cameras...") }
         AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "Starting Overpass sync for country: $countryName ($countryCode)")
 
         val query = """
@@ -317,13 +320,13 @@ class OverpassSyncManager(
                 success = true
                 val count = dbHelper.getCameraCount()
                 AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "COUNTRY SYNC SUCCESS: Downloaded ${cameras.size} cameras for $countryName. Total in DB: $count")
-                onSyncSuccess(cameras.size, count)
-                onStatusUpdate("$countryName cameras loaded! (${cameras.size} added, $count total in DB)")
+                mainHandler.post { onSyncSuccess(cameras.size, count) }
+                mainHandler.post { onStatusUpdate("$countryName cameras loaded! (${cameras.size} added, $count total in DB)") }
                 break
             }
         }
         if (!success) {
-            onStatusUpdate("Failed to load $countryName cameras. Check network.")
+            mainHandler.post { onStatusUpdate("Failed to load $countryName cameras. Check network.") }
         }
     }
 
