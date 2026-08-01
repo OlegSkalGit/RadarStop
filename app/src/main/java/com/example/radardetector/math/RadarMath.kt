@@ -24,8 +24,7 @@ object RadarMath {
     }
 
     /**
-     * Checks if camera azimuth is within ±45° of vehicle bearing ("head-on" or "rear-facing").
-     * Returns true if cameraDir is null (fallback radius mode).
+     * Checks if camera direction (if present) aligns with vehicle bearing within +-45 degrees.
      */
     fun isAzimuthValid(carBearing: Float, cameraDir: Float?): Boolean {
         if (cameraDir == null) return true
@@ -34,15 +33,33 @@ object RadarMath {
     }
 
     /**
-     * Symmetrically calculates beep interval delay based on distance (0..300m)
-     * for both approach (300m -> 0m) and departure (0m -> 300m).
+     * Checks if camera is ahead of vehicle (approaching) within a +-70 degree cone.
      */
-    fun calculateBeepDelay(distanceMeters: Float): Long {
+    fun isCameraAhead(carLocation: Location, cameraLat: Double, cameraLon: Double): Boolean {
+        if (!carLocation.hasBearing() || carLocation.speed * 3.6f < 5f) return true
+        val cameraLoc = Location("").apply {
+            latitude = cameraLat
+            longitude = cameraLon
+        }
+        val bearingToCamera = carLocation.bearingTo(cameraLoc)
+        val angleDiff = abs(angleDifference(carLocation.bearing, bearingToCamera))
+        return angleDiff <= 70f
+    }
+
+    /**
+     * Calculates beep delay based on distance and speed.
+     * Continuous rapid beep (150ms) within 50m (<=70 km/h) or 100m (>70 km/h).
+     */
+    fun calculateBeepDelay(distanceMeters: Float, speedKmh: Float): Long {
+        val continuousThreshold = if (speedKmh <= 70f) 50f else 100f
+        val maxAlertDistance = if (speedKmh <= 70f) 500f else 1000f
+        val dist = abs(distanceMeters)
+
         return when {
-            distanceMeters > 200f -> 1500L
-            distanceMeters > 100f -> 800L
-            distanceMeters > 50f  -> 400L
-            else                  -> 100L
+            dist <= continuousThreshold -> 150L // Continuous rapid beep zone
+            dist <= maxAlertDistance * 0.33f -> 400L
+            dist <= maxAlertDistance * 0.66f -> 800L
+            else -> 1500L
         }
     }
 }

@@ -79,25 +79,30 @@ class HelpActivity : Activity() {
         val helpContentText = """
 RadarStop
 
-An ultra-lightweight driver assistant running silently in the background to alert you of speed cameras in advance while driving.
+Ultra-lightweight background driver assistant alerting you of speed cameras ahead.
 
-No manual configuration is required.
+No configuration required.
 
-Sound Alerts & Radar Tracking:
+Sound Alerts & Tracking:
 
-• Speed threshold:
-  Sound warnings are issued only when your speed exceeds 30 km/h, provided GPS and internet connectivity are available.
+• Speed Threshold:
+  Alerts active only when speed > 30 km/h.
 
-• Point Speed Cameras (300m approach & departure tracking):
-  - On approach (300m to camera): Beep frequency accelerates (from 1.5s interval down to 0.1s near the camera).
-  - On departure (up to 300m past camera): Beep frequency decelerates in reverse (from 0.1s near the camera up to 1.5s at 300m past it).
+• Warning Distances:
+  - ≤ 70 km/h: 500m approach warning.
+  - > 70 km/h: 1000m approach warning.
 
-• Average Speed Control Zones (Linear Cameras):
-  - Upon entering an average speed control zone, the app maintains continuous steady sound alerts (1.5s interval) throughout the entire section until passing the exit camera and departing 300m beyond it.
+• Continuous Beep Zone (50m / 100m):
+  - Within 50m (≤70 km/h) or 100m (>70 km/h) of camera: continuous sound alert on approach and departure.
+  - Alert stops immediately after leaving the 50m/100m zone upon departure.
 
-• Accumulative Database & Offline Navigation:
-   - Speed cameras for every 100x100 km region are saved to your local SQLite database and remain stored permanently across trips.
-   - Tap "Load Country Cams" to pre-download camera coverage for a selected country for offline navigation without internet.
+• Average Speed Control (Linear Cameras):
+  - Single control points operate as standard point cameras.
+  - Paired linear sections maintain steady alert (1.5s interval) throughout the section.
+
+• Accumulative DB & Offline Mode:
+  - Cameras are saved permanently in local SQLite DB.
+  - Use "Load Country Cams" to pre-download full country databases for offline use.
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {

@@ -180,6 +180,9 @@ class RadarForegroundService : Service(), LocationListener {
             reloadCameraCacheForLocation(location)
         }
 
+        val maxAlertDistance = if (speedKmh <= 70f) 500f else 1000f
+        val continuousThreshold = if (speedKmh <= 70f) 50f else 100f
+
         var minDistToAnyCamera = Float.MAX_VALUE
         var closestAlertCamera: Camera? = null
         var minDistanceToAlert = Float.MAX_VALUE
@@ -189,7 +192,13 @@ class RadarForegroundService : Service(), LocationListener {
             if (distance < minDistToAnyCamera) {
                 minDistToAnyCamera = distance
             }
-            if (distance <= 300f && RadarMath.isAzimuthValid(location.bearing, camera.dir)) {
+
+            val isContinuousZone = distance <= continuousThreshold
+            val isApproachingZone = distance <= maxAlertDistance &&
+                    RadarMath.isCameraAhead(location, camera.lat, camera.lon) &&
+                    RadarMath.isAzimuthValid(location.bearing, camera.dir)
+
+            if (isContinuousZone || isApproachingZone) {
                 if (distance < minDistanceToAlert) {
                     minDistanceToAlert = distance
                     closestAlertCamera = camera
@@ -263,8 +272,11 @@ class RadarForegroundService : Service(), LocationListener {
             val distInt = minDistanceToAlert.toInt()
 
             if (closestAlertCamera.isLinear) {
-                activeLinearZoneStartLoc = location
-                activeLinearZoneStartMs = now
+                val hasOtherLinearCam = cachedCameras.any { it.isLinear && it.id != closestAlertCamera.id }
+                if (hasOtherLinearCam) {
+                    activeLinearZoneStartLoc = location
+                    activeLinearZoneStartMs = now
+                }
             }
 
             if (currentAlertCameraId != closestAlertCamera.id) {
@@ -278,11 +290,11 @@ class RadarForegroundService : Service(), LocationListener {
                     "RadarForegroundService",
                     "onLocationChanged",
                     true,
-                    "CAMERA ALERT DETECTED (300m Zone): Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}, Linear: ${closestAlertCamera.isLinear}"
+                    "CAMERA ALERT DETECTED (${if (minDistanceToAlert <= continuousThreshold) "Continuous" else "Approach"} Zone): Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}, Linear: ${closestAlertCamera.isLinear}"
                 )
             }
 
-            val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert)
+            val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, speedKmh)
             audioEngine.startAlert(delayMs)
             audioEngine.updateDelay(delayMs)
 
