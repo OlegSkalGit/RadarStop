@@ -251,17 +251,16 @@ class RadarForegroundService : Service(), LocationListener {
                 speedDropBelow30TimeMs = now
             }
             val timeBelow30Ms = now - speedDropBelow30TimeMs
-            val maxGraceMs = if (speedKmh <= 3f) 1 * 60 * 1000L else 3 * 60 * 1000L
-            if (timeBelow30Ms < maxGraceMs) {
-                if (lastLoggedSpeedMode != "SLOW_GRACE") {
-                    lastLoggedSpeedMode = "SLOW_GRACE"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h (${speedKmh.toInt()} km/h). Grace Period active: Polling interval kept at 3s.")
+            if (timeBelow30Ms < 3 * 60 * 1000L) {
+                if (lastLoggedSpeedMode != "SLOW_GRACE_3MIN") {
+                    lastLoggedSpeedMode = "SLOW_GRACE_3MIN"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h (${speedKmh.toInt()} km/h). 3-min Grace Period active: Polling interval kept at 3s.")
                 }
                 3000L
             } else {
                 if (lastLoggedSpeedMode != "SLOW") {
                     lastLoggedSpeedMode = "SLOW"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Stationary/Slow Mode (${speedKmh.toInt()} km/h). Polling interval: 30s (minDist: 10m). Beep alerts inactive.")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h for >3 minutes (${speedKmh.toInt()} km/h). Polling interval: 30s. Beep alerts inactive.")
                 }
                 30000L
             }
