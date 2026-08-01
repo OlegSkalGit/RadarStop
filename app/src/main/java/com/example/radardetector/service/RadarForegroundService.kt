@@ -133,13 +133,14 @@ class RadarForegroundService : Service(), LocationListener {
         lastGpsRegisterTimeMs = now
         try {
             locationManager.removeUpdates(this)
+            val minDistance = if (intervalMs >= 15000L) 10f else 0f
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
                 intervalMs,
-                0f,
+                minDistance,
                 this
             )
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms")
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms (minDistance: ${minDistance}m)")
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
             updateNotificationText("Weak GPS signal (>15m)")
@@ -245,49 +246,22 @@ class RadarForegroundService : Service(), LocationListener {
         val isInActiveLinearZone = (activeLinearZoneStartLoc != null)
         val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
 
-        val targetInterval = if (speedKmh <= 5f) {
-            if (speedDropBelow30TimeMs == 0L) {
-                speedDropBelow30TimeMs = now
-            }
-            val timeBelow5Ms = now - speedDropBelow30TimeMs
-            when {
-                timeBelow5Ms < 10 * 1000L -> {
-                    if (lastLoggedSpeedMode != "STATIC_GRACE_10S") {
-                        lastLoggedSpeedMode = "STATIC_GRACE_10S"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Stationary (<=5 km/h). Grace period 10s: 3s polling.")
-                    }
-                    3000L
-                }
-                timeBelow5Ms < 60 * 1000L -> {
-                    if (lastLoggedSpeedMode != "STATIC_MED_1MIN") {
-                        lastLoggedSpeedMode = "STATIC_MED_1MIN"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Stationary >10s. Polling interval: 15s.")
-                    }
-                    15000L
-                }
-                else -> {
-                    if (lastLoggedSpeedMode != "STATIC_DEEP") {
-                        lastLoggedSpeedMode = "STATIC_DEEP"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Stationary >1min (Parked/Passive). Deep battery save: Polling interval 60s.")
-                    }
-                    60000L
-                }
-            }
-        } else if (speedKmh <= 30f) {
+        val targetInterval = if (speedKmh <= 30f) {
             if (speedDropBelow30TimeMs == 0L) {
                 speedDropBelow30TimeMs = now
             }
             val timeBelow30Ms = now - speedDropBelow30TimeMs
-            if (timeBelow30Ms < 3 * 60 * 1000L) {
-                if (lastLoggedSpeedMode != "SLOW_GRACE_3MIN") {
-                    lastLoggedSpeedMode = "SLOW_GRACE_3MIN"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h (${speedKmh.toInt()} km/h). 3-min Grace Period active: Polling interval kept at 3s.")
+            val maxGraceMs = if (speedKmh <= 3f) 1 * 60 * 1000L else 3 * 60 * 1000L
+            if (timeBelow30Ms < maxGraceMs) {
+                if (lastLoggedSpeedMode != "SLOW_GRACE") {
+                    lastLoggedSpeedMode = "SLOW_GRACE"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h (${speedKmh.toInt()} km/h). Grace Period active: Polling interval kept at 3s.")
                 }
                 3000L
             } else {
                 if (lastLoggedSpeedMode != "SLOW") {
                     lastLoggedSpeedMode = "SLOW"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h for >3 minutes (${speedKmh.toInt()} km/h). Polling interval: 30s. Beep alerts inactive.")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Stationary/Slow Mode (${speedKmh.toInt()} km/h). Polling interval: 30s (minDist: 10m). Beep alerts inactive.")
                 }
                 30000L
             }

@@ -68,7 +68,7 @@ class OverpassSyncManager(
     }
 
     @Volatile
-    private var hasDoneInitialSync = (lastSyncTimeMs != 0L || dbHelper.getCameraCount() > 0)
+    private var hasDoneInitialSync = false
 
     fun onLocationUpdate(location: Location, speedKmh: Float) {
         if (isSyncing.get()) return
@@ -91,8 +91,8 @@ class OverpassSyncManager(
         executor.execute {
             try {
                 performSync(location.latitude, location.longitude)
-            } finally {
                 hasDoneInitialSync = true
+            } finally {
                 isSyncing.set(false)
             }
         }
