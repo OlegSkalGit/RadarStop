@@ -62,8 +62,8 @@ class RadarForegroundService : Service(), LocationListener {
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
 
-    private var activeLinearStartCam: Camera? = null
-    private var activeLinearEndCam: Camera? = null
+    private var activeLinearZoneStartLoc: Location? = null
+    private var activeLinearZoneStartMs: Long = 0L
     private var currentGpsIntervalMs: Long = -1L
 
     override fun onCreate() {
@@ -123,9 +123,17 @@ class RadarForegroundService : Service(), LocationListener {
         return START_STICKY
     }
 
+    @Volatile
+    private var lastGpsRegisterTimeMs: Long = 0L
+
     private fun registerGpsUpdates(intervalMs: Long) {
         if (currentGpsIntervalMs == intervalMs) return
+        val now = System.currentTimeMillis()
+        if (intervalMs > currentGpsIntervalMs && currentGpsIntervalMs > 0L && (now - lastGpsRegisterTimeMs < 5000L)) {
+            return
+        }
         currentGpsIntervalMs = intervalMs
+        lastGpsRegisterTimeMs = now
         try {
             locationManager.removeUpdates(this)
             locationManager.requestLocationUpdates(
@@ -147,24 +155,37 @@ class RadarForegroundService : Service(), LocationListener {
     private var cachedTotalCameraCount: Int = 0
 
     private fun reloadCameraCacheForLocation(location: Location) {
-        if (dbExecutor.isShutdown) return
-        dbExecutor.execute {
-            val lat = location.latitude
-            val lon = location.longitude
-            lastRamReloadLat = lat
-            lastRamReloadLon = lon
-            cachedBoxMinLat = lat - 0.045
-            cachedBoxMaxLat = lat + 0.045
-            cachedBoxMinLon = lon - 0.045
-            cachedBoxMaxLon = lon + 0.045
+        val lat = location.latitude
+        val lon = location.longitude
+        lastRamReloadLat = lat
+        lastRamReloadLon = lon
+        cachedBoxMinLat = lat - 0.045
+        cachedBoxMaxLat = lat + 0.045
+        cachedBoxMinLon = lon - 0.045
+        cachedBoxMaxLon = lon + 0.045
+        if (cachedCameras.isEmpty()) {
             cachedCameras = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
             cachedTotalCameraCount = dbHelper.getCameraCount()
             AppLogger.log(
                 "RadarForegroundService",
                 "reloadCameraCacheForLocation",
                 true,
-                "DATABASE LOAD: Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
+                "DATABASE LOAD (Sync): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
             )
+        } else {
+            if (dbExecutor.isShutdown) return
+            dbExecutor.execute {
+                val fresh = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
+                val count = dbHelper.getCameraCount()
+                cachedCameras = fresh
+                cachedTotalCameraCount = count
+                AppLogger.log(
+                    "RadarForegroundService",
+                    "reloadCameraCacheForLocation",
+                    true,
+                    "DATABASE LOAD (Async): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
+                )
+            }
         }
     }
 
@@ -181,9 +202,6 @@ class RadarForegroundService : Service(), LocationListener {
         }
 
         val now = System.currentTimeMillis()
-        if (now - lastProcessedMs < softwareIntervalMs) return
-        lastProcessedMs = now
-
         lastLocation = location
         val speedKmh = location.speed * 3.6f
 
@@ -227,7 +245,7 @@ class RadarForegroundService : Service(), LocationListener {
             }
         }
 
-        val isInActiveLinearZone = (activeLinearStartCam != null && activeLinearEndCam != null)
+        val isInActiveLinearZone = (activeLinearZoneStartLoc != null)
         val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
 
         val targetInterval = if (speedKmh <= 30f) {
@@ -294,14 +312,8 @@ class RadarForegroundService : Service(), LocationListener {
             val distInt = minDistanceToAlert.toInt()
 
             if (closestAlertCamera.isLinear) {
-                val pairedCam = cachedCameras.firstOrNull { it.isLinear && it.id != closestAlertCamera.id }
-                if (pairedCam != null) {
-                    activeLinearStartCam = closestAlertCamera
-                    activeLinearEndCam = pairedCam
-                } else {
-                    activeLinearStartCam = null
-                    activeLinearEndCam = null
-                }
+                activeLinearZoneStartLoc = location
+                activeLinearZoneStartMs = now
             }
 
             if (currentAlertCameraId != closestAlertCamera.id) {
@@ -325,24 +337,22 @@ class RadarForegroundService : Service(), LocationListener {
 
             updateNotificationText("Radar! Distance: ${distInt}m (${speedInt} km/h)")
         } else {
-            val startCam = activeLinearStartCam
-            val endCam = activeLinearEndCam
-            if (startCam != null && endCam != null) {
-                val distToCam1 = RadarMath.calculateDistance(location, startCam.lat, startCam.lon)
-                val distToCam2 = RadarMath.calculateDistance(location, endCam.lat, endCam.lon)
-                val maxAlertDist = if (speedKmh <= 70f) 500f else 1000f
+            val startLoc = activeLinearZoneStartLoc
+            if (startLoc != null) {
+                val distFromStart = location.distanceTo(startLoc)
+                val isMovingAwayFromStart = distFromStart > 300f
 
-                val isCam1Ahead = RadarMath.isCameraAhead(location, startCam.lat, startCam.lon)
-                val isCam2Ahead = RadarMath.isCameraAhead(location, endCam.lat, endCam.lon)
+                val candidateExitCam = cachedCameras.filter { it.isLinear && it.id != currentAlertCameraId }
+                    .minByOrNull { location.distanceTo(Location("").apply { latitude = it.lat; longitude = it.lon }) }
 
-                val isAwayFromCam1 = !isCam1Ahead || distToCam1 > maxAlertDist
-                val isAwayFromCam2 = !isCam2Ahead || distToCam2 > maxAlertDist
-                val isFarFromBoth = distToCam1 > maxAlertDist && distToCam2 > maxAlertDist
+                val isApproachingExit = if (candidateExitCam != null) {
+                    val exitLoc = Location("").apply { latitude = candidateExitCam.lat; longitude = candidateExitCam.lon }
+                    location.distanceTo(exitLoc) < 3000f
+                } else false
 
-                if (isFarFromBoth && isAwayFromCam1 && isAwayFromCam2) {
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited linear zone (> ${maxAlertDist.toInt()}m away from both paired cameras).")
-                    activeLinearStartCam = null
-                    activeLinearEndCam = null
+                if (isMovingAwayFromStart && !isApproachingExit) {
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Geometrically exited linear section (moving away from entry & no exit camera ahead).")
+                    activeLinearZoneStartLoc = null
                 } else {
                     val speedInt = speedKmh.toInt()
                     val delayMs = 1500L

@@ -42,13 +42,13 @@ class OverpassSyncManager(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val prefs: SharedPreferences = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
     @Volatile
-    private var lastSyncTimeMs = 0L
+    private var lastSyncTimeMs = prefs.getLong("last_sync_time_ms", 0L)
     @Volatile
     private var lastSyncAttemptMs = 0L
 
     private val isSyncing = java.util.concurrent.atomic.AtomicBoolean(false)
-    private var lastSyncedLat = 0.0
-    private var lastSyncedLon = 0.0
+    private var lastSyncedLat = prefs.getFloat("last_synced_lat", 0f).toDouble()
+    private var lastSyncedLon = prefs.getFloat("last_synced_lon", 0f).toDouble()
 
     private fun isInternetAvailable(): Boolean {
         return try {
@@ -112,7 +112,7 @@ class OverpassSyncManager(
         val south = lat - 0.45
         val north = lat + 0.45
         val cosLat = Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1)
-        val deltaLon = (0.45 / cosLat).coerceIn(0.45, 2.0)
+        val deltaLon = (0.45 / cosLat).coerceIn(0.45, 0.9)
         val west = lon - deltaLon
         val east = lon + deltaLon
 
@@ -136,6 +136,11 @@ class OverpassSyncManager(
                 lastSyncAttemptMs = 0L
                 lastSyncedLat = lat
                 lastSyncedLon = lon
+                prefs.edit()
+                    .putLong("last_sync_time_ms", lastSyncTimeMs)
+                    .putFloat("last_synced_lat", lat.toFloat())
+                    .putFloat("last_synced_lon", lon.toFloat())
+                    .apply()
                 success = true
                 val count = dbHelper.getCameraCount()
                 AppLogger.log(

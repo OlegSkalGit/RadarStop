@@ -41,9 +41,11 @@ object RadarMath {
             latitude = cameraLat
             longitude = cameraLon
         }
+        val distance = carLocation.distanceTo(cameraLoc)
+        if (distance <= 100f) return true
         val bearingToCamera = carLocation.bearingTo(cameraLoc)
         val angleDiff = abs(angleDifference(carLocation.bearing, bearingToCamera))
-        return angleDiff <= 70f
+        return angleDiff <= 85f
     }
 
     /**
