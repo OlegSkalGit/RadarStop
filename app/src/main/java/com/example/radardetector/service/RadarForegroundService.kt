@@ -43,14 +43,11 @@ class RadarForegroundService : Service(), LocationListener {
     private lateinit var syncManager: OverpassSyncManager
     private lateinit var audioEngine: AcousticRadarEngine
 
-    private var currentIntervalMs: Long = 0L
     private var lastLocation: Location? = null
 
     @Volatile
     private var cachedCameras: List<Camera> = emptyList()
     private val dbExecutor = Executors.newSingleThreadExecutor()
-    private var lastProcessedMs: Long = 0L
-    private var softwareIntervalMs: Long = 3000L
     private var cachedBoxMinLat = 0.0
     private var cachedBoxMaxLat = 0.0
     private var cachedBoxMinLon = 0.0
@@ -292,7 +289,6 @@ class RadarForegroundService : Service(), LocationListener {
                 }
             }
         }
-        softwareIntervalMs = targetInterval
         registerGpsUpdates(targetInterval)
 
         val defaultStatusText = "Active. Cameras: ${cachedCameras.size} nearby / $cachedTotalCameraCount total"
