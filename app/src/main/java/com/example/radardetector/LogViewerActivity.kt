@@ -140,11 +140,13 @@ class LogViewerActivity : Activity() {
             textSize = 14f
             isChecked = AppLogger.isLoggingEnabled
             setOnCheckedChangeListener { _, isChecked ->
-                AppLogger.isLoggingEnabled = isChecked
+                AppLogger.setLoggingEnabled(this@LogViewerActivity, isChecked)
                 if (isChecked) {
                     AppLogger.log("LogViewerActivity", "onCheckedChanged", true, "ADB file logging enabled by user.")
+                    updateSpinnerFiles(selectToday = true)
+                } else {
+                    refreshLog()
                 }
-                refreshLog()
             }
         }
 

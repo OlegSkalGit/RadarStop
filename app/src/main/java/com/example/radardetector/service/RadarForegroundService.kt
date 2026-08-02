@@ -106,8 +106,24 @@ class RadarForegroundService : Service(), LocationListener {
         val initialText = "Searching for GPS..."
         lastNotificationText = initialText
         startForeground(NOTIF_ID, buildNotification(initialText))
+        AppLogger.log("RadarForegroundService", "onCreate", true, "Searching for GPS satellites...")
 
         registerGpsUpdates(3000L)
+
+        // Try last known location for instant startup
+        try {
+            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            val bestKnown = lastGps ?: lastNet
+            if (bestKnown != null) {
+                AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Initializing cache...")
+                onLocationChanged(bestKnown)
+            }
+        } catch (e: SecurityException) {
+            AppLogger.log("RadarForegroundService", "onCreate", false, "Permission missing for last known location: ${e.message}")
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "onCreate", false, "Error getting last known location: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -133,6 +149,13 @@ class RadarForegroundService : Service(), LocationListener {
         if (intervalMs > currentGpsIntervalMs && currentGpsIntervalMs > 0L && (now - lastGpsRegisterTimeMs < 5000L)) {
             return
         }
+
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS Hardware Provider is DISABLED in Android System Settings!")
+            updateNotificationText("GPS is Disabled in System Settings")
+            return
+        }
+
         currentGpsIntervalMs = intervalMs
         lastGpsRegisterTimeMs = now
         try {
@@ -144,7 +167,7 @@ class RadarForegroundService : Service(), LocationListener {
                 minDistance,
                 this
             )
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms (minDistance: ${minDistance}m)")
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms (minDistance: ${minDistance}m). Searching for GPS satellites...")
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
             updateNotificationText("Weak GPS signal (>15m)")
