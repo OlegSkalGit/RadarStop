@@ -170,6 +170,31 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         return list
     }
 
+    fun getAllLinearCameras(): List<Camera> {
+        val list = ArrayList<Camera>()
+        val db = readableDatabase
+        db.query(
+            TABLE_CAMERAS,
+            arrayOf(COLUMN_ID, COLUMN_LAT, COLUMN_LON, COLUMN_DIR, COLUMN_IS_LINEAR),
+            "$COLUMN_IS_LINEAR = 1",
+            null, null, null, null
+        ).use { cursor ->
+            val idIdx = cursor.getColumnIndexOrThrow(COLUMN_ID)
+            val latIdx = cursor.getColumnIndexOrThrow(COLUMN_LAT)
+            val lonIdx = cursor.getColumnIndexOrThrow(COLUMN_LON)
+            val dirIdx = cursor.getColumnIndexOrThrow(COLUMN_DIR)
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idIdx)
+                val lat = cursor.getDouble(latIdx)
+                val lon = cursor.getDouble(lonIdx)
+                val dir = if (cursor.isNull(dirIdx)) null else cursor.getFloat(dirIdx)
+                list.add(Camera(id, lat, lon, dir, true))
+            }
+        }
+        return list
+    }
+
     fun getCameraCount(): Int {
         val db = readableDatabase
         db.rawQuery("SELECT COUNT(*) FROM $TABLE_CAMERAS", null).use { cursor ->

@@ -25,43 +25,45 @@ object RadarMath {
 
     /**
      * Checks if camera direction (if present) aligns with vehicle bearing within +-45 degrees.
+     * If carLocation has no bearing (hasBearing() == false), returns true (360 degree mode).
      */
-    fun isAzimuthValid(carBearing: Float, cameraDir: Float?): Boolean {
-        if (cameraDir == null) return true
+    fun isAzimuthValid(carLocation: Location, cameraDir: Float?): Boolean {
+        if (!carLocation.hasBearing() || cameraDir == null) return true
+        val carBearing = carLocation.bearing
         val diff = abs(angleDifference(carBearing, cameraDir))
         return diff <= 45f || abs(angleDifference(carBearing, (cameraDir + 180f) % 360f)) <= 45f
     }
 
     /**
-     * Checks if camera is ahead of vehicle (approaching) within a +-70 degree cone.
+     * Checks if camera is ahead of vehicle (approaching) within a +-85 degree cone up to maxAlertDistance.
      */
-    fun isCameraAhead(carLocation: Location, cameraLat: Double, cameraLon: Double): Boolean {
+    fun isCameraAhead(carLocation: Location, cameraLat: Double, cameraLon: Double, maxAlertDistance: Float): Boolean {
         if (!carLocation.hasBearing() || carLocation.speed * 3.6f < 5f) return true
         val cameraLoc = Location("").apply {
             latitude = cameraLat
             longitude = cameraLon
         }
         val distance = carLocation.distanceTo(cameraLoc)
-        if (distance <= 100f) return true
+        if (distance > maxAlertDistance) return false
         val bearingToCamera = carLocation.bearingTo(cameraLoc)
         val angleDiff = abs(angleDifference(carLocation.bearing, bearingToCamera))
         return angleDiff <= 85f
     }
 
     /**
-     * Calculates beep delay based on distance and speed.
+     * Calculates beep delay based on distance (beeps active up to 300m).
      * Continuous rapid beep (150ms) within 50m (<=70 km/h) or 100m (>70 km/h).
      */
     fun calculateBeepDelay(distanceMeters: Float, speedKmh: Float): Long {
         val continuousThreshold = if (speedKmh <= 70f) 50f else 100f
-        val maxAlertDistance = if (speedKmh <= 70f) 500f else 1000f
+        val maxBeepDistance = 300f
         val dist = abs(distanceMeters)
 
         return when {
             dist <= continuousThreshold -> 150L // Continuous rapid beep zone
-            dist <= maxAlertDistance * 0.33f -> 400L
-            dist <= maxAlertDistance * 0.66f -> 800L
-            else -> 1500L
+            dist <= maxBeepDistance * 0.33f -> 400L // <= 100m
+            dist <= maxBeepDistance * 0.66f -> 800L // <= 200m
+            else -> 1500L // <= 300m
         }
     }
 }

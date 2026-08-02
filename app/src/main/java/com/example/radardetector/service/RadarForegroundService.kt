@@ -59,8 +59,11 @@ class RadarForegroundService : Service(), LocationListener {
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
 
-    private var activeLinearZoneStartLoc: Location? = null
-    private var activeLinearZoneStartMs: Long = 0L
+    private var activeLinearEntryCam: Camera? = null
+    private var activeLinearExitCam: Camera? = null
+    private var prevDistToEntryCam: Float = Float.MAX_VALUE
+    private var prevDistToExitCam: Float = Float.MAX_VALUE
+    private var isDepartingFromEntry: Boolean = false
     private var currentGpsIntervalMs: Long = -1L
 
     override fun onCreate() {
@@ -162,26 +165,29 @@ class RadarForegroundService : Service(), LocationListener {
         cachedBoxMinLon = lon - 0.045
         cachedBoxMaxLon = lon + 0.045
         if (cachedCameras.isEmpty()) {
-            cachedCameras = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
+            val boxCams = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
+            val linearCams = dbHelper.getAllLinearCameras()
+            cachedCameras = (boxCams + linearCams).distinctBy { it.id }
             cachedTotalCameraCount = dbHelper.getCameraCount()
             AppLogger.log(
                 "RadarForegroundService",
                 "reloadCameraCacheForLocation",
                 true,
-                "DATABASE LOAD (Sync): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
+                "DATABASE LOAD (Sync): Loaded ${cachedCameras.size} cameras (${linearCams.size} linear) from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
             )
         } else {
             if (dbExecutor.isShutdown) return
             dbExecutor.execute {
-                val fresh = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
+                val freshBox = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
+                val linearCams = dbHelper.getAllLinearCameras()
                 val count = dbHelper.getCameraCount()
-                cachedCameras = fresh
+                cachedCameras = (freshBox + linearCams).distinctBy { it.id }
                 cachedTotalCameraCount = count
                 AppLogger.log(
                     "RadarForegroundService",
                     "reloadCameraCacheForLocation",
                     true,
-                    "DATABASE LOAD (Async): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
+                    "DATABASE LOAD (Async): Loaded ${cachedCameras.size} cameras (${linearCams.size} linear) from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
                 )
             }
         }
@@ -190,11 +196,12 @@ class RadarForegroundService : Service(), LocationListener {
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
         if (location.hasAccuracy() && location.accuracy > 15f) {
+            val accInt = location.accuracy.toInt()
             if (lastLoggedSpeedMode != "WEAK_GPS") {
                 lastLoggedSpeedMode = "WEAK_GPS"
                 AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy dropped (>15m: ${location.accuracy}m). Alerting paused.")
             }
-            updateNotificationText("Weak GPS signal (>15m)")
+            updateNotificationText("Weak GPS signal (>15m [${accInt}m])")
             audioEngine.stopAlert()
             return
         }
@@ -217,7 +224,8 @@ class RadarForegroundService : Service(), LocationListener {
             reloadCameraCacheForLocation(location)
         }
 
-        val maxAlertDistance = if (speedKmh <= 70f) 500f else 1000f
+        val maxGpsReadDistance = if (speedKmh <= 70f) 500f else 1000f
+        val maxBeepAlertDistance = 300f
         val continuousThreshold = if (speedKmh <= 70f) 50f else 100f
 
         var minDistToAnyCamera = Float.MAX_VALUE
@@ -230,12 +238,10 @@ class RadarForegroundService : Service(), LocationListener {
                 minDistToAnyCamera = distance
             }
 
-            val isContinuousZone = distance <= continuousThreshold
-            val isApproachingZone = distance <= maxAlertDistance &&
-                    RadarMath.isCameraAhead(location, camera.lat, camera.lon) &&
-                    RadarMath.isAzimuthValid(location.bearing, camera.dir)
+            val isWithin300mBeepZone = distance <= maxBeepAlertDistance &&
+                    RadarMath.isAzimuthValid(location, camera.dir)
 
-            if (isContinuousZone || isApproachingZone) {
+            if (isWithin300mBeepZone) {
                 if (distance < minDistanceToAlert) {
                     minDistanceToAlert = distance
                     closestAlertCamera = camera
@@ -243,7 +249,8 @@ class RadarForegroundService : Service(), LocationListener {
             }
         }
 
-        val isInActiveLinearZone = (activeLinearZoneStartLoc != null)
+        val isInActiveLinearZone = (activeLinearEntryCam != null)
+        val isWithinGps1sDistance = (minDistToAnyCamera <= maxGpsReadDistance)
         val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
 
         val targetInterval = if (speedKmh <= 30f) {
@@ -267,26 +274,26 @@ class RadarForegroundService : Service(), LocationListener {
         } else {
             speedDropBelow30TimeMs = 0L
             when {
-                !hasNearbyCameraIn3km -> {
-                    if (lastLoggedSpeedMode != "SMART_SLEEP") {
-                        lastLoggedSpeedMode = "SMART_SLEEP"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (Speed > 30 km/h, no cameras within 3km). Polling interval: 15s.")
+                isWithinGps1sDistance || isInActiveLinearZone -> {
+                    if (lastLoggedSpeedMode != "CAMERA_NEARBY_1S") {
+                        lastLoggedSpeedMode = "CAMERA_NEARBY_1S"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Within 1s GPS zone (${minDistToAnyCamera.toInt()}m). Polling interval: 1s.")
                     }
-                    15000L
+                    1000L
                 }
-                speedKmh <= 70f -> {
-                    if (lastLoggedSpeedMode != "CITY") {
-                        lastLoggedSpeedMode = "CITY"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: City Mode 31-70 km/h (${speedKmh.toInt()} km/h). Polling interval: 3s.")
+                hasNearbyCameraIn3km -> {
+                    if (lastLoggedSpeedMode != "NORMAL_3S") {
+                        lastLoggedSpeedMode = "NORMAL_3S"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Cameras within 3km (${minDistToAnyCamera.toInt()}m). Polling interval: 3s.")
                     }
                     3000L
                 }
                 else -> {
-                    if (lastLoggedSpeedMode != "HIGHWAY") {
-                        lastLoggedSpeedMode = "HIGHWAY"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Highway Mode >70 km/h (${speedKmh.toInt()} km/h) near cameras. Polling interval: 1s.")
+                    if (lastLoggedSpeedMode != "SMART_SLEEP") {
+                        lastLoggedSpeedMode = "SMART_SLEEP"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (No cameras within 3km). Polling interval: 15s.")
                     }
-                    1000L
+                    15000L
                 }
             }
         }
@@ -309,8 +316,14 @@ class RadarForegroundService : Service(), LocationListener {
             val distInt = minDistanceToAlert.toInt()
 
             if (closestAlertCamera.isLinear) {
-                activeLinearZoneStartLoc = location
-                activeLinearZoneStartMs = now
+                if (activeLinearEntryCam?.id != closestAlertCamera.id) {
+                    activeLinearEntryCam = closestAlertCamera
+                    activeLinearExitCam = cachedCameras.filter { it.isLinear && it.id != closestAlertCamera.id }
+                        .minByOrNull { RadarMath.calculateDistance(location, it.lat, it.lon) }
+                    prevDistToEntryCam = RadarMath.calculateDistance(location, activeLinearEntryCam!!.lat, activeLinearEntryCam!!.lon)
+                    prevDistToExitCam = activeLinearExitCam?.let { RadarMath.calculateDistance(location, it.lat, it.lon) } ?: Float.MAX_VALUE
+                    isDepartingFromEntry = false
+                }
             }
 
             if (currentAlertCameraId != closestAlertCamera.id) {
@@ -334,23 +347,26 @@ class RadarForegroundService : Service(), LocationListener {
 
             updateNotificationText("Radar! Distance: ${distInt}m (${speedInt} km/h)")
         } else {
-            val startLoc = activeLinearZoneStartLoc
-            if (startLoc != null) {
-                val distFromStart = location.distanceTo(startLoc)
-                val isMovingAwayFromStart = distFromStart > 300f
+            val entryCam = activeLinearEntryCam
+            if (entryCam != null) {
+                val distEntry = RadarMath.calculateDistance(location, entryCam.lat, entryCam.lon)
+                val exitCam = activeLinearExitCam
+                val distExit = exitCam?.let { RadarMath.calculateDistance(location, it.lat, it.lon) } ?: Float.MAX_VALUE
 
-                val candidateExitCam = cachedCameras.filter { it.isLinear && it.id != currentAlertCameraId }
-                    .minByOrNull { location.distanceTo(Location("").apply { latitude = it.lat; longitude = it.lon }) }
+                if (distEntry > prevDistToEntryCam + 3f || distEntry > 50f) {
+                    isDepartingFromEntry = true
+                }
 
-                val isApproachingExit = if (candidateExitCam != null) {
-                    val exitLoc = Location("").apply { latitude = candidateExitCam.lat; longitude = candidateExitCam.lon }
-                    location.distanceTo(exitLoc) < 3000f
-                } else false
+                val isDepartingFromExit = (exitCam != null && distExit > prevDistToExitCam + 3f)
 
-                if (isMovingAwayFromStart && !isApproachingExit) {
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Geometrically exited linear section (moving away from entry & no exit camera ahead).")
-                    activeLinearZoneStartLoc = null
+                if (isDepartingFromEntry && (isDepartingFromExit || (exitCam == null && distEntry > 1000f))) {
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited linear section (simultaneously departing from entry & exit cameras).")
+                    activeLinearEntryCam = null
+                    activeLinearExitCam = null
                 } else {
+                    prevDistToEntryCam = distEntry
+                    if (exitCam != null) prevDistToExitCam = distExit
+
                     val speedInt = speedKmh.toInt()
                     val delayMs = 1500L
                     audioEngine.startAlert(delayMs)

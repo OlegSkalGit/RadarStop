@@ -63,8 +63,6 @@ object AppLogger {
                 val text = file.readText()
                 if (text.isEmpty()) {
                     "Log file is empty."
-                } else if (text.length > 50000) {
-                    "... (older logs truncated)\n" + text.takeLast(50000)
                 } else {
                     text
                 }
