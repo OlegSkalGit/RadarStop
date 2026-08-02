@@ -72,8 +72,6 @@ class OverpassSyncManager(
 
     fun onLocationUpdate(location: Location, speedKmh: Float) {
         if (isSyncing.get()) return
-        val isInitialSyncNeeded = !hasDoneInitialSync
-        if (speedKmh <= 0f && !isInitialSyncNeeded) return
 
         val now = System.currentTimeMillis()
         if (lastSyncAttemptMs != 0L && now - lastSyncAttemptMs < RETRY_PAUSE_MS) {
@@ -81,11 +79,19 @@ class OverpassSyncManager(
         }
 
         val distanceMoved = FloatArray(1)
-        Location.distanceBetween(location.latitude, location.longitude, lastSyncedLat, lastSyncedLon, distanceMoved)
-
-        if (!isInitialSyncNeeded && lastSyncTimeMs != 0L && now - lastSyncTimeMs < SYNC_THROTTLE_MS && distanceMoved[0] < 40000f) {
-            return
+        if (lastSyncedLat != 0.0 || lastSyncedLon != 0.0) {
+            Location.distanceBetween(location.latitude, location.longitude, lastSyncedLat, lastSyncedLon, distanceMoved)
+        } else {
+            distanceMoved[0] = Float.MAX_VALUE
         }
+
+        val isInitialSyncNeeded = !hasDoneInitialSync
+        val isDistanceExpired = distanceMoved[0] >= 40000f
+        val isTimeExpired = lastSyncTimeMs == 0L || (now - lastSyncTimeMs >= SYNC_THROTTLE_MS)
+
+        val isSyncNeeded = isInitialSyncNeeded || isDistanceExpired || isTimeExpired
+
+        if (!isSyncNeeded) return
 
         if (!isSyncing.compareAndSet(false, true)) return
         executor.execute {
