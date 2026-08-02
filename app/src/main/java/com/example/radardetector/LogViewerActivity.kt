@@ -21,6 +21,9 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
+import android.net.Uri
+import android.widget.Toast
+import androidx.core.content.FileProvider
 import com.example.radardetector.audio.AcousticRadarEngine
 import com.example.radardetector.util.AppLogger
 import java.io.File
@@ -340,21 +343,35 @@ class LogViewerActivity : Activity() {
     private fun shareLog() {
         Thread {
             try {
-                val fileName = selectedLogFileName
-                val logText = AppLogger.readLogText(fileName)
+                val fileName = selectedLogFileName ?: AppLogger.getTodayFileName()
+                val logFile = File(filesDir, fileName)
+                if (!logFile.exists()) {
+                    runOnUiThread {
+                        Toast.makeText(this, "Log file not found ($fileName)", Toast.LENGTH_SHORT).show()
+                    }
+                    return@Thread
+                }
+
+                val contentUri: Uri = FileProvider.getUriForFile(
+                    this,
+                    "$packageName.fileprovider",
+                    logFile
+                )
+
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "RadarStop Log (${fileName ?: "Today"})")
-                            putExtra(Intent.EXTRA_TEXT, logText)
+                            putExtra(Intent.EXTRA_SUBJECT, "RadarStop Log ($fileName)")
+                            putExtra(Intent.EXTRA_STREAM, contentUri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
-                        startActivity(Intent.createChooser(intent, "Share / Open Log"))
-                        AppLogger.log("LogViewerActivity", "shareLog", true, "Triggered system share chooser for ${fileName}.")
+                        startActivity(Intent.createChooser(intent, "Share Log File"))
+                        AppLogger.log("LogViewerActivity", "shareLog", true, "Triggered system file share for $fileName.")
                     }
                 }
             } catch (e: Exception) {
-                AppLogger.log("LogViewerActivity", "shareLog", false, "Error: ${e.message}")
+                AppLogger.log("LogViewerActivity", "shareLog", false, "Error sharing file: ${e.message}")
             }
         }.start()
     }
