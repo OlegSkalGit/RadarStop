@@ -90,7 +90,7 @@ class LogViewerActivity : Activity() {
         val btnBeep = Button(this).apply {
             text = "Beep"
             setOnClickListener {
-                audioEngine.playBeeps(5, 500L)
+                audioEngine.playSingleBeep()
             }
         }
         val btnRefresh = Button(this).apply {
