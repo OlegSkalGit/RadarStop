@@ -195,9 +195,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val code = intent.getStringExtra(EXTRA_COUNTRY_CODE) ?: "UA"
             val name = intent.getStringExtra(EXTRA_COUNTRY_NAME) ?: "Ukraine"
             syncManager.triggerCountryCameraSync(code, name)
-            return START_STICKY
+            return START_NOT_STICKY
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     @Volatile
