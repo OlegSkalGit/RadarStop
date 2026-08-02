@@ -10,42 +10,88 @@ import java.util.concurrent.Executors
 
 object AppLogger {
 
-    private const val LOG_FILE_NAME = "radar_app.log"
-    private var logFile: File? = null
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    private val fileDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
+    private val logTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
 
+    private var appFilesDir: File? = null
     private val writeExecutor = Executors.newSingleThreadExecutor()
 
     @Volatile
     var isLoggingEnabled: Boolean = false
 
+    private var currentLogDateStr: String? = null
+
     @Synchronized
     fun initNewSession(context: Context) {
         try {
-            isLoggingEnabled = false
-            logFile = File(context.filesDir, LOG_FILE_NAME)
-            if (logFile?.exists() == true) {
-                logFile?.delete()
-            }
-            logFile?.createNewFile()
+            appFilesDir = context.filesDir
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    private const val MAX_LOG_SIZE_BYTES = 256 * 1024L // 256 KB limit
+    fun getTodayFileName(): String {
+        return fileDateFormat.format(Date()) + ".log"
+    }
+
+    private fun getTodayLogFile(): File? {
+        val dir = appFilesDir ?: return null
+        val dateStr = fileDateFormat.format(Date())
+
+        // Check if date changed -> perform cleanup of files > 7 days old before writing new log file
+        if (dateStr != currentLogDateStr) {
+            cleanupOldLogs()
+            currentLogDateStr = dateStr
+        }
+
+        val fileName = "$dateStr.log"
+        val file = File(dir, fileName)
+        if (!file.exists()) {
+            try {
+                file.createNewFile()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        return file
+    }
+
+    private fun cleanupOldLogs() {
+        val dir = appFilesDir ?: return
+        val files = dir.listFiles { _, name -> name.matches(Regex("\\d{8}\\.log")) } ?: return
+        val nowMs = System.currentTimeMillis()
+        val sevenDaysMs = 7L * 24 * 60 * 60 * 1000L
+
+        for (file in files) {
+            try {
+                val dateStr = file.name.removeSuffix(".log")
+                val fileDate = fileDateFormat.parse(dateStr)
+                if (fileDate != null) {
+                    val ageMs = nowMs - fileDate.time
+                    if (ageMs > sevenDaysMs) {
+                        file.delete()
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun getAvailableLogFiles(context: Context): List<File> {
+        val dir = appFilesDir ?: context.filesDir
+        val files = dir.listFiles { _, name -> name.matches(Regex("\\d{8}\\.log")) } ?: return emptyList()
+        return files.sortedByDescending { it.name }
+    }
 
     fun log(module: String, functionName: String, isSuccess: Boolean, details: String) {
         if (!isLoggingEnabled) return
         writeExecutor.execute {
             try {
-                val timestamp = dateFormat.format(Date())
+                val timestamp = logTimeFormat.format(Date())
                 val statusStr = if (isSuccess) "SUCCESS" else "FAILURE"
                 val line = "[$timestamp] [$module::$functionName] $statusStr: $details\n"
-                val file = logFile ?: return@execute
-                if (file.exists() && file.length() >= MAX_LOG_SIZE_BYTES) {
-                    file.writeText("[AppLogger] Log file auto-rotated at 256 KB limit.\n")
-                }
+                val file = getTodayLogFile() ?: return@execute
                 FileWriter(file, true).use { writer ->
                     writer.write(line)
                 }
@@ -56,13 +102,18 @@ object AppLogger {
     }
 
     @Synchronized
-    fun readLogText(): String {
+    fun readLogText(fileName: String? = null): String {
         return try {
-            val file = logFile
-            if (file != null && file.exists()) {
-                val text = file.readText()
+            val dir = appFilesDir ?: return "Logs directory not initialized."
+            val targetFile = if (!fileName.isNullOrEmpty()) {
+                File(dir, fileName)
+            } else {
+                getTodayLogFile()
+            }
+            if (targetFile != null && targetFile.exists()) {
+                val text = targetFile.readText()
                 if (text.isEmpty()) {
-                    "Log file is empty."
+                    "Log file (${targetFile.name}) is empty."
                 } else {
                     text
                 }
@@ -75,12 +126,17 @@ object AppLogger {
     }
 
     @Synchronized
-    fun clearLog() {
+    fun deleteLogFile(fileName: String?): Boolean {
         try {
-            logFile?.writeText("")
-            log("AppLogger", "clearLog", true, "Log cleared by user.")
+            val dir = appFilesDir ?: return false
+            if (fileName.isNullOrEmpty()) return false
+            val file = File(dir, fileName)
+            if (file.exists()) {
+                return file.delete()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        return false
     }
 }

@@ -194,17 +194,25 @@ class RadarForegroundService : Service(), LocationListener {
         }
     }
 
+    private var isWeakGpsState: Boolean = false
+
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
-        if (location.hasAccuracy() && location.accuracy > 15f) {
-            val accInt = location.accuracy.toInt()
-            if (lastLoggedSpeedMode != "WEAK_GPS") {
-                lastLoggedSpeedMode = "WEAK_GPS"
-                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy dropped (>15m: ${location.accuracy}m). Alerting paused.")
+        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 15f
+        if (isAccuracyWeak) {
+            if (!isWeakGpsState) {
+                isWeakGpsState = true
+                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>15m). Alerting paused.")
             }
+            val accInt = location.accuracy.toInt()
             updateNotificationText("Weak GPS signal (>15m [${accInt}m])")
             audioEngine.stopAlert()
             return
+        } else {
+            if (isWeakGpsState) {
+                isWeakGpsState = false
+                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "GPS accuracy restored (<=15m). Alerting resumed.")
+            }
         }
 
         val now = System.currentTimeMillis()
