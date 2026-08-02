@@ -93,6 +93,13 @@ class LogViewerActivity : Activity() {
                 audioEngine.playSingleBeep()
             }
         }
+        val btnMap = Button(this).apply {
+            text = "Map"
+            setOnClickListener {
+                val intent = Intent(this@LogViewerActivity, RadarMapActivity::class.java)
+                startActivity(intent)
+            }
+        }
         val btnRefresh = Button(this).apply {
             text = "Refresh"
             setOnClickListener {
@@ -122,6 +129,7 @@ class LogViewerActivity : Activity() {
         }
 
         btnLayout.addView(btnBeep)
+        btnLayout.addView(btnMap)
         btnLayout.addView(btnRefresh)
         btnLayout.addView(btnShare)
         btnLayout.addView(btnClear)

@@ -39,6 +39,11 @@
             android:exported="false"
             android:theme="@style/Theme.Transparent" />
 
+        <activity
+            android:name=".RadarMapActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Transparent" />
+
         <service
             android:name=".service.RadarForegroundService"
             android:exported="false"
