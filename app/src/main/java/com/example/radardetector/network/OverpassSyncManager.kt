@@ -32,7 +32,7 @@ class OverpassSyncManager(
         private val MIRRORS = arrayOf(
             "https://overpass-api.de/api/interpreter",
             "https://overpass.kumi.systems/api/interpreter",
-            "https://api.openstreetmap.fr/oapi/interpreter"
+            "https://overpass.nchc.org.tw/api/interpreter"
         )
         private const val SYNC_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
         private const val RETRY_PAUSE_MS = 5 * 60 * 1000L // 5 minutes retry delay on network failure
@@ -170,7 +170,7 @@ class OverpassSyncManager(
         }
     }
 
-    private fun executePostAndParseStream(urlStr: String, body: String, readTimeoutMs: Int = 10000): List<Camera>? {
+    private fun executePostAndParseStream(urlStr: String, body: String, readTimeoutMs: Int = 30000): List<Camera>? {
         var conn: HttpURLConnection? = null
         return try {
             val url = URL(urlStr)
@@ -179,6 +179,7 @@ class OverpassSyncManager(
                 connectTimeout = 10000
                 this.readTimeout = readTimeoutMs
                 doOutput = true
+                setRequestProperty("User-Agent", "RadarStop/1.0")
                 setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             }
             OutputStreamWriter(conn.outputStream).use { writer ->
@@ -355,7 +356,7 @@ class OverpassSyncManager(
 
             val query = """
                 [out:json][timeout:30];
-                area["ISO3166-1"]["admin_level"="2"];
+                relation["admin_level"="2"]["ISO3166-1"];
                 out tags;
             """.trimIndent()
 
