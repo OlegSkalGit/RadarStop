@@ -36,6 +36,7 @@ class RadarMapActivity : Activity(), LocationListener {
     private lateinit var tvStatusLine2: TextView
     private var lastLocation: Location? = null
     private var nearbyCameras: List<Camera> = emptyList()
+    private var speedDropBelow30TimeMs = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -168,15 +169,35 @@ class RadarMapActivity : Activity(), LocationListener {
         }
 
         // 3. Polling Interval
-        val maxGpsReadDist = if (speedKmh <= 60f) 500f else 1000f
-        val isWithin1s = minDistToAnyCam <= maxGpsReadDist
-        val hasCamIn3km = minDistToAnyCam <= 3000f
+        val activeIntervalMs = if (com.example.radardetector.service.RadarForegroundService.isRunning) {
+            com.example.radardetector.service.RadarForegroundService.currentGpsIntervalMs
+        } else {
+            when {
+                speedKmh <= 30f -> {
+                    val now = System.currentTimeMillis()
+                    if (speedDropBelow30TimeMs == 0L) speedDropBelow30TimeMs = now
+                    val timeBelow30 = now - speedDropBelow30TimeMs
+                    if (timeBelow30 < 3 * 60 * 1000L) 3000L else 30000L
+                }
+                else -> {
+                    speedDropBelow30TimeMs = 0L
+                    val maxGpsReadDist = if (speedKmh <= 60f) 500f else 1000f
+                    when {
+                        minDistToAnyCam <= maxGpsReadDist -> 1000L
+                        minDistToAnyCam <= 3000f -> 3000L
+                        else -> 15000L
+                    }
+                }
+            }
+        }
 
-        val pollingIntervalStr = when {
-            speedKmh <= 30f -> "3s/30s (Sleep)"
-            isWithin1s -> "1s (Camera Nearby)"
-            hasCamIn3km -> "3s (Normal)"
-            else -> "15s (Smart Sleep)"
+        val activeSec = if (activeIntervalMs > 0) activeIntervalMs / 1000L else 1L
+        val pollingIntervalStr = when (activeIntervalMs) {
+            1000L -> "1s (Camera Nearby)"
+            3000L -> if (speedKmh <= 30f) "3s (Grace Period)" else "3s (Normal)"
+            15000L -> "15s (Smart Sleep)"
+            30000L -> "30s (Sleep Mode)"
+            else -> "${activeSec}s"
         }
 
         // 4. Beep Status

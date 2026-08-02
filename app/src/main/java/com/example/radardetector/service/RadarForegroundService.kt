@@ -36,6 +36,8 @@ class RadarForegroundService : Service(), LocationListener {
 
         @Volatile
         var isRunning = false
+        @Volatile
+        var currentGpsIntervalMs: Long = 3000L
     }
 
     private lateinit var locationManager: LocationManager
@@ -65,7 +67,6 @@ class RadarForegroundService : Service(), LocationListener {
     private var prevDistToEntryCam: Float = Float.MAX_VALUE
     private var prevDistToExitCam: Float = Float.MAX_VALUE
     private var isDepartingFromEntry: Boolean = false
-    private var currentGpsIntervalMs: Long = -1L
     private val logged300mCameraIds = HashSet<Long>()
     private val loggedCrossingCameraIds = HashSet<Long>()
 
