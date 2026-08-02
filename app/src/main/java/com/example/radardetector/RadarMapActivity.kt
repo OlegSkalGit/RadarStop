@@ -337,39 +337,33 @@ class RadarMapActivity : Activity(), LocationListener {
                     val screenY = cy - (dy / maxRangeMeters) * maxRadiusPx
 
                     val paintToUse = if (cam.isLinear) camLinearPaint else camPaint
-                    canvas.drawCircle(screenX, screenY, 14f, paintToUse)
+                    canvas.drawCircle(screenX, screenY, 7f, paintToUse)
 
                     if (cam.dir != null) {
                         val camRad = Math.toRadians(cam.dir.toDouble())
-                        val dirLen = 45f
+                        val dirLen = 25f
                         val arrowEndX = screenX + (dirLen * sin(camRad)).toFloat()
                         val arrowEndY = screenY - (dirLen * cos(camRad)).toFloat()
 
                         canvas.drawLine(screenX, screenY, arrowEndX, arrowEndY, camAzimuthPaint)
-                        canvas.drawCircle(arrowEndX, arrowEndY, 5f, camAzimuthPaint)
+                        canvas.drawCircle(arrowEndX, arrowEndY, 3f, camAzimuthPaint)
                     }
-
-                    val label = "#${cam.id} (${dist.toInt()}m)"
-                    canvas.drawText(label, screenX + 18f, screenY + 8f, camTextPaint)
                 } else {
                     // Outside 3km range (Loaded in RAM): Project onto the Outer Ring
                     val outerX = cx + (maxRadiusPx * sin(rad)).toFloat()
                     val outerY = cy - (maxRadiusPx * cos(rad)).toFloat()
 
-                    canvas.drawCircle(outerX, outerY, 10f, camOuterFillPaint)
-                    canvas.drawCircle(outerX, outerY, 10f, camOuterPaint)
+                    canvas.drawCircle(outerX, outerY, 5f, camOuterFillPaint)
+                    canvas.drawCircle(outerX, outerY, 5f, camOuterPaint)
 
                     if (cam.dir != null) {
                         val camRad = Math.toRadians(cam.dir.toDouble())
-                        val dirLen = 30f
+                        val dirLen = 18f
                         val arrowEndX = outerX + (dirLen * sin(camRad)).toFloat()
                         val arrowEndY = outerY - (dirLen * cos(camRad)).toFloat()
 
                         canvas.drawLine(outerX, outerY, arrowEndX, arrowEndY, camAzimuthPaint)
                     }
-
-                    val distKmStr = String.format(Locale.US, "%.1fk", dist / 1000f)
-                    canvas.drawText(distKmStr, outerX + 14f, outerY + 6f, outerCamTextPaint)
                 }
             }
 
