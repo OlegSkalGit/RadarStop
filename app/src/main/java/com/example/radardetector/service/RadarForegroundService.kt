@@ -303,6 +303,15 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
         lastLocationTimeMs = System.currentTimeMillis()
+        lastLocation = location
+
+        val rawSpeedKmh = location.speed * 3.6f
+        val speedKmh = RadarMath.calculateEffectiveSpeed(rawSpeedKmh, effectiveSpeedKmh)
+        effectiveSpeedKmh = speedKmh
+
+        // Always trigger sync (initial 100x100km load works even with weak/coarse GPS accuracy)
+        syncManager.onLocationUpdate(location, speedKmh)
+
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 15f
         if (isAccuracyWeak) {
             if (!isWeakGpsState) {
@@ -321,12 +330,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         val now = System.currentTimeMillis()
-        lastLocation = location
-        val rawSpeedKmh = location.speed * 3.6f
-        val speedKmh = RadarMath.calculateEffectiveSpeed(rawSpeedKmh, effectiveSpeedKmh)
-        effectiveSpeedKmh = speedKmh
-
-        syncManager.onLocationUpdate(location, speedKmh)
 
         val lat = location.latitude
         val lon = location.longitude
