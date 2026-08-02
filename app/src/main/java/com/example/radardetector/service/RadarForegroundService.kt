@@ -58,6 +58,7 @@ class RadarForegroundService : Service(), LocationListener {
     private var speedDropBelow30TimeMs = 0L
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
+    private var effectiveSpeedKmh: Float = 0f
 
     private var activeLinearEntryCam: Camera? = null
     private var activeLinearExitCam: Camera? = null
@@ -208,7 +209,14 @@ class RadarForegroundService : Service(), LocationListener {
 
         val now = System.currentTimeMillis()
         lastLocation = location
-        val speedKmh = location.speed * 3.6f
+        val rawSpeedKmh = location.speed * 3.6f
+        val speedKmh = if (effectiveSpeedKmh == 0f) {
+            rawSpeedKmh
+        } else {
+            val delta = Math.abs(rawSpeedKmh - effectiveSpeedKmh)
+            if (delta > 10f) rawSpeedKmh else effectiveSpeedKmh
+        }
+        effectiveSpeedKmh = speedKmh
 
         syncManager.onLocationUpdate(location, speedKmh)
 
@@ -224,9 +232,9 @@ class RadarForegroundService : Service(), LocationListener {
             reloadCameraCacheForLocation(location)
         }
 
-        val maxGpsReadDistance = if (speedKmh <= 70f) 500f else 1000f
+        val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
         val maxBeepAlertDistance = 300f
-        val continuousThreshold = if (speedKmh <= 70f) 50f else 100f
+        val continuousThreshold = if (speedKmh <= 60f) 50f else 100f
 
         var minDistToAnyCamera = Float.MAX_VALUE
         var closestAlertCamera: Camera? = null
