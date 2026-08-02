@@ -51,6 +51,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         var isRunning = false
         @Volatile
         var currentGpsIntervalMs: Long = 3000L
+        @Volatile
+        var instance: RadarForegroundService? = null
     }
 
     private lateinit var locationManager: LocationManager
@@ -103,6 +105,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         isRunning = true
         lastLocationTimeMs = System.currentTimeMillis()
 
@@ -241,7 +244,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
     }
 
-    private fun checkWatchdogStall() {
+    fun checkWatchdogStall() {
         val now = System.currentTimeMillis()
         val timeSinceLastLoc = now - lastLocationTimeMs
         if (timeSinceLastLoc >= WATCHDOG_CHECK_INTERVAL_MS) {
@@ -252,6 +255,13 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 "WATCHDOG TRIGGERED: No location updates received for ${timeSinceLastLoc / 1000}s. Forcing GPS re-registration..."
             )
             registerGpsUpdates(currentGpsIntervalMs, force = true)
+        } else {
+            AppLogger.log(
+                "RadarForegroundService",
+                "checkWatchdogStall",
+                true,
+                "GPS WATCHDOG OK: Last location update received ${timeSinceLastLoc / 1000}s ago."
+            )
         }
     }
 
@@ -608,6 +618,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private fun stopSelfAndCleanup() {
         AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cleaning up resources and stopping service.")
         isRunning = false
+        if (instance == this) instance = null
         watchdogHandler.removeCallbacks(watchdogRunnable)
         try {
             if (wakeLock?.isHeld == true) {

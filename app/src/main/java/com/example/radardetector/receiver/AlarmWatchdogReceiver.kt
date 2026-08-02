@@ -60,7 +60,13 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         AppLogger.log("AlarmWatchdogReceiver", "onReceive", true, "15-min AlarmManager exact tick received. Service running: ${RadarForegroundService.isRunning}")
 
-        if (!RadarForegroundService.isRunning) {
+        if (RadarForegroundService.isRunning) {
+            val serviceInstance = RadarForegroundService.instance
+            if (serviceInstance != null) {
+                AppLogger.log("AlarmWatchdogReceiver", "onReceive", true, "Service is running. Triggering GPS stall check...")
+                serviceInstance.checkWatchdogStall()
+            }
+        } else {
             val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
             val isAutostartEnabled = prefs.getBoolean("autostart", false)
             if (isAutostartEnabled) {
