@@ -357,43 +357,35 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 minDistToAnyCamera = distance
             }
 
-            val isAzimuthValid = RadarMath.isAzimuthValid(location, camera.dir)
-            val carBearingStr = if (location.hasBearing()) "${location.bearing.toInt()}°" else "NO_BEARING"
-            val camDirStr = if (camera.dir != null) "${camera.dir.toInt()}°" else "OMNIDIRECTIONAL"
-            val alignmentStr = if (isAzimuthValid) "MATCH (ALERT_ALLOWED)" else "MISMATCH (ALERT_SUPPRESSED)"
-
-            // Log 1 time when entering 300m zone (regardless of azimuth match and alert status)
+            // Log 1 time when entering 300m zone
             if (distance <= maxBeepAlertDistance) {
                 if (logged300mCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
                         "onCamera300mEntry",
-                        isAzimuthValid,
-                        "300M ZONE ENTERED: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m. Car Bearing: $carBearingStr, Cam Azimuth: $camDirStr. Alignment: $alignmentStr"
+                        true,
+                        "300M ZONE ENTERED: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m."
                     )
                 }
             } else if (distance > 400f) {
                 logged300mCameraIds.remove(camera.id)
             }
 
-            // Log 1 time at direct camera crossing (within continuous zone <= 50m/100m, regardless of azimuth match)
+            // Log 1 time at direct camera crossing (within continuous zone <= 50m/100m)
             if (distance <= continuousThreshold) {
                 if (loggedCrossingCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
                         "onCameraCrossing",
-                        isAzimuthValid,
-                        "DIRECT CAMERA CROSSING: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m. Car Bearing: $carBearingStr, Cam Azimuth: $camDirStr. Alignment: $alignmentStr"
+                        true,
+                        "DIRECT CAMERA CROSSING: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m."
                     )
                 }
             } else if (distance > continuousThreshold + 50f) {
                 loggedCrossingCameraIds.remove(camera.id)
             }
 
-            val isCameraAheadOrContinuous = distance <= continuousThreshold || RadarMath.isCameraAhead(location, camera.lat, camera.lon, maxBeepAlertDistance)
-            val isWithin300mBeepZone = distance <= maxBeepAlertDistance && isAzimuthValid && isCameraAheadOrContinuous
-
-            if (isWithin300mBeepZone) {
+            if (distance <= maxBeepAlertDistance) {
                 if (distance < minDistanceToAlert) {
                     minDistanceToAlert = distance
                     closestAlertCamera = camera

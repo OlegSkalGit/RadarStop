@@ -23,32 +23,7 @@ object RadarMath {
         return carLocation.distanceTo(cameraLocation)
     }
 
-    /**
-     * Checks if camera direction (if present) aligns with vehicle bearing within +-50 degrees (100 degrees total cone).
-     * If carLocation has no bearing (hasBearing() == false), returns true (360 degree mode).
-     */
-    fun isAzimuthValid(carLocation: Location, cameraDir: Float?): Boolean {
-        if (!carLocation.hasBearing() || cameraDir == null) return true
-        val carBearing = carLocation.bearing
-        val diff = abs(angleDifference(carBearing, cameraDir))
-        return diff <= 50f || abs(angleDifference(carBearing, (cameraDir + 180f) % 360f)) <= 50f
-    }
 
-    /**
-     * Checks if camera is ahead of vehicle (approaching) within a +-100 degree cone up to maxAlertDistance.
-     */
-    fun isCameraAhead(carLocation: Location, cameraLat: Double, cameraLon: Double, maxAlertDistance: Float): Boolean {
-        if (!carLocation.hasBearing() || carLocation.speed * 3.6f < 5f) return true
-        val cameraLoc = Location("").apply {
-            latitude = cameraLat
-            longitude = cameraLon
-        }
-        val distance = carLocation.distanceTo(cameraLoc)
-        if (distance > maxAlertDistance) return false
-        val bearingToCamera = carLocation.bearingTo(cameraLoc)
-        val angleDiff = abs(angleDifference(carLocation.bearing, bearingToCamera))
-        return angleDiff <= 100f
-    }
 
     /**
      * Calculates beep delay based on distance (beeps active up to 300m).
@@ -143,7 +118,7 @@ object RadarMath {
             val dist = calculateDistance(location, cam.lat, cam.lon)
             if (dist < minDistToAnyCam) minDistToAnyCam = dist
 
-            if (dist <= 300f && isAzimuthValid(location, cam.dir)) {
+            if (dist <= 300f) {
                 if (dist < minAlertDist) {
                     minAlertDist = dist
                     closestAlertCam = cam
