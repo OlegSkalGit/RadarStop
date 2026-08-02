@@ -22,6 +22,7 @@ import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.math.RadarMath
 import com.example.radardetector.util.AppLogger
+import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -31,14 +32,15 @@ class RadarMapActivity : Activity(), LocationListener {
     private lateinit var mapView: RadarMapView
     private lateinit var locationManager: LocationManager
     private lateinit var dbHelper: DatabaseHelper
-    private lateinit var tvStatus: TextView
+    private lateinit var tvStatusLine1: TextView
+    private lateinit var tvStatusLine2: TextView
     private var lastLocation: Location? = null
     private var nearbyCameras: List<Camera> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        AppLogger.log("RadarMapActivity", "onCreate", true, "RadarMapActivity launched. Screen keep-awake set.")
+        AppLogger.log("RadarMapActivity", "onCreate", true, "RadarMapActivity launched. Keep-awake set.")
 
         dbHelper = DatabaseHelper(this)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -53,19 +55,38 @@ class RadarMapActivity : Activity(), LocationListener {
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
-        val topBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#CC181818"))
+        // Overlay status panel (Top)
+        val topPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#E614181F"))
             setPadding(24, 16, 24, 16)
         }
 
-        tvStatus = TextView(this).apply {
-            text = "Searching GPS... (Scale: 6 km)"
-            setTextColor(Color.WHITE)
-            textSize = 13f
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val statusContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
+
+        tvStatusLine1 = TextView(this).apply {
+            text = "GPS: Searching... | Interval: --"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+        }
+
+        tvStatusLine2 = TextView(this).apply {
+            text = "Beep Status: -- | Cameras: --"
+            setTextColor(Color.parseColor("#00E5FF"))
+            textSize = 12f
+            setPadding(0, 4, 0, 0)
+        }
+
+        statusContainer.addView(tvStatusLine1)
+        statusContainer.addView(tvStatusLine2)
 
         val btnClose = Button(this).apply {
             text = "Close"
@@ -73,10 +94,12 @@ class RadarMapActivity : Activity(), LocationListener {
             setOnClickListener { finish() }
         }
 
-        topBar.addView(tvStatus)
-        topBar.addView(btnClose)
+        topRow.addView(statusContainer)
+        topRow.addView(btnClose)
 
-        rootLayout.addView(topBar, FrameLayout.LayoutParams(
+        topPanel.addView(topRow)
+
+        rootLayout.addView(topPanel, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ))
@@ -100,9 +123,9 @@ class RadarMapActivity : Activity(), LocationListener {
                 onLocationChanged(lastGps)
             }
         } catch (e: SecurityException) {
-            tvStatus.text = "GPS Permission missing"
+            tvStatusLine1.text = "GPS Permission missing"
         } catch (e: Exception) {
-            tvStatus.text = "GPS Error: ${e.message}"
+            tvStatusLine1.text = "GPS Error: ${e.message}"
         }
     }
 
@@ -116,8 +139,66 @@ class RadarMapActivity : Activity(), LocationListener {
         val linearCams = dbHelper.getAllLinearCameras()
         nearbyCameras = (boxCams + linearCams).distinctBy { it.id }
 
-        val bearingStr = if (location.hasBearing()) "${location.bearing.toInt()}°" else "N/A"
-        tvStatus.text = "Speed: ${speedKmh.toInt()} km/h | Heading: $bearingStr | Cams in 6km: ${nearbyCameras.size}"
+        // 1. GPS Status & Accuracy
+        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 15f
+        val gpsStatusStr = if (isAccuracyWeak) {
+            "GPS: WEAK (>15m [${location.accuracy.toInt()}m])"
+        } else if (location.hasAccuracy()) {
+            "GPS: OK (±${location.accuracy.toInt()}m)"
+        } else {
+            "GPS: ACTIVE"
+        }
+
+        // 2. Nearest Camera & Approach Speed
+        var minDistToAnyCam = Float.MAX_VALUE
+        var closestAlertCam: Camera? = null
+        var minAlertDist = Float.MAX_VALUE
+        val continuousThresh = if (speedKmh <= 60f) 50f else 100f
+
+        for (cam in nearbyCameras) {
+            val dist = RadarMath.calculateDistance(location, cam.lat, cam.lon)
+            if (dist < minDistToAnyCam) minDistToAnyCam = dist
+
+            if (dist <= 300f && RadarMath.isAzimuthValid(location, cam.dir)) {
+                if (dist < minAlertDist) {
+                    minAlertDist = dist
+                    closestAlertCam = cam
+                }
+            }
+        }
+
+        // 3. Polling Interval
+        val maxGpsReadDist = if (speedKmh <= 60f) 500f else 1000f
+        val isWithin1s = minDistToAnyCam <= maxGpsReadDist
+        val hasCamIn3km = minDistToAnyCam <= 3000f
+
+        val pollingIntervalStr = when {
+            speedKmh <= 30f -> "3s/30s (Sleep)"
+            isWithin1s -> "1s (Camera Nearby)"
+            hasCamIn3km -> "3s (Normal)"
+            else -> "15s (Smart Sleep)"
+        }
+
+        // 4. Beep Status
+        val beepStatusStr = when {
+            isAccuracyWeak -> "PAUSED (Weak GPS)"
+            speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
+            closestAlertCam != null -> {
+                val delayMs = RadarMath.calculateBeepDelay(minAlertDist, speedKmh)
+                if (minAlertDist <= continuousThresh) {
+                    "CONTINUOUS BEEP (150ms)"
+                } else {
+                    "APPROACH ALERT (${delayMs}ms)"
+                }
+            }
+            else -> "OFF (Idle)"
+        }
+
+        val inRange3kmCount = nearbyCameras.count { RadarMath.calculateDistance(location, it.lat, it.lon) <= 3000f }
+        val ramOuterCount = nearbyCameras.size - inRange3kmCount
+
+        tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $gpsStatusStr | Interval: $pollingIntervalStr"
+        tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: $inRange3kmCount in 3km ($ramOuterCount on outer ring)"
 
         mapView.updateData(location, nearbyCameras)
     }
@@ -144,6 +225,11 @@ class RadarMapActivity : Activity(), LocationListener {
             style = Paint.Style.STROKE
             strokeWidth = 2f
         }
+        private val outerRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#00E5FF")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
         private val axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#3A4A5A")
             style = Paint.Style.STROKE
@@ -151,11 +237,11 @@ class RadarMapActivity : Activity(), LocationListener {
         }
         private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#80A0C0")
-            textSize = 28f
+            textSize = 26f
         }
         private val northLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#FF5252")
-            textSize = 34f
+            textSize = 32f
             isFakeBoldText = true
         }
 
@@ -176,6 +262,15 @@ class RadarMapActivity : Activity(), LocationListener {
             color = Color.parseColor("#FF9100")
             style = Paint.Style.FILL
         }
+        private val camOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#80FFCC00")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        private val camOuterFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#60FFCC00")
+            style = Paint.Style.FILL
+        }
         private val camAzimuthPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#FFEA00")
             style = Paint.Style.STROKE
@@ -184,6 +279,10 @@ class RadarMapActivity : Activity(), LocationListener {
         private val camTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textSize = 22f
+        }
+        private val outerCamTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FFCC00")
+            textSize = 20f
         }
 
         fun updateData(location: Location, newCameras: List<Camera>) {
@@ -200,33 +299,35 @@ class RadarMapActivity : Activity(), LocationListener {
             val cx = w / 2f
             val cy = h / 2f
             val maxRadiusPx = min(w, h) / 2f - 40f
-            val maxRangeMeters = 3000f // 3km radius = 6km total canvas scale
+            val maxRangeMeters = 3000f // 3km radius = 6km view canvas
 
-            // 1. Background Grid & Distance Rings (1km, 2km, 3km)
+            // 1. Dark Background Grid & Distance Rings (1km, 2km, 3km)
             canvas.drawColor(Color.parseColor("#121212"))
 
-            for (i in 1..3) {
+            for (i in 1..2) {
                 val r = maxRadiusPx * (i / 3f)
                 canvas.drawCircle(cx, cy, r, gridPaint)
-                canvas.drawText("${i} km", cx + 10f, cy - r + 30f, textPaint)
+                canvas.drawText("${i} km", cx + 10f, cy - r + 26f, textPaint)
             }
+            // 3km Outer Ring
+            canvas.drawCircle(cx, cy, maxRadiusPx, outerRingPaint)
+            canvas.drawText("3 km (Outer Ring)", cx + 10f, cy - maxRadiusPx + 26f, textPaint)
 
             // Crosshair Axes (North UP)
             canvas.drawLine(cx, cy - maxRadiusPx, cx, cy + maxRadiusPx, axisPaint)
             canvas.drawLine(cx - maxRadiusPx, cy, cx + maxRadiusPx, cy, axisPaint)
 
-            // Compass Cardinal Labels (North IS UP)
+            // Compass Labels (North UP)
             canvas.drawText("N", cx - 10f, cy - maxRadiusPx - 10f, northLabelPaint)
-            canvas.drawText("S", cx - 10f, cy + maxRadiusPx + 32f, textPaint)
+            canvas.drawText("S", cx - 10f, cy + maxRadiusPx + 30f, textPaint)
             canvas.drawText("E", cx + maxRadiusPx + 10f, cy + 10f, textPaint)
-            canvas.drawText("W", cx - maxRadiusPx - 35f, cy + 10f, textPaint)
+            canvas.drawText("W", cx - maxRadiusPx - 30f, cy + 10f, textPaint)
 
             val loc = currentLocation ?: return
 
-            // 2. Plot Cameras within 6km area (3km radius)
+            // 2. Plot Cameras inside 3km range AND project outer RAM cameras onto the 3km Outer Ring
             for (cam in cameras) {
                 val dist = RadarMath.calculateDistance(loc, cam.lat, cam.lon)
-                if (dist > maxRangeMeters) continue
 
                 val camLoc = Location("").apply {
                     latitude = cam.lat
@@ -234,30 +335,50 @@ class RadarMapActivity : Activity(), LocationListener {
                 }
                 val bearingToCam = loc.bearingTo(camLoc)
                 val rad = Math.toRadians(bearingToCam.toDouble())
-                val dx = (dist * sin(rad)).toFloat()
-                val dy = (dist * cos(rad)).toFloat()
 
-                val screenX = cx + (dx / maxRangeMeters) * maxRadiusPx
-                val screenY = cy - (dy / maxRangeMeters) * maxRadiusPx
+                if (dist <= maxRangeMeters) {
+                    // Inside 3km circle
+                    val dx = (dist * sin(rad)).toFloat()
+                    val dy = (dist * cos(rad)).toFloat()
 
-                // Draw Camera Marker
-                val paintToUse = if (cam.isLinear) camLinearPaint else camPaint
-                canvas.drawCircle(screenX, screenY, 14f, paintToUse)
+                    val screenX = cx + (dx / maxRangeMeters) * maxRadiusPx
+                    val screenY = cy - (dy / maxRangeMeters) * maxRadiusPx
 
-                // Draw Camera Azimuth Arrow / Direction Line (if available)
-                if (cam.dir != null) {
-                    val camRad = Math.toRadians(cam.dir.toDouble())
-                    val dirLen = 45f
-                    val arrowEndX = screenX + (dirLen * sin(camRad)).toFloat()
-                    val arrowEndY = screenY - (dirLen * cos(camRad)).toFloat()
+                    val paintToUse = if (cam.isLinear) camLinearPaint else camPaint
+                    canvas.drawCircle(screenX, screenY, 14f, paintToUse)
 
-                    canvas.drawLine(screenX, screenY, arrowEndX, arrowEndY, camAzimuthPaint)
-                    canvas.drawCircle(arrowEndX, arrowEndY, 5f, camAzimuthPaint)
+                    if (cam.dir != null) {
+                        val camRad = Math.toRadians(cam.dir.toDouble())
+                        val dirLen = 45f
+                        val arrowEndX = screenX + (dirLen * sin(camRad)).toFloat()
+                        val arrowEndY = screenY - (dirLen * cos(camRad)).toFloat()
+
+                        canvas.drawLine(screenX, screenY, arrowEndX, arrowEndY, camAzimuthPaint)
+                        canvas.drawCircle(arrowEndX, arrowEndY, 5f, camAzimuthPaint)
+                    }
+
+                    val label = "#${cam.id} (${dist.toInt()}m)"
+                    canvas.drawText(label, screenX + 18f, screenY + 8f, camTextPaint)
+                } else {
+                    // Outside 3km range (Loaded in RAM): Project onto the Outer Ring
+                    val outerX = cx + (maxRadiusPx * sin(rad)).toFloat()
+                    val outerY = cy - (maxRadiusPx * cos(rad)).toFloat()
+
+                    canvas.drawCircle(outerX, outerY, 10f, camOuterFillPaint)
+                    canvas.drawCircle(outerX, outerY, 10f, camOuterPaint)
+
+                    if (cam.dir != null) {
+                        val camRad = Math.toRadians(cam.dir.toDouble())
+                        val dirLen = 30f
+                        val arrowEndX = outerX + (dirLen * sin(camRad)).toFloat()
+                        val arrowEndY = outerY - (dirLen * cos(camRad)).toFloat()
+
+                        canvas.drawLine(outerX, outerY, arrowEndX, arrowEndY, camAzimuthPaint)
+                    }
+
+                    val distKmStr = String.format(Locale.US, "%.1fk", dist / 1000f)
+                    canvas.drawText(distKmStr, outerX + 14f, outerY + 6f, outerCamTextPaint)
                 }
-
-                // Draw Camera ID / Distance label
-                val label = "#${cam.id} (${dist.toInt()}m)"
-                canvas.drawText(label, screenX + 18f, screenY + 8f, camTextPaint)
             }
 
             // 3. Draw Vehicle at Center
@@ -272,7 +393,6 @@ class RadarMapActivity : Activity(), LocationListener {
 
                 canvas.drawLine(cx, cy, vecEndX, vecEndY, carVectorPaint)
 
-                // Arrowhead for vehicle direction
                 val path = Path().apply {
                     moveTo(vecEndX, vecEndY)
                     val leftRad = Math.toRadians((loc.bearing - 150).toDouble())
