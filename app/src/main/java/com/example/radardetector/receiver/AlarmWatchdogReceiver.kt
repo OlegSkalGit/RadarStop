@@ -16,6 +16,12 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
         const val ALARM_INTERVAL_MS = 15 * 60 * 1000L // 15 minutes
 
         fun scheduleNextAlarm(context: Context) {
+            val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("user_stopped", false)) {
+                AppLogger.log("AlarmWatchdogReceiver", "scheduleNextAlarm", true, "User stopped app manually. Skipping AlarmManager scheduling.")
+                return
+            }
+
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val intent = Intent(context, AlarmWatchdogReceiver::class.java).apply {
                 action = ACTION_ALARM_WATCHDOG
@@ -54,10 +60,19 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             alarmManager.cancel(pendingIntent)
+            AppLogger.log("AlarmWatchdogReceiver", "cancelAlarm", true, "AlarmManager watchdog alarm cancelled.")
         }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+        val isUserStopped = prefs.getBoolean("user_stopped", false)
+        if (isUserStopped) {
+            AppLogger.log("AlarmWatchdogReceiver", "onReceive", true, "App was manually stopped by user. Cancelling alarm and exiting.")
+            cancelAlarm(context)
+            return
+        }
+
         AppLogger.log("AlarmWatchdogReceiver", "onReceive", true, "15-min AlarmManager exact tick received. Service running: ${RadarForegroundService.isRunning}")
 
         if (RadarForegroundService.isRunning) {
@@ -67,7 +82,6 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
                 serviceInstance.checkWatchdogStall()
             }
         } else {
-            val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
             val isAutostartEnabled = prefs.getBoolean("autostart", false)
             if (isAutostartEnabled) {
                 try {

@@ -107,6 +107,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         super.onCreate()
         instance = this
         isRunning = true
+        getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).edit().putBoolean("user_stopped", false).apply()
         lastLocationTimeMs = System.currentTimeMillis()
 
         val appVersionName = try {
@@ -626,6 +627,14 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cleaning up resources and stopping service.")
         isRunning = false
         if (instance == this) instance = null
+        getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).edit().putBoolean("user_stopped", true).apply()
+        AlarmWatchdogReceiver.cancelAlarm(this)
+        try {
+            WorkManager.getInstance(applicationContext).cancelUniqueWork("RadarServiceSelfHealingWork")
+            AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cancelled background AlarmManager and WorkManager timers.")
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", false, "Error cancelling WorkManager: ${e.message}")
+        }
         watchdogHandler.removeCallbacks(watchdogRunnable)
         try {
             if (wakeLock?.isHeld == true) {

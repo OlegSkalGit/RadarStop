@@ -14,6 +14,17 @@ class RadarServiceWorker(
 ) : Worker(context, workerParams) {
 
     override fun doWork(): Result {
+        val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("user_stopped", false)) {
+            AppLogger.log("RadarServiceWorker", "doWork", true, "User stopped app manually. Cancelling WorkManager self-healing task.")
+            try {
+                androidx.work.WorkManager.getInstance(context).cancelUniqueWork("RadarServiceSelfHealingWork")
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return Result.success()
+        }
+
         AppLogger.log("RadarServiceWorker", "doWork", true, "15-min WorkManager self-healing tick triggered. Service running: ${RadarForegroundService.isRunning}")
 
         if (RadarForegroundService.isRunning) {
@@ -23,7 +34,6 @@ class RadarServiceWorker(
                 serviceInstance.checkWatchdogStall()
             }
         } else {
-            val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
             val isAutostartEnabled = prefs.getBoolean("autostart", false)
 
             if (isAutostartEnabled) {
