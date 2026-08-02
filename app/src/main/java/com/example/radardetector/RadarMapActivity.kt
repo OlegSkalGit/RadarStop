@@ -338,16 +338,6 @@ class RadarMapActivity : Activity(), LocationListener {
 
                     val paintToUse = if (cam.isLinear) camLinearPaint else camPaint
                     canvas.drawCircle(screenX, screenY, 7f, paintToUse)
-
-                    if (cam.dir != null) {
-                        val camRad = Math.toRadians(cam.dir.toDouble())
-                        val dirLen = 25f
-                        val arrowEndX = screenX + (dirLen * sin(camRad)).toFloat()
-                        val arrowEndY = screenY - (dirLen * cos(camRad)).toFloat()
-
-                        canvas.drawLine(screenX, screenY, arrowEndX, arrowEndY, camAzimuthPaint)
-                        canvas.drawCircle(arrowEndX, arrowEndY, 3f, camAzimuthPaint)
-                    }
                 } else {
                     // Outside 3km range (Loaded in RAM): Project onto the Outer Ring
                     val outerX = cx + (maxRadiusPx * sin(rad)).toFloat()
@@ -355,44 +345,11 @@ class RadarMapActivity : Activity(), LocationListener {
 
                     canvas.drawCircle(outerX, outerY, 5f, camOuterFillPaint)
                     canvas.drawCircle(outerX, outerY, 5f, camOuterPaint)
-
-                    if (cam.dir != null) {
-                        val camRad = Math.toRadians(cam.dir.toDouble())
-                        val dirLen = 18f
-                        val arrowEndX = outerX + (dirLen * sin(camRad)).toFloat()
-                        val arrowEndY = outerY - (dirLen * cos(camRad)).toFloat()
-
-                        canvas.drawLine(outerX, outerY, arrowEndX, arrowEndY, camAzimuthPaint)
-                    }
                 }
             }
 
             // 3. Draw Vehicle at Center
             canvas.drawCircle(cx, cy, 16f, carPaint)
-
-            // Vehicle Movement Vector
-            if (loc.hasBearing()) {
-                val carRad = Math.toRadians(loc.bearing.toDouble())
-                val vectorLen = 80f
-                val vecEndX = cx + (vectorLen * sin(carRad)).toFloat()
-                val vecEndY = cy - (vectorLen * cos(carRad)).toFloat()
-
-                canvas.drawLine(cx, cy, vecEndX, vecEndY, carVectorPaint)
-
-                val path = Path().apply {
-                    moveTo(vecEndX, vecEndY)
-                    val leftRad = Math.toRadians((loc.bearing - 150).toDouble())
-                    val rightRad = Math.toRadians((loc.bearing + 150).toDouble())
-                    lineTo((vecEndX + 20 * sin(leftRad)).toFloat(), (vecEndY - 20 * cos(leftRad)).toFloat())
-                    lineTo((vecEndX + 20 * sin(rightRad)).toFloat(), (vecEndY - 20 * cos(rightRad)).toFloat())
-                    close()
-                }
-                val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.parseColor("#00FF66")
-                    style = Paint.Style.FILL
-                }
-                canvas.drawPath(path, arrowPaint)
-            }
         }
     }
 }
