@@ -147,7 +147,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             onSyncSuccess = { _, _ ->
                 lastLocation?.let { loc ->
                     reloadCameraCacheForLocation(loc)
-                }
+                } ?: updateActiveNotificationStatus()
             }
         )
         audioEngine = AcousticRadarEngine(this)
@@ -268,6 +268,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     @Volatile
     private var cachedTotalCameraCount: Int = 0
 
+    private fun updateActiveNotificationStatus() {
+        val statusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
+        updateNotificationText(statusText)
+    }
+
     private fun reloadCameraCacheForLocation(location: Location) {
         val lat = location.latitude
         val lon = location.longitude
@@ -282,6 +287,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             cachedBoxMaxLon = res.maxLon
             cachedCameras = res.cameras
             cachedTotalCameraCount = res.totalInDb
+            updateActiveNotificationStatus()
             AppLogger.log(
                 "RadarForegroundService",
                 "reloadCameraCacheForLocation",
@@ -298,6 +304,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 cachedBoxMaxLon = res.maxLon
                 cachedCameras = res.cameras
                 cachedTotalCameraCount = res.totalInDb
+                Handler(Looper.getMainLooper()).post { updateActiveNotificationStatus() }
                 AppLogger.log(
                     "RadarForegroundService",
                     "reloadCameraCacheForLocation",
