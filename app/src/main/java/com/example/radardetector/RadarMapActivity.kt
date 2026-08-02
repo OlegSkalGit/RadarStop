@@ -37,6 +37,7 @@ class RadarMapActivity : Activity(), LocationListener {
     private var lastLocation: Location? = null
     private var nearbyCameras: List<Camera> = emptyList()
     private var speedDropBelow30TimeMs = 0L
+    private var effectiveSpeedKmh: Float = 0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -131,44 +132,17 @@ class RadarMapActivity : Activity(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        lastLocation = location
-        val lat = location.latitude
-        val lon = location.longitude
-        val speedKmh = location.speed * 3.6f
+        val metrics = RadarMath.evaluateLocationData(location, effectiveSpeedKmh, dbHelper)
+        effectiveSpeedKmh = metrics.effectiveSpeedKmh
+        lastLocation = metrics.location
+        nearbyCameras = metrics.cameraLoadResult.cameras
 
-        val boxCams = dbHelper.getCamerasInBox(lat - 0.045, lat + 0.045, lon - 0.045, lon + 0.045)
-        val linearCams = dbHelper.getAllLinearCameras()
-        nearbyCameras = (boxCams + linearCams).distinctBy { it.id }
+        val speedKmh = metrics.effectiveSpeedKmh
+        val gpsStatusStr = metrics.gpsStatusStr
+        val closestAlertCam = metrics.closestAlertCamera
+        val minAlertDist = metrics.minDistanceToAlert
 
-        // 1. GPS Status & Accuracy
-        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 15f
-        val gpsStatusStr = if (isAccuracyWeak) {
-            "GPS: WEAK (>15m [${location.accuracy.toInt()}m])"
-        } else if (location.hasAccuracy()) {
-            "GPS: OK (±${location.accuracy.toInt()}m)"
-        } else {
-            "GPS: ACTIVE"
-        }
-
-        // 2. Nearest Camera & Approach Speed
-        var minDistToAnyCam = Float.MAX_VALUE
-        var closestAlertCam: Camera? = null
-        var minAlertDist = Float.MAX_VALUE
-        val continuousThresh = if (speedKmh <= 60f) 50f else 100f
-
-        for (cam in nearbyCameras) {
-            val dist = RadarMath.calculateDistance(location, cam.lat, cam.lon)
-            if (dist < minDistToAnyCam) minDistToAnyCam = dist
-
-            if (dist <= 300f && RadarMath.isAzimuthValid(location, cam.dir)) {
-                if (dist < minAlertDist) {
-                    minAlertDist = dist
-                    closestAlertCam = cam
-                }
-            }
-        }
-
-        // 3. Polling Interval
+        // Polling Interval
         val activeIntervalMs = if (com.example.radardetector.service.RadarForegroundService.isRunning) {
             com.example.radardetector.service.RadarForegroundService.currentGpsIntervalMs
         } else {
@@ -183,8 +157,8 @@ class RadarMapActivity : Activity(), LocationListener {
                     speedDropBelow30TimeMs = 0L
                     val maxGpsReadDist = if (speedKmh <= 60f) 500f else 1000f
                     when {
-                        minDistToAnyCam <= maxGpsReadDist -> 1000L
-                        minDistToAnyCam <= 3000f -> 3000L
+                        metrics.minDistToAnyCamera <= maxGpsReadDist -> 1000L
+                        metrics.minDistToAnyCamera <= 3000f -> 3000L
                         else -> 15000L
                     }
                 }
@@ -200,13 +174,13 @@ class RadarMapActivity : Activity(), LocationListener {
             else -> "${activeSec}s"
         }
 
-        // 4. Beep Status
+        // Beep Status
         val beepStatusStr = when {
-            isAccuracyWeak -> "PAUSED (Weak GPS)"
+            metrics.isAccuracyWeak -> "PAUSED (Weak GPS)"
             speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
             closestAlertCam != null -> {
                 val delayMs = RadarMath.calculateBeepDelay(minAlertDist, speedKmh)
-                if (minAlertDist <= continuousThresh) {
+                if (minAlertDist <= metrics.continuousThreshold) {
                     "CONTINUOUS BEEP (150ms)"
                 } else {
                     "APPROACH ALERT (${delayMs}ms)"
@@ -215,11 +189,8 @@ class RadarMapActivity : Activity(), LocationListener {
             else -> "OFF (Idle)"
         }
 
-        val inRange3kmCount = nearbyCameras.count { RadarMath.calculateDistance(location, it.lat, it.lon) <= 3000f }
-        val ramOuterCount = nearbyCameras.size - inRange3kmCount
-
         tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $gpsStatusStr | Interval: $pollingIntervalStr"
-        tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: $inRange3kmCount in 3km ($ramOuterCount on outer ring)"
+        tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / ${metrics.cameraLoadResult.totalInDb} total DB"
 
         mapView.updateData(location, nearbyCameras)
     }

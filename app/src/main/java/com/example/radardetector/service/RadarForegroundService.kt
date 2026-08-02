@@ -10,9 +10,15 @@ import android.content.Intent
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.example.radardetector.HelpActivity
@@ -21,10 +27,17 @@ import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.math.RadarMath
 import com.example.radardetector.network.OverpassSyncManager
+import com.example.radardetector.receiver.AlarmWatchdogReceiver
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.worker.RadarServiceWorker
+import android.os.PowerManager
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
-class RadarForegroundService : Service(), LocationListener {
+class RadarForegroundService : Service(), LocationListener, SensorEventListener {
 
     companion object {
         const val CHANNEL_ID = "radar_detector_channel"
@@ -70,9 +83,28 @@ class RadarForegroundService : Service(), LocationListener {
     private val logged300mCameraIds = HashSet<Long>()
     private val loggedCrossingCameraIds = HashSet<Long>()
 
+    private lateinit var sensorManager: SensorManager
+    private var accelerometer: Sensor? = null
+    private var lastMotionCheckTimeMs: Long = 0L
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private val watchdogHandler = Handler(Looper.getMainLooper())
+    @Volatile
+    private var lastLocationTimeMs: Long = System.currentTimeMillis()
+    private val WATCHDOG_CHECK_INTERVAL_MS = 60000L
+
+    private val watchdogRunnable = object : Runnable {
+        override fun run() {
+            if (!isRunning) return
+            checkWatchdogStall()
+            watchdogHandler.postDelayed(this, WATCHDOG_CHECK_INTERVAL_MS)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        lastLocationTimeMs = System.currentTimeMillis()
 
         val appVersionName = try {
             if (Build.VERSION.SDK_INT >= 33) {
@@ -87,6 +119,19 @@ class RadarForegroundService : Service(), LocationListener {
 
         AppLogger.initNewSession(this)
         AppLogger.log("RadarForegroundService", "onCreate", true, "Foreground Service created. App Version: v$appVersionName")
+
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RadarStop:ForegroundWakeLock").apply {
+                acquire()
+            }
+            AppLogger.log("RadarForegroundService", "onCreate", true, "Acquired PowerManager PARTIAL_WAKE_LOCK for continuous CPU execution.")
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "onCreate", false, "Failed to acquire PARTIAL_WAKE_LOCK: ${e.message}")
+        }
+
+        AlarmWatchdogReceiver.scheduleNextAlarm(this)
+        setupWorkManagerSelfHealing()
 
         Toast.makeText(applicationContext, "RadarStop Active", Toast.LENGTH_SHORT).show()
 
@@ -104,6 +149,14 @@ class RadarForegroundService : Service(), LocationListener {
         )
         audioEngine = AcousticRadarEngine(this)
         audioEngine.playSingleBeep()
+
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        accelerometer?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+            AppLogger.log("RadarForegroundService", "onCreate", true, "Registered Accelerometer sensor for motion wakeup.")
+        }
+        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
 
         createNotificationChannel()
         val initialText = "Searching for GPS..."
@@ -146,10 +199,10 @@ class RadarForegroundService : Service(), LocationListener {
     @Volatile
     private var lastGpsRegisterTimeMs: Long = 0L
 
-    private fun registerGpsUpdates(intervalMs: Long) {
-        if (currentGpsIntervalMs == intervalMs) return
+    private fun registerGpsUpdates(intervalMs: Long, force: Boolean = false) {
+        if (!force && currentGpsIntervalMs == intervalMs) return
         val now = System.currentTimeMillis()
-        if (intervalMs > currentGpsIntervalMs && currentGpsIntervalMs > 0L && (now - lastGpsRegisterTimeMs < 5000L)) {
+        if (!force && intervalMs > currentGpsIntervalMs && currentGpsIntervalMs > 0L && (now - lastGpsRegisterTimeMs < 5000L)) {
             return
         }
 
@@ -170,12 +223,35 @@ class RadarForegroundService : Service(), LocationListener {
                 minDistance,
                 this
             )
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms (minDistance: ${minDistance}m). Searching for GPS satellites...")
+            // Dual Provider Fallback: Also listen to NETWORK_PROVIDER every 60s
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    60000L,
+                    20f,
+                    this
+                )
+            }
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms (minDistance: ${minDistance}m) + NETWORK fallback 60s. Searching for GPS satellites...")
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
             updateNotificationText("Weak GPS signal (>15m)")
         } catch (e: Exception) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS request failed: ${e.message}")
+        }
+    }
+
+    private fun checkWatchdogStall() {
+        val now = System.currentTimeMillis()
+        val timeSinceLastLoc = now - lastLocationTimeMs
+        if (timeSinceLastLoc >= WATCHDOG_CHECK_INTERVAL_MS) {
+            AppLogger.log(
+                "RadarForegroundService",
+                "checkWatchdogStall",
+                false,
+                "WATCHDOG TRIGGERED: No location updates received for ${timeSinceLastLoc / 1000}s. Forcing GPS re-registration..."
+            )
+            registerGpsUpdates(currentGpsIntervalMs, force = true)
         }
     }
 
@@ -187,34 +263,36 @@ class RadarForegroundService : Service(), LocationListener {
         val lon = location.longitude
         lastRamReloadLat = lat
         lastRamReloadLon = lon
-        cachedBoxMinLat = lat - 0.045
-        cachedBoxMaxLat = lat + 0.045
-        cachedBoxMinLon = lon - 0.045
-        cachedBoxMaxLon = lon + 0.045
+
         if (cachedCameras.isEmpty()) {
-            val boxCams = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
-            val linearCams = dbHelper.getAllLinearCameras()
-            cachedCameras = (boxCams + linearCams).distinctBy { it.id }
-            cachedTotalCameraCount = dbHelper.getCameraCount()
+            val res = RadarMath.load10x10Cameras(dbHelper, lat, lon)
+            cachedBoxMinLat = res.minLat
+            cachedBoxMaxLat = res.maxLat
+            cachedBoxMinLon = res.minLon
+            cachedBoxMaxLon = res.maxLon
+            cachedCameras = res.cameras
+            cachedTotalCameraCount = res.totalInDb
             AppLogger.log(
                 "RadarForegroundService",
                 "reloadCameraCacheForLocation",
                 true,
-                "DATABASE LOAD (Sync): Loaded ${cachedCameras.size} cameras (${linearCams.size} linear) from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
+                "DATABASE LOAD (Sync): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
             )
         } else {
             if (dbExecutor.isShutdown) return
             dbExecutor.execute {
-                val freshBox = dbHelper.getCamerasInBox(cachedBoxMinLat, cachedBoxMaxLat, cachedBoxMinLon, cachedBoxMaxLon)
-                val linearCams = dbHelper.getAllLinearCameras()
-                val count = dbHelper.getCameraCount()
-                cachedCameras = (freshBox + linearCams).distinctBy { it.id }
-                cachedTotalCameraCount = count
+                val res = RadarMath.load10x10Cameras(dbHelper, lat, lon)
+                cachedBoxMinLat = res.minLat
+                cachedBoxMaxLat = res.maxLat
+                cachedBoxMinLon = res.minLon
+                cachedBoxMaxLon = res.maxLon
+                cachedCameras = res.cameras
+                cachedTotalCameraCount = res.totalInDb
                 AppLogger.log(
                     "RadarForegroundService",
                     "reloadCameraCacheForLocation",
                     true,
-                    "DATABASE LOAD (Async): Loaded ${cachedCameras.size} cameras (${linearCams.size} linear) from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
+                    "DATABASE LOAD (Async): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
                 )
             }
         }
@@ -224,6 +302,7 @@ class RadarForegroundService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
+        lastLocationTimeMs = System.currentTimeMillis()
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 15f
         if (isAccuracyWeak) {
             if (!isWeakGpsState) {
@@ -244,12 +323,7 @@ class RadarForegroundService : Service(), LocationListener {
         val now = System.currentTimeMillis()
         lastLocation = location
         val rawSpeedKmh = location.speed * 3.6f
-        val speedKmh = if (effectiveSpeedKmh == 0f) {
-            rawSpeedKmh
-        } else {
-            val delta = Math.abs(rawSpeedKmh - effectiveSpeedKmh)
-            if (delta > 10f) rawSpeedKmh else effectiveSpeedKmh
-        }
+        val speedKmh = RadarMath.calculateEffectiveSpeed(rawSpeedKmh, effectiveSpeedKmh)
         effectiveSpeedKmh = speedKmh
 
         syncManager.onLocationUpdate(location, speedKmh)
@@ -374,7 +448,7 @@ class RadarForegroundService : Service(), LocationListener {
         }
         registerGpsUpdates(targetInterval)
 
-        val defaultStatusText = "Active. Cameras: ${cachedCameras.size} nearby / $cachedTotalCameraCount total"
+        val defaultStatusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
 
         if (speedKmh <= 30f) {
             if (currentAlertCameraId != null) {
@@ -519,9 +593,40 @@ class RadarForegroundService : Service(), LocationListener {
         nm.notify(NOTIF_ID, buildNotification(text))
     }
 
+    private fun setupWorkManagerSelfHealing() {
+        try {
+            val workRequest = PeriodicWorkRequestBuilder<RadarServiceWorker>(
+                15, TimeUnit.MINUTES
+            ).build()
+
+            WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+                "RadarServiceSelfHealingWork",
+                ExistingPeriodicWorkPolicy.KEEP,
+                workRequest
+            )
+            AppLogger.log("RadarForegroundService", "setupWorkManagerSelfHealing", true, "Enqueued 15-min periodic WorkManager self-healing task.")
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "setupWorkManagerSelfHealing", false, "Failed to schedule WorkManager self-healing task: ${e.message}")
+        }
+    }
+
     private fun stopSelfAndCleanup() {
         AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cleaning up resources and stopping service.")
         isRunning = false
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+                AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Released PowerManager PARTIAL_WAKE_LOCK.")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            sensorManager.unregisterListener(this)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         try {
             locationManager.removeUpdates(this)
         } catch (e: Exception) {
@@ -546,4 +651,31 @@ class RadarForegroundService : Service(), LocationListener {
     override fun onProviderDisabled(provider: String) {
         AppLogger.log("RadarForegroundService", "onProviderDisabled", false, "GPS provider disabled by user/system.")
     }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (!isRunning || event == null) return
+        if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+            val now = System.currentTimeMillis()
+            if (now - lastMotionCheckTimeMs < 60000L) return
+            lastMotionCheckTimeMs = now
+
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            val g = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+            val delta = Math.abs(g - SensorManager.GRAVITY_EARTH)
+
+            if (delta > 1.5f && (now - lastLocationTimeMs >= 60000L)) {
+                AppLogger.log(
+                    "RadarForegroundService",
+                    "onSensorChanged",
+                    true,
+                    "MOTION DETECTED (delta: ${String.format(java.util.Locale.US, "%.2f", delta)}) while GPS silent for >60s. Triggering Watchdog recovery..."
+                )
+                checkWatchdogStall()
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 }
