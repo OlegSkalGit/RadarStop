@@ -83,9 +83,7 @@ object RadarMath {
      * Unified speed calculation with smoothing filter (10 km/h delta threshold).
      */
     fun calculateEffectiveSpeed(rawSpeedKmh: Float, currentEffectiveSpeedKmh: Float): Float {
-        if (currentEffectiveSpeedKmh == 0f) return rawSpeedKmh
-        val delta = abs(rawSpeedKmh - currentEffectiveSpeedKmh)
-        return if (delta > 10f) rawSpeedKmh else currentEffectiveSpeedKmh
+        return rawSpeedKmh
     }
 
     /**

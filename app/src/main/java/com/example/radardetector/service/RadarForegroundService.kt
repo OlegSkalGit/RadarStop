@@ -295,40 +295,20 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         lastRamReloadLat = lat
         lastRamReloadLon = lon
 
-        if (cachedCameras.isEmpty()) {
-            val res = RadarMath.load10x10Cameras(dbHelper, lat, lon)
-            cachedBoxMinLat = res.minLat
-            cachedBoxMaxLat = res.maxLat
-            cachedBoxMinLon = res.minLon
-            cachedBoxMaxLon = res.maxLon
-            cachedCameras = res.cameras
-            cachedTotalCameraCount = res.totalInDb
-            updateActiveNotificationStatus()
-            AppLogger.log(
-                "RadarForegroundService",
-                "reloadCameraCacheForLocation",
-                true,
-                "DATABASE LOAD (Sync): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
-            )
-        } else {
-            if (dbExecutor.isShutdown) return
-            dbExecutor.execute {
-                val res = RadarMath.load10x10Cameras(dbHelper, lat, lon)
-                cachedBoxMinLat = res.minLat
-                cachedBoxMaxLat = res.maxLat
-                cachedBoxMinLon = res.minLon
-                cachedBoxMaxLon = res.maxLon
-                cachedCameras = res.cameras
-                cachedTotalCameraCount = res.totalInDb
-                Handler(Looper.getMainLooper()).post { updateActiveNotificationStatus() }
-                AppLogger.log(
-                    "RadarForegroundService",
-                    "reloadCameraCacheForLocation",
-                    true,
-                    "DATABASE LOAD (Async): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
-                )
-            }
-        }
+        val res = RadarMath.load10x10Cameras(dbHelper, lat, lon)
+        cachedBoxMinLat = res.minLat
+        cachedBoxMaxLat = res.maxLat
+        cachedBoxMinLon = res.minLon
+        cachedBoxMaxLon = res.maxLon
+        cachedCameras = res.cameras
+        cachedTotalCameraCount = res.totalInDb
+        updateActiveNotificationStatus()
+        AppLogger.log(
+            "RadarForegroundService",
+            "reloadCameraCacheForLocation",
+            true,
+            "DATABASE LOAD (Sync): Loaded ${cachedCameras.size} cameras from SQLite DB into RAM for current location ($lat, $lon). Total in DB: $cachedTotalCameraCount"
+        )
     }
 
     private var isWeakGpsState: Boolean = false
@@ -353,7 +333,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         // 1. UNCONDITIONAL RAM CACHE LOAD: Always load 10x10km cameras into RAM on fix (even for coarse GPS)
-        if (cachedCameras.isEmpty() || distFromRamReload[0] >= 4000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
+        if (cachedCameras.isEmpty() || distFromRamReload[0] >= 1000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
             reloadCameraCacheForLocation(location)
         }
 
