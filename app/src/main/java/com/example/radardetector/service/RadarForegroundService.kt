@@ -585,7 +585,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             )
 
             val helpIntent = Intent(this, HelpActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
             val pHelpIntent = PendingIntent.getActivity(
                 this, 1, helpIntent,

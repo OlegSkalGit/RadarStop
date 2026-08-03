@@ -99,9 +99,7 @@ class LogViewerActivity : Activity() {
         val btnMap = Button(this).apply {
             text = "Map"
             setOnClickListener {
-                val intent = Intent(this@LogViewerActivity, RadarMapActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                }
+                val intent = Intent(this@LogViewerActivity, RadarMapActivity::class.java)
                 startActivity(intent)
             }
         }
@@ -130,7 +128,13 @@ class LogViewerActivity : Activity() {
         }
         val btnClose = Button(this).apply {
             text = "Close"
-            setOnClickListener { finish() }
+            setOnClickListener {
+                val intent = Intent(this@LogViewerActivity, HelpActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                startActivity(intent)
+                finish()
+            }
         }
 
         btnLayout.addView(btnBeep)

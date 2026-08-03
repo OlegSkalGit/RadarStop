@@ -94,7 +94,13 @@ class RadarMapActivity : Activity(), LocationListener {
         val btnClose = Button(this).apply {
             text = "Close"
             textSize = 12f
-            setOnClickListener { finish() }
+            setOnClickListener {
+                val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                startActivity(intent)
+                finish()
+            }
         }
 
         topRow.addView(statusContainer)

@@ -37,19 +37,19 @@
         <activity
             android:name=".HelpActivity"
             android:exported="false"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Transparent" />
 
         <activity
             android:name=".LogViewerActivity"
             android:exported="false"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Transparent" />
 
         <activity
             android:name=".RadarMapActivity"
             android:exported="false"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Transparent" />
 
         <service

@@ -147,9 +147,7 @@ Sound Alerts & Tracking:
         val btnAdb = Button(this).apply {
             text = "ADB"
             setOnClickListener {
-                val intent = Intent(this@HelpActivity, LogViewerActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                }
+                val intent = Intent(this@HelpActivity, LogViewerActivity::class.java)
                 startActivity(intent)
             }
         }

@@ -31,8 +31,10 @@ class OverpassSyncManager(
     companion object {
         private val MIRRORS = arrayOf(
             "https://overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter",
-            "https://overpass.nchc.org.tw/api/interpreter"
+            "https://z.overpass-api.de/api/interpreter",
+            "https://lz4.overpass-api.de/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter"
         )
         private const val SYNC_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
         private const val RETRY_PAUSE_MS = 5 * 60 * 1000L // 5 minutes retry delay on network failure
@@ -296,8 +298,8 @@ class OverpassSyncManager(
     }
 
     fun triggerCountryCameraSync(countryCode: String, countryName: String) {
-        if (!isSyncing.compareAndSet(false, true)) return
         executor.execute {
+            isSyncing.set(true)
             try {
                 performCountryCameraSync(countryCode, countryName)
             } finally {
@@ -314,28 +316,45 @@ class OverpassSyncManager(
         mainHandler.post { onStatusUpdate("Downloading $countryName speed cameras...") }
         AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "Starting Overpass sync for country: $countryName ($countryCode)")
 
-        val query = """
-            [out:json][timeout:120];
-            area["ISO3166-1"="$countryCode"][admin_level=2]->.searchArea;
-            (
-              node["highway"="speed_camera"](area.searchArea);
-              node["enforcement"](area.searchArea);
-            );
-            out body;
-        """.trimIndent()
+        val codeUpper = countryCode.uppercase().trim()
+
+        val queries = listOf(
+            """
+                [out:json][timeout:60];
+                area["ISO3166-1"="$codeUpper"]->.searchArea;
+                (
+                  node["highway"="speed_camera"](area.searchArea);
+                  node["enforcement"](area.searchArea);
+                );
+                out body;
+            """.trimIndent(),
+            """
+                [out:json][timeout:60];
+                area["ISO3166-1:alpha2"="$codeUpper"]->.searchArea;
+                (
+                  node["highway"="speed_camera"](area.searchArea);
+                  node["enforcement"](area.searchArea);
+                );
+                out body;
+            """.trimIndent()
+        )
 
         var success = false
-        for (i in MIRRORS.indices) {
-            val mirror = MIRRORS[i]
-            val cameras = executePostAndParseStream(mirror, query, readTimeoutMs = 120000)
-            if (cameras != null) {
-                dbHelper.insertCameras(cameras)
-                success = true
-                val count = dbHelper.getCameraCount()
-                AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "COUNTRY SYNC SUCCESS: Downloaded ${cameras.size} cameras for $countryName. Total in DB: $count")
-                mainHandler.post { onSyncSuccess(cameras.size, count) }
-                mainHandler.post { onStatusUpdate("$countryName cameras loaded! (${cameras.size} added, $count total in DB)") }
-                break
+        for (query in queries) {
+            if (success) break
+            for (i in MIRRORS.indices) {
+                val mirror = MIRRORS[i]
+                AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "Trying mirror: $mirror for $countryName")
+                val cameras = executePostAndParseStream(mirror, query, readTimeoutMs = 60000)
+                if (cameras != null) {
+                    dbHelper.insertCameras(cameras)
+                    success = true
+                    val count = dbHelper.getCameraCount()
+                    AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "COUNTRY SYNC SUCCESS: Downloaded ${cameras.size} cameras for $countryName. Total in DB: $count")
+                    mainHandler.post { onSyncSuccess(cameras.size, count) }
+                    mainHandler.post { onStatusUpdate("$countryName cameras loaded! (${cameras.size} added, $count total in DB)") }
+                    break
+                }
             }
         }
         if (!success) {
@@ -347,22 +366,28 @@ class OverpassSyncManager(
         executor.execute {
             val now = System.currentTimeMillis()
             val cached = dbHelper.getCountries()
+
+            if (cached.isNotEmpty()) {
+                AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Returning ${cached.size} cached countries from SQLite DB immediately.")
+                onResult(cached)
+            }
+
             val lastCountrySyncTimeMs = prefs.getLong("last_country_sync_ms", 0L)
             if (cached.isNotEmpty() && (now - lastCountrySyncTimeMs < 24 * 60 * 60 * 1000L)) {
-                AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Returning ${cached.size} cached countries from SQLite DB.")
-                onResult(cached)
                 return@execute
             }
 
             if (!isInternetAvailable()) {
-                AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", false, "No internet connection. Returning ${cached.size} cached countries.")
-                onResult(cached)
+                if (cached.isEmpty()) onResult(emptyList())
                 return@execute
             }
 
             val query = """
                 [out:json][timeout:30];
-                relation["admin_level"="2"]["ISO3166-1"];
+                (
+                  relation["admin_level"="2"]["ISO3166-1"];
+                  relation["admin_level"="2"]["ISO3166-1:alpha2"];
+                );
                 out tags;
             """.trimIndent()
 
@@ -373,11 +398,15 @@ class OverpassSyncManager(
                     dbHelper.insertCountries(fetched)
                     prefs.edit().putLong("last_country_sync_ms", System.currentTimeMillis()).apply()
                     AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Fetched ${fetched.size} countries from Overpass ($mirror) and cached to SQLite DB.")
+                    if (cached.isEmpty()) {
+                        onResult(fetched)
+                    }
                     break
                 }
             }
-            val resultList = if (fetched != null && fetched.isNotEmpty()) fetched else cached
-            onResult(resultList)
+            if (cached.isEmpty() && (fetched == null || fetched.isEmpty())) {
+                onResult(emptyList())
+            }
         }
     }
 
@@ -413,7 +442,7 @@ class OverpassSyncManager(
     }
 
     private fun parseCountriesStream(inputStream: InputStream): List<Pair<String, String>> {
-        val list = ArrayList<Pair<String, String>>()
+        val countryMap = LinkedHashMap<String, String>()
         val reader = JsonReader(InputStreamReader(inputStream, Charsets.UTF_8))
         reader.use {
             reader.beginObject()
@@ -432,7 +461,10 @@ class OverpassSyncManager(
                                 while (reader.hasNext()) {
                                     val tagKey = reader.nextName()
                                     when (tagKey) {
-                                        "ISO3166-1" -> countryCode = reader.nextString()
+                                        "ISO3166-1", "ISO3166-1:alpha2" -> {
+                                            if (countryCode == null) countryCode = reader.nextString().uppercase().trim()
+                                            else reader.skipValue()
+                                        }
                                         "name:en" -> countryName = reader.nextString()
                                         "name" -> {
                                             if (countryName == null) countryName = reader.nextString()
@@ -447,8 +479,11 @@ class OverpassSyncManager(
                             }
                         }
                         reader.endObject()
-                        if (countryCode != null && countryName != null) {
-                            list.add(Pair(countryName, countryCode))
+                        if (!countryCode.isNullOrEmpty() && !countryName.isNullOrEmpty() && countryCode.length == 2) {
+                            val cleanName = countryName.replace(Regex("""\s*\(.*?\)\s*"""), "").trim()
+                            if (!countryMap.containsKey(countryCode) || cleanName.length < countryMap[countryCode]!!.length) {
+                                countryMap[countryCode] = cleanName
+                            }
                         }
                     }
                     reader.endArray()
@@ -458,8 +493,7 @@ class OverpassSyncManager(
             }
             reader.endObject()
         }
-        list.sortBy { it.first }
-        return list
+        return countryMap.map { Pair(it.value, it.key) }.sortedBy { it.first }
     }
 
     fun shutdown() {
