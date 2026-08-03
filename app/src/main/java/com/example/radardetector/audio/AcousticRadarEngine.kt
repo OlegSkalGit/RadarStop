@@ -99,13 +99,13 @@ class AcousticRadarEngine(private val context: Context) {
                 synchronized(this@AcousticRadarEngine) {
                     requestFocus()
                     initToneGenerator()
-                    emitBeep()
                 }
-                Thread.sleep(200)
+                // Bluetooth A2DP / Audio HAL Warmup delay (350ms) so PCM channel opens fully before beep
+                Thread.sleep(350)
                 synchronized(this@AcousticRadarEngine) {
                     emitBeep()
                 }
-                AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Startup double-beep played (Bluetooth A2DP warmup enabled).")
+                AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played after stream warmup.")
             } catch (e: Exception) {
                 AppLogger.log("AcousticRadarEngine", "playSingleBeep", false, "Error: ${e.message}")
             }
