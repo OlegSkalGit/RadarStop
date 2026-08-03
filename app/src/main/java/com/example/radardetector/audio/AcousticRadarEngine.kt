@@ -101,7 +101,11 @@ class AcousticRadarEngine(private val context: Context) {
                     initToneGenerator()
                     emitBeep()
                 }
-                AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played.")
+                Thread.sleep(200)
+                synchronized(this@AcousticRadarEngine) {
+                    emitBeep()
+                }
+                AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Startup double-beep played (Bluetooth A2DP warmup enabled).")
             } catch (e: Exception) {
                 AppLogger.log("AcousticRadarEngine", "playSingleBeep", false, "Error: ${e.message}")
             }
