@@ -92,9 +92,11 @@ Sound Alerts & Tracking:
   - ≤ 70 km/h: 500m approach warning.
   - > 70 km/h: 1000m approach warning.
 
-• Continuous Beep Zone (50m / 100m):
-  - Within 50m (≤70 km/h) or 100m (>70 km/h) of camera: continuous sound alert on approach and departure.
-  - Alert stops immediately after leaving the 50m/100m zone upon departure.
+• Sound Alert Intervals (300m to -300m):
+  - 300-200m: 2000ms
+  - 200-100m: 1500ms
+  - 100-50m:  1000ms
+  - 50-0m (and 0m to 50m departure): 500ms
 
 • Average Speed Control (Linear Cameras):
   - Single control points operate as standard point cameras.
@@ -145,7 +147,9 @@ Sound Alerts & Tracking:
         val btnAdb = Button(this).apply {
             text = "ADB"
             setOnClickListener {
-                val intent = Intent(this@HelpActivity, LogViewerActivity::class.java)
+                val intent = Intent(this@HelpActivity, LogViewerActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
                 startActivity(intent)
             }
         }

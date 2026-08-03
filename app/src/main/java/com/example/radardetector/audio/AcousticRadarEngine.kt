@@ -2,7 +2,6 @@ package com.example.radardetector.audio
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.ToneGenerator
@@ -13,72 +12,40 @@ import java.util.concurrent.Executors
 class AcousticRadarEngine(private val context: Context) {
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private var toneGeneratorMusic: ToneGenerator? = null
-    private var toneGeneratorAlarm: ToneGenerator? = null
+    private var toneGenerator: ToneGenerator? = null
     @Volatile
     private var isBeeping = false
     private var beepThread: Thread? = null
     @Volatile
     private var currentDelayMs: Long = 1500
+    @Volatile
+    private var lastGpsUpdateMs: Long = 0L
+
+    fun notifyLocationUpdate() {
+        lastGpsUpdateMs = System.currentTimeMillis()
+    }
 
     private val audioExecutor = Executors.newSingleThreadExecutor()
     private var focusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
-    private var lastBtLogState: Boolean? = null
-
-    private fun isBluetoothAudioConnected(): Boolean {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                devices.any {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                            it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                audioManager.isBluetoothA2dpOn || audioManager.isBluetoothScoOn
-            }
-        } catch (e: Exception) {
-            false
-        }
-    }
 
     @Synchronized
-    private fun initToneGenerators() {
-        if (toneGeneratorMusic == null) {
+    private fun initToneGenerator() {
+        if (toneGenerator == null) {
             try {
-                toneGeneratorMusic = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
-                AppLogger.log("AcousticRadarEngine", "initToneGenerators", true, "Hardware ToneGenerator (STREAM_MUSIC) initialized.")
+                toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+                AppLogger.log("AcousticRadarEngine", "initToneGenerator", true, "Single Hardware ToneGenerator (STREAM_MUSIC) initialized.")
             } catch (e: Exception) {
-                AppLogger.log("AcousticRadarEngine", "initToneGenerators", false, "STREAM_MUSIC ToneGenerator failed: ${e.message}")
-            }
-        }
-        if (toneGeneratorAlarm == null) {
-            try {
-                toneGeneratorAlarm = ToneGenerator(AudioManager.STREAM_ALARM, 100)
-                AppLogger.log("AcousticRadarEngine", "initToneGenerators", true, "Hardware ToneGenerator (STREAM_ALARM) initialized.")
-            } catch (e: Exception) {
-                AppLogger.log("AcousticRadarEngine", "initToneGenerators", false, "STREAM_ALARM ToneGenerator failed: ${e.message}")
+                AppLogger.log("AcousticRadarEngine", "initToneGenerator", false, "STREAM_MUSIC ToneGenerator failed: ${e.message}")
             }
         }
     }
 
     private fun emitBeep() {
-        val btConnected = isBluetoothAudioConnected()
-        if (lastBtLogState != btConnected) {
-            lastBtLogState = btConnected
-            AppLogger.log("AcousticRadarEngine", "emitBeep", true, "Audio Output Routing: ${if (btConnected) "DUAL (Bluetooth STREAM_MUSIC + Phone Speaker STREAM_ALARM)" else "SINGLE (STREAM_MUSIC)"}")
-        }
-        if (btConnected) {
-            toneGeneratorMusic?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
-            toneGeneratorAlarm?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
-        } else {
-            if (toneGeneratorMusic != null) {
-                toneGeneratorMusic?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
-            } else {
-                toneGeneratorAlarm?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
-            }
+        try {
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+        } catch (e: Exception) {
+            AppLogger.log("AcousticRadarEngine", "emitBeep", false, "Error emitting beep: ${e.message}")
         }
     }
 
@@ -131,12 +98,8 @@ class AcousticRadarEngine(private val context: Context) {
             try {
                 synchronized(this@AcousticRadarEngine) {
                     requestFocus()
-                    initToneGenerators()
+                    initToneGenerator()
                     emitBeep()
-                }
-                Thread.sleep(250)
-                synchronized(this@AcousticRadarEngine) {
-                    abandonFocus()
                 }
                 AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played.")
             } catch (e: Exception) {
@@ -150,7 +113,7 @@ class AcousticRadarEngine(private val context: Context) {
             try {
                 synchronized(this@AcousticRadarEngine) {
                     requestFocus()
-                    initToneGenerators()
+                    initToneGenerator()
                 }
                 AppLogger.log("AcousticRadarEngine", "playBeeps", true, "Playing $count test beeps at ${intervalMs}ms interval...")
                 for (i in 1..count) {
@@ -161,10 +124,6 @@ class AcousticRadarEngine(private val context: Context) {
                         Thread.sleep(intervalMs)
                     }
                 }
-                Thread.sleep(250)
-                synchronized(this@AcousticRadarEngine) {
-                    abandonFocus()
-                }
             } catch (e: Exception) {
                 AppLogger.log("AcousticRadarEngine", "playBeeps", false, "Error: ${e.message}")
             }
@@ -174,15 +133,27 @@ class AcousticRadarEngine(private val context: Context) {
     @Synchronized
     fun startAlert(delayMs: Long) {
         currentDelayMs = delayMs
+        lastGpsUpdateMs = System.currentTimeMillis()
         if (!isBeeping) {
             isBeeping = true
             requestFocus()
-            initToneGenerators()
+            initToneGenerator()
             AppLogger.log("AcousticRadarEngine", "startAlert", true, "Beep thread started with delay: ${delayMs}ms")
             beepThread?.interrupt()
             beepThread = Thread {
                 while (isBeeping) {
                     try {
+                        val now = System.currentTimeMillis()
+                        if (lastGpsUpdateMs != 0L && (now - lastGpsUpdateMs > 3500L)) {
+                            AppLogger.log(
+                                "AcousticRadarEngine",
+                                "beepThread",
+                                false,
+                                "GPS stalled for >3.5s during alert (${now - lastGpsUpdateMs}ms). Automatically stopping sound."
+                            )
+                            stopAlert()
+                            break
+                        }
                         synchronized(this@AcousticRadarEngine) {
                             if (isBeeping) {
                                 emitBeep()
@@ -224,10 +195,8 @@ class AcousticRadarEngine(private val context: Context) {
             // Ignore
         }
         audioExecutor.shutdownNow()
-        toneGeneratorMusic?.release()
-        toneGeneratorMusic = null
-        toneGeneratorAlarm?.release()
-        toneGeneratorAlarm = null
-        AppLogger.log("AcousticRadarEngine", "release", true, "Dual ToneGenerators released.")
+        toneGenerator?.release()
+        toneGenerator = null
+        AppLogger.log("AcousticRadarEngine", "release", true, "Single STREAM_MUSIC ToneGenerator released.")
     }
 }

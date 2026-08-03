@@ -26,19 +26,21 @@ object RadarMath {
 
 
     /**
-     * Calculates beep delay based on distance (beeps active up to 300m).
-     * Continuous rapid beep (150ms) within 50m (<=60 km/h) or 100m (>60 km/h).
+     * Calculates beep delay based on distance in the 300m to -300m zone.
+     * Approaching (300m -> 0m) and Departing (0m -> 300m):
+     * 300-200m: 2000 ms
+     * 200-100m: 1500 ms
+     * 100-50m:  1000 ms
+     * 50-0m:    500 ms
      */
-    fun calculateBeepDelay(distanceMeters: Float, speedKmh: Float): Long {
-        val continuousThreshold = if (speedKmh <= 60f) 50f else 100f
-        val maxBeepDistance = 300f
+    @Suppress("UNUSED_PARAMETER")
+    fun calculateBeepDelay(distanceMeters: Float, speedKmh: Float = 0f): Long {
         val dist = abs(distanceMeters)
-
         return when {
-            dist <= continuousThreshold -> 150L // Continuous rapid beep zone
-            dist <= maxBeepDistance * 0.33f -> 400L // <= 100m
-            dist <= maxBeepDistance * 0.66f -> 800L // <= 200m
-            else -> 1500L // <= 300m
+            dist <= 50f -> 500L
+            dist <= 100f -> 1000L
+            dist <= 200f -> 1500L
+            else -> 2000L
         }
     }
 
@@ -93,7 +95,8 @@ object RadarMath {
     fun evaluateLocationData(
         location: Location,
         currentEffectiveSpeedKmh: Float,
-        dbHelper: com.example.radardetector.db.DatabaseHelper
+        dbHelper: com.example.radardetector.db.DatabaseHelper,
+        ramCacheOverride: CameraLoadResult? = null
     ): ProcessedLocationMetrics {
         val rawSpeedKmh = location.speed * 3.6f
         val effectiveSpeedKmh = calculateEffectiveSpeed(rawSpeedKmh, currentEffectiveSpeedKmh)
@@ -107,7 +110,7 @@ object RadarMath {
             "GPS: ACTIVE"
         }
 
-        val loadResult = load10x10Cameras(dbHelper, location.latitude, location.longitude)
+        val loadResult = ramCacheOverride ?: load10x10Cameras(dbHelper, location.latitude, location.longitude)
         val continuousThresh = if (effectiveSpeedKmh <= 60f) 50f else 100f
 
         var minDistToAnyCam = Float.MAX_VALUE

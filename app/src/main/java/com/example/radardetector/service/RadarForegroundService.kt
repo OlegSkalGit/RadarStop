@@ -29,13 +29,8 @@ import com.example.radardetector.math.RadarMath
 import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.receiver.AlarmWatchdogReceiver
 import com.example.radardetector.util.AppLogger
-import com.example.radardetector.worker.RadarServiceWorker
 import android.os.PowerManager
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 class RadarForegroundService : Service(), LocationListener, SensorEventListener {
 
@@ -53,6 +48,23 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         var currentGpsIntervalMs: Long = 3000L
         @Volatile
         var instance: RadarForegroundService? = null
+        @Volatile
+        var lastMetrics: com.example.radardetector.math.ProcessedLocationMetrics? = null
+
+        fun getRamCachedLoadResult(): com.example.radardetector.math.CameraLoadResult? {
+            val s = instance
+            return if (isRunning && s != null && s.cachedCameras.isNotEmpty()) {
+                com.example.radardetector.math.CameraLoadResult(
+                    cameras = s.cachedCameras,
+                    boxCameraCount = s.cachedCameras.size,
+                    totalInDb = s.cachedTotalCameraCount,
+                    minLat = s.cachedBoxMinLat,
+                    maxLat = s.cachedBoxMaxLat,
+                    minLon = s.cachedBoxMinLon,
+                    maxLon = s.cachedBoxMaxLon
+                )
+            } else null
+        }
     }
 
     private lateinit var locationManager: LocationManager
@@ -63,12 +75,16 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private var lastLocation: Location? = null
 
     @Volatile
-    private var cachedCameras: List<Camera> = emptyList()
+    internal var cachedCameras: List<Camera> = emptyList()
     private val dbExecutor = Executors.newSingleThreadExecutor()
-    private var cachedBoxMinLat = 0.0
-    private var cachedBoxMaxLat = 0.0
-    private var cachedBoxMinLon = 0.0
-    private var cachedBoxMaxLon = 0.0
+    @Volatile
+    internal var cachedBoxMinLat = 0.0
+    @Volatile
+    internal var cachedBoxMaxLat = 0.0
+    @Volatile
+    internal var cachedBoxMinLon = 0.0
+    @Volatile
+    internal var cachedBoxMaxLon = 0.0
     private var lastRamReloadLat = 0.0
     private var lastRamReloadLon = 0.0
 
@@ -135,7 +151,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         AlarmWatchdogReceiver.scheduleNextAlarm(this)
-        setupWorkManagerSelfHealing()
 
         Toast.makeText(applicationContext, "RadarStop Active", Toast.LENGTH_SHORT).show()
 
@@ -176,8 +191,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
             val bestKnown = lastGps ?: lastNet
             if (bestKnown != null) {
-                AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Initializing cache...")
-                onLocationChanged(bestKnown)
+                AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Loading 10x10km DB cache immediately...")
+                reloadCameraCacheForLocation(bestKnown)
             }
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "onCreate", false, "Permission missing for last known location: ${e.message}")
@@ -267,7 +282,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     @Volatile
-    private var cachedTotalCameraCount: Int = 0
+    internal var cachedTotalCameraCount: Int = 0
 
     private fun updateActiveNotificationStatus() {
         val statusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
@@ -321,20 +336,40 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
         lastLocationTimeMs = System.currentTimeMillis()
+        audioEngine.notifyLocationUpdate()
         lastLocation = location
 
         val rawSpeedKmh = location.speed * 3.6f
         val speedKmh = RadarMath.calculateEffectiveSpeed(rawSpeedKmh, effectiveSpeedKmh)
         effectiveSpeedKmh = speedKmh
 
-        // Always trigger sync (initial 100x100km load works even with weak/coarse GPS accuracy)
+        val now = System.currentTimeMillis()
+        val lat = location.latitude
+        val lon = location.longitude
+
+        val distFromRamReload = FloatArray(1)
+        if (lastRamReloadLat != 0.0 || lastRamReloadLon != 0.0) {
+            Location.distanceBetween(lat, lon, lastRamReloadLat, lastRamReloadLon, distFromRamReload)
+        }
+
+        // 1. UNCONDITIONAL RAM CACHE LOAD: Always load 10x10km cameras into RAM on fix (even for coarse GPS)
+        if (cachedCameras.isEmpty() || distFromRamReload[0] >= 4000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
+            reloadCameraCacheForLocation(location)
+        }
+
+        // 2. Evaluate metrics and update lastMetrics for Map UI
+        val metrics = RadarMath.evaluateLocationData(location, effectiveSpeedKmh, dbHelper, getRamCachedLoadResult())
+        lastMetrics = metrics
+
+        // 3. Trigger network sync update
         syncManager.onLocationUpdate(location, speedKmh)
 
+        // 4. Weak GPS Check (Alerting paused if accuracy > 15m, but RAM cache is ALREADY loaded)
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 15f
         if (isAccuracyWeak) {
             if (!isWeakGpsState) {
                 isWeakGpsState = true
-                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>15m). Alerting paused.")
+                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>15m [${location.accuracy.toInt()}m]). Alerting paused.")
             }
             val accInt = location.accuracy.toInt()
             updateNotificationText("Weak GPS signal (>15m [${accInt}m])")
@@ -345,20 +380,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 isWeakGpsState = false
                 AppLogger.log("RadarForegroundService", "onLocationChanged", true, "GPS accuracy restored (<=15m). Alerting resumed.")
             }
-        }
-
-        val now = System.currentTimeMillis()
-
-        val lat = location.latitude
-        val lon = location.longitude
-
-        val distFromRamReload = FloatArray(1)
-        if (lastRamReloadLat != 0.0 || lastRamReloadLon != 0.0) {
-            Location.distanceBetween(lat, lon, lastRamReloadLat, lastRamReloadLon, distFromRamReload)
-        }
-
-        if (cachedCameras.isEmpty() || distFromRamReload[0] >= 4000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
-            reloadCameraCacheForLocation(location)
         }
 
         val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
@@ -499,7 +520,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     "RadarForegroundService",
                     "onLocationChanged",
                     true,
-                    "CAMERA ALERT DETECTED (${if (minDistanceToAlert <= continuousThreshold) "Continuous" else "Approach"} Zone): Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}, Linear: ${closestAlertCamera.isLinear}"
+                    "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}, Linear: ${closestAlertCamera.isLinear}"
                 )
             }
 
@@ -575,7 +596,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             )
 
             val helpIntent = Intent(this, HelpActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
             val pHelpIntent = PendingIntent.getActivity(
                 this, 1, helpIntent,
@@ -606,35 +627,14 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         nm.notify(NOTIF_ID, buildNotification(text))
     }
 
-    private fun setupWorkManagerSelfHealing() {
-        try {
-            val workRequest = PeriodicWorkRequestBuilder<RadarServiceWorker>(
-                15, TimeUnit.MINUTES
-            ).build()
-
-            WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
-                "RadarServiceSelfHealingWork",
-                ExistingPeriodicWorkPolicy.KEEP,
-                workRequest
-            )
-            AppLogger.log("RadarForegroundService", "setupWorkManagerSelfHealing", true, "Enqueued 15-min periodic WorkManager self-healing task.")
-        } catch (e: Exception) {
-            AppLogger.log("RadarForegroundService", "setupWorkManagerSelfHealing", false, "Failed to schedule WorkManager self-healing task: ${e.message}")
-        }
-    }
-
     private fun stopSelfAndCleanup() {
         AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cleaning up resources and stopping service.")
         isRunning = false
+        lastMetrics = null
         if (instance == this) instance = null
         getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).edit().putBoolean("user_stopped", true).apply()
         AlarmWatchdogReceiver.cancelAlarm(this)
-        try {
-            WorkManager.getInstance(applicationContext).cancelUniqueWork("RadarServiceSelfHealingWork")
-            AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cancelled background AlarmManager and WorkManager timers.")
-        } catch (e: Exception) {
-            AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", false, "Error cancelling WorkManager: ${e.message}")
-        }
+        AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cancelled background AlarmManager timer.")
         watchdogHandler.removeCallbacks(watchdogRunnable)
         try {
             if (wakeLock?.isHeld == true) {

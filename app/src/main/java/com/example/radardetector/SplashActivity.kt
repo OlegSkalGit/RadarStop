@@ -39,7 +39,7 @@ class SplashActivity : Activity() {
         if (RadarForegroundService.isRunning) {
             AppLogger.log("SplashActivity", "onCreate", true, "RadarForegroundService is already running. Toast shown.")
             Toast.makeText(applicationContext, "RadarStop Active", Toast.LENGTH_SHORT).show()
-            finish()
+            finishAndRemoveTask()
             return
         }
 
@@ -150,6 +150,6 @@ class SplashActivity : Activity() {
             AppLogger.log("SplashActivity", "startRadarServiceAndFinish", false, "Failed to start service: ${e.message}")
             Toast.makeText(applicationContext, "Failed to start RadarStop service: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        finish()
+        finishAndRemoveTask()
     }
 }

@@ -2,6 +2,7 @@ package com.example.radardetector
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -132,7 +133,14 @@ class RadarMapActivity : Activity(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        val metrics = RadarMath.evaluateLocationData(location, effectiveSpeedKmh, dbHelper)
+        val activeServiceMetrics = if (com.example.radardetector.service.RadarForegroundService.isRunning) {
+            com.example.radardetector.service.RadarForegroundService.lastMetrics
+        } else null
+
+        val metrics = activeServiceMetrics ?: run {
+            val ramCache = com.example.radardetector.service.RadarForegroundService.getRamCachedLoadResult()
+            RadarMath.evaluateLocationData(location, effectiveSpeedKmh, dbHelper, ramCache)
+        }
         effectiveSpeedKmh = metrics.effectiveSpeedKmh
         lastLocation = metrics.location
         nearbyCameras = metrics.cameraLoadResult.cameras
@@ -180,11 +188,7 @@ class RadarMapActivity : Activity(), LocationListener {
             speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
             closestAlertCam != null -> {
                 val delayMs = RadarMath.calculateBeepDelay(minAlertDist, speedKmh)
-                if (minAlertDist <= metrics.continuousThreshold) {
-                    "CONTINUOUS BEEP (150ms)"
-                } else {
-                    "APPROACH ALERT (${delayMs}ms)"
-                }
+                "ALERT (${delayMs}ms)"
             }
             else -> "OFF (Idle)"
         }
