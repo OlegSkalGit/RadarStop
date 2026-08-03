@@ -199,10 +199,19 @@ class RadarMapActivity : Activity(), LocationListener {
             else -> "OFF (Idle)"
         }
 
+        val totalDb = dbHelper.getCameraCount()
         tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $gpsStatusStr | Interval: $pollingIntervalStr"
-        tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / ${metrics.cameraLoadResult.totalInDb} total DB"
+        tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
 
         mapView.updateData(location, nearbyCameras)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lastLocation?.let { onLocationChanged(it) } ?: run {
+            val totalDb = dbHelper.getCameraCount()
+            tvStatusLine2.text = "Beep Status: -- | Cams: -- in 3km / -- in 10x10km / $totalDb total DB"
+        }
     }
 
     override fun onProviderEnabled(provider: String) {}

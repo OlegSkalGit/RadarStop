@@ -160,10 +160,19 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             this,
             dbHelper,
             onStatusUpdate = { statusMsg -> updateNotificationText(statusMsg) },
-            onSyncSuccess = { _, _ ->
-                lastLocation?.let { loc ->
+            onSyncSuccess = { _, totalCount ->
+                cachedTotalCameraCount = totalCount
+                val loc = lastLocation ?: try {
+                    locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                        ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                } catch (e: Exception) { null }
+
+                if (loc != null) {
                     reloadCameraCacheForLocation(loc)
-                } ?: updateActiveNotificationStatus()
+                    lastMetrics = RadarMath.evaluateLocationData(loc, effectiveSpeedKmh, dbHelper, getRamCachedLoadResult())
+                } else {
+                    updateActiveNotificationStatus()
+                }
             }
         )
         audioEngine = AcousticRadarEngine(this)
@@ -585,7 +594,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             )
 
             val helpIntent = Intent(this, HelpActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
             val pHelpIntent = PendingIntent.getActivity(
                 this, 1, helpIntent,
