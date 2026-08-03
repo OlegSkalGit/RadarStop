@@ -183,7 +183,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         startForeground(NOTIF_ID, buildNotification(initialText))
         AppLogger.log("RadarForegroundService", "onCreate", true, "Searching for GPS satellites...")
 
-        registerGpsUpdates(3000L)
+        registerGpsUpdates(1000L, force = true)
 
         // Try last known location for instant startup
         try {
@@ -319,7 +319,16 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         audioEngine.notifyLocationUpdate()
         lastLocation = location
 
-        val rawSpeedKmh = location.speed * 3.6f
+        val rawSpeedKmh = if (location.hasSpeed() && location.speed > 0f) {
+            location.speed * 3.6f
+        } else {
+            val prevLoc = lastLocation
+            if (prevLoc != null && location.time > prevLoc.time) {
+                val distM = location.distanceTo(prevLoc)
+                val timeS = (location.time - prevLoc.time) / 1000f
+                if (timeS > 0f) (distM / timeS) * 3.6f else 0f
+            } else 0f
+        }
         val speedKmh = RadarMath.calculateEffectiveSpeed(rawSpeedKmh, effectiveSpeedKmh)
         effectiveSpeedKmh = speedKmh
 
@@ -363,7 +372,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
-        val maxBeepAlertDistance = 300f
+        val maxBeepAlertDistance = if (speedKmh > 70f) 1000f else 500f
         val continuousThreshold = if (speedKmh <= 60f) 50f else 100f
 
         var minDistToAnyCamera = Float.MAX_VALUE
