@@ -57,7 +57,11 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         AppLogger.log("DatabaseHelper", "onUpgrade", true, "Upgraded DB from v$oldVersion to v$newVersion.")
     }
 
+    @Volatile
+    private var cachedCameraCount: Int = -1
+
     fun clearCameras() {
+        cachedCameraCount = -1
         try {
             writableDatabase.execSQL("DELETE FROM $TABLE_CAMERAS")
             AppLogger.log("DatabaseHelper", "clearCameras", true, "Cleared all camera records from SQLite DB.")
@@ -67,6 +71,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     fun clearCamerasInBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {
+        cachedCameraCount = -1
         try {
             writableDatabase.execSQL(
                 "DELETE FROM $TABLE_CAMERAS WHERE $COLUMN_LAT BETWEEN ? AND ? AND $COLUMN_LON BETWEEN ? AND ?",
@@ -79,6 +84,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     fun replaceCamerasInBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, cameras: List<Camera>) {
+        cachedCameraCount = -1
         val startMs = System.currentTimeMillis()
         val db = writableDatabase
         db.beginTransaction()
@@ -113,6 +119,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     fun insertCameras(cameras: List<Camera>) {
+        cachedCameraCount = -1
         val startMs = System.currentTimeMillis()
         val db = writableDatabase
         db.beginTransaction()
@@ -196,13 +203,19 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     fun getCameraCount(): Int {
-        val db = readableDatabase
-        db.rawQuery("SELECT COUNT(*) FROM $TABLE_CAMERAS", null).use { cursor ->
-            if (cursor.moveToFirst()) {
-                return cursor.getInt(0)
-            }
+        val current = cachedCameraCount
+        if (current >= 0) {
+            return current
         }
-        return 0
+        val count = try {
+            readableDatabase.rawQuery("SELECT COUNT(*) FROM $TABLE_CAMERAS", null).use { cursor ->
+                if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            }
+        } catch (e: Exception) {
+            0
+        }
+        cachedCameraCount = count
+        return count
     }
 
     fun insertCountries(countries: List<Pair<String, String>>) {
