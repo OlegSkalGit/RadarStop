@@ -105,7 +105,13 @@ class AcousticRadarEngine(private val context: Context) {
                 synchronized(this@AcousticRadarEngine) {
                     emitBeep()
                 }
-                AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played after stream warmup.")
+                Thread.sleep(250)
+                synchronized(this@AcousticRadarEngine) {
+                    if (!isBeeping) {
+                        abandonFocus()
+                    }
+                }
+                AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played after stream warmup and focus released.")
             } catch (e: Exception) {
                 AppLogger.log("AcousticRadarEngine", "playSingleBeep", false, "Error: ${e.message}")
             }
@@ -126,6 +132,12 @@ class AcousticRadarEngine(private val context: Context) {
                     }
                     if (i < count) {
                         Thread.sleep(intervalMs)
+                    }
+                }
+                Thread.sleep(250)
+                synchronized(this@AcousticRadarEngine) {
+                    if (!isBeeping) {
+                        abandonFocus()
                     }
                 }
             } catch (e: Exception) {
@@ -184,9 +196,9 @@ class AcousticRadarEngine(private val context: Context) {
             isBeeping = false
             beepThread?.interrupt()
             beepThread = null
-            abandonFocus()
             AppLogger.log("AcousticRadarEngine", "stopAlert", true, "Beep thread stopped.")
         }
+        abandonFocus()
     }
 
     @Synchronized
