@@ -316,7 +316,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
         lastLocationTimeMs = System.currentTimeMillis()
-        audioEngine.notifyLocationUpdate()
         lastLocation = location
 
         val rawSpeedKmh = if (location.hasSpeed() && location.speed > 0f) {
