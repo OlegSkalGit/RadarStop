@@ -22,6 +22,56 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         const val TABLE_COUNTRIES = "countries"
         const val COLUMN_COUNTRY_CODE = "code"
         const val COLUMN_COUNTRY_NAME = "name"
+        private val PRESET_COUNTRIES = arrayOf(
+            "Afghanistan" to "AF", "Albania" to "AL", "Algeria" to "DZ", "Andorra" to "AD", "Angola" to "AO",
+            "Argentina" to "AR", "Armenia" to "AM", "Australia" to "AU", "Austria" to "AT", "Azerbaijan" to "AZ",
+            "Bahamas" to "BS", "Bahrain" to "BH", "Bangladesh" to "BD", "Belarus" to "BY", "Belgium" to "BE",
+            "Belize" to "BZ", "Benin" to "BJ", "Bhutan" to "BT", "Bolivia" to "BO", "Bosnia and Herzegovina" to "BA",
+            "Botswana" to "BW", "Brazil" to "BR", "Brunei" to "BN", "Bulgaria" to "BG", "Burkina Faso" to "BF",
+            "Burundi" to "BI", "Cambodia" to "KH", "Cameroon" to "CM", "Canada" to "CA", "Chile" to "CL",
+            "China" to "CN", "Colombia" to "CO", "Costa Rica" to "CR", "Croatia" to "HR", "Cuba" to "CU",
+            "Cyprus" to "CY", "Czechia" to "CZ", "Denmark" to "DK", "Dominican Republic" to "DO", "Ecuador" to "EC",
+            "Egypt" to "EG", "El Salvador" to "SV", "Estonia" to "EE", "Ethiopia" to "ET", "Finland" to "FI",
+            "France" to "FR", "Georgia" to "GE", "Germany" to "DE", "Ghana" to "GH", "Greece" to "GR",
+            "Guatemala" to "GT", "Honduras" to "HN", "Hungary" to "HU", "Iceland" to "IS", "India" to "IN",
+            "Indonesia" to "ID", "Iran" to "IR", "Iraq" to "IQ", "Ireland" to "IE", "Israel" to "IL",
+            "Italy" to "IT", "Jamaica" to "JM", "Japan" to "JP", "Jordan" to "JO", "Kazakhstan" to "KZ",
+            "Kenya" to "KE", "Kuwait" to "KW", "Kyrgyzstan" to "KG", "Laos" to "LA", "Latvia" to "LV",
+            "Lebanon" to "LB", "Libya" to "LY", "Liechtenstein" to "LI", "Lithuania" to "LT", "Luxembourg" to "LU",
+            "Madagascar" to "MG", "Malaysia" to "MY", "Maldives" to "MV", "Mali" to "ML", "Malta" to "MT",
+            "Mexico" to "MX", "Moldova" to "MD", "Monaco" to "MC", "Mongolia" to "MN", "Montenegro" to "ME",
+            "Morocco" to "MA", "Mozambique" to "MZ", "Myanmar" to "MM", "Namibia" to "NA", "Nepal" to "NP",
+            "Netherlands" to "NL", "New Zealand" to "NZ", "Nicaragua" to "NI", "Nigeria" to "NG", "North Macedonia" to "MK",
+            "Norway" to "NO", "Oman" to "OM", "Pakistan" to "PK", "Panama" to "PA", "Paraguay" to "PY",
+            "Peru" to "PE", "Philippines" to "PH", "Poland" to "PL", "Portugal" to "PT", "Qatar" to "QA",
+            "Romania" to "RO", "Russia" to "RU", "Rwanda" to "RW", "San Marino" to "SM", "Saudi Arabia" to "SA",
+            "Senegal" to "SN", "Serbia" to "RS", "Singapore" to "SG", "Slovakia" to "SK", "Slovenia" to "SI",
+            "South Africa" to "ZA", "South Korea" to "KR", "Spain" to "ES", "Sri Lanka" to "LK", "Sweden" to "SE",
+            "Switzerland" to "CH", "Taiwan" to "TW", "Tajikistan" to "TJ", "Tanzania" to "TZ", "Thailand" to "TH",
+            "Tunisia" to "TN", "Turkey" to "TR", "Turkmenistan" to "TM", "Uganda" to "UG", "Ukraine" to "UA",
+            "United Arab Emirates" to "AE", "United Kingdom" to "GB", "United States" to "US", "Uruguay" to "UY",
+            "Uzbekistan" to "UZ", "Vatican City" to "VA", "Venezuela" to "VE", "Vietnam" to "VN", "Yemen" to "YE",
+            "Zambia" to "ZM", "Zimbabwe" to "ZW"
+        )
+    }
+
+    private fun seedPresetCountries(db: SQLiteDatabase) {
+        db.beginTransaction()
+        try {
+            db.compileStatement("INSERT OR REPLACE INTO $TABLE_COUNTRIES ($COLUMN_COUNTRY_CODE, $COLUMN_COUNTRY_NAME) VALUES (?, ?)").use { stmt ->
+                for ((name, code) in PRESET_COUNTRIES) {
+                    stmt.clearBindings()
+                    stmt.bindString(1, code)
+                    stmt.bindString(2, name)
+                    stmt.executeInsert()
+                }
+            }
+            db.setTransactionSuccessful()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -47,7 +97,8 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             )
             """.trimIndent()
         )
-        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_CAMERAS, $TABLE_COUNTRIES) and spatial index created.")
+        seedPresetCountries(db)
+        AppLogger.log("DatabaseHelper", "onCreate", true, "Database tables ($TABLE_CAMERAS, $TABLE_COUNTRIES) pre-populated with preset countries.")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -251,6 +302,11 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
                 val code = cursor.getString(codeIdx)
                 list.add(Pair(name, code))
             }
+        }
+        if (list.isEmpty()) {
+            val preset = PRESET_COUNTRIES.map { Pair(it.first, it.second) }
+            insertCountries(preset)
+            return preset.sortedBy { it.first }
         }
         return list
     }
