@@ -37,10 +37,9 @@ object RadarMath {
     fun calculateBeepDelay(distanceMeters: Float, speedKmh: Float = 0f): Long {
         val dist = abs(distanceMeters)
         return when {
-            dist <= 50f -> 400L
-            dist <= 150f -> 800L
-            dist <= 300f -> 1200L
-            dist <= 500f -> 1600L
+            dist <= 50f -> 500L
+            dist <= 100f -> 1000L
+            dist <= 200f -> 1500L
             else -> 2000L
         }
     }

@@ -342,7 +342,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         // 1. UNCONDITIONAL RAM CACHE LOAD: Always load 10x10km cameras into RAM on fix (even for coarse GPS)
-        if (cachedCameras.isEmpty() || distFromRamReload[0] >= 1000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
+        if (cachedCameras.isEmpty() || distFromRamReload[0] >= 4000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
             reloadCameraCacheForLocation(location)
         }
 
@@ -372,7 +372,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
-        val maxBeepAlertDistance = if (speedKmh > 70f) 1000f else 500f
+        val maxBeepAlertDistance = 300f
         val continuousThreshold = if (speedKmh <= 60f) 50f else 100f
 
         var minDistToAnyCamera = Float.MAX_VALUE
