@@ -23,6 +23,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.example.radardetector.db.DatabaseHelper
+import com.example.radardetector.network.AppUpdateManager
 import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
@@ -144,6 +145,16 @@ Sound Alerts & Tracking:
             }
         }
 
+        val btnUpd = Button(this).apply {
+            text = "Upd"
+            setOnClickListener {
+                Toast.makeText(this@HelpActivity, "Checking for updates...", Toast.LENGTH_SHORT).show()
+                AppUpdateManager.checkAndDownloadUpdate(this@HelpActivity, force = true) { result ->
+                    Toast.makeText(this@HelpActivity, result, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
         val btnAdb = Button(this).apply {
             text = "ADB"
             setOnClickListener {
@@ -164,6 +175,7 @@ Sound Alerts & Tracking:
         bottomBar.addView(checkBoxAutostart)
         bottomBar.addView(btnLoadCountryCams)
         bottomBar.addView(spaceLayout)
+        bottomBar.addView(btnUpd)
         bottomBar.addView(btnAdb)
         bottomBar.addView(btnClose)
         rootLayout.addView(bottomBar)

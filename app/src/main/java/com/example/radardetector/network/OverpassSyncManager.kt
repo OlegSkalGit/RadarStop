@@ -115,6 +115,7 @@ class OverpassSyncManager(
         }
 
         AppLogger.log("OverpassSyncManager", "performSync", true, "Starting 100x100 km Bounding Box sync for coords: ($lat, $lon)")
+        AppUpdateManager.checkAndDownloadUpdate(context)
         mainHandler.post { onStatusUpdate("Downloading camera data...") }
 
         val south = lat - 0.45
