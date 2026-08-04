@@ -55,17 +55,6 @@ class LogViewerActivity : Activity() {
             }
         })
 
-        val appVersionName = try {
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
-                packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0L)).versionName
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageInfo(packageName, 0).versionName
-            }
-        } catch (e: Exception) {
-            "1.0"
-        }
-
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#121212"))
@@ -79,7 +68,7 @@ class LogViewerActivity : Activity() {
         val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 12)
+            setPadding(0, 0, 0, 16)
         }
 
         val btnClose = Button(this).apply {
@@ -97,8 +86,8 @@ class LogViewerActivity : Activity() {
         }
 
         val headerTitle = TextView(this).apply {
-            text = "RadarStop Debug (v$appVersionName)"
-            textSize = 18f
+            text = "RadarStop Debug"
+            textSize = 20f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
             gravity = Gravity.CENTER
@@ -123,7 +112,7 @@ class LogViewerActivity : Activity() {
         val loggingBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 8)
+            setPadding(0, 0, 0, 12)
         }
 
         val checkBoxLogging = CheckBox(this).apply {
@@ -143,15 +132,18 @@ class LogViewerActivity : Activity() {
         }
 
         val btnParams = LinearLayout.LayoutParams(
+            0,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            1f
         ).apply {
-            setMargins(6, 0, 0, 0)
+            setMargins(4, 0, 4, 0)
         }
 
         val btnRefresh = Button(this).apply {
             text = "Refresh"
-            textSize = 12f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
             layoutParams = btnParams
             setOnClickListener {
                 val todayFile = AppLogger.getTodayFileName()
@@ -163,14 +155,18 @@ class LogViewerActivity : Activity() {
 
         val btnShare = Button(this).apply {
             text = "Share"
-            textSize = 12f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
             layoutParams = btnParams
             setOnClickListener { shareLog() }
         }
 
         val btnClear = Button(this).apply {
             text = "Clear"
-            textSize = 12f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
             layoutParams = btnParams
             setOnClickListener {
                 val fileToDelete = selectedLogFileName

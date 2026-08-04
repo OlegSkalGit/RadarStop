@@ -37,6 +37,17 @@ class HelpActivity : Activity() {
         super.onCreate(savedInstanceState)
         title = "Help"
 
+        val appVersionName = try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0L)).versionName
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).versionName
+            }
+        } catch (e: Exception) {
+            "1.0"
+        }
+
         scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 val factor = detector.scaleFactor
@@ -103,7 +114,7 @@ class HelpActivity : Activity() {
         }
 
         val helpContentText = """
-RadarStop
+RadarStop (v$appVersionName)
 
 Ultra-lightweight background driver assistant alerting you of speed cameras ahead.
 

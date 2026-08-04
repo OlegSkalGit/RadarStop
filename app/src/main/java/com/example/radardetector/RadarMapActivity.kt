@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Typeface
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -62,17 +63,53 @@ class RadarMapActivity : Activity(), LocationListener {
         val topPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#E614181F"))
-            setPadding(24, 16, 24, 16)
+            setPadding(16, 16, 16, 12)
         }
 
-        val topRow = LinearLayout(this).apply {
+        val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 12)
         }
+
+        val btnClose = Button(this).apply {
+            text = "Close"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
+            setOnClickListener {
+                val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                startActivity(intent)
+                finish()
+            }
+        }
+
+        val headerTitle = TextView(this).apply {
+            text = "RadarStop Map"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val spaceRight = View(this).apply {
+            visibility = View.INVISIBLE
+        }
+        btnClose.post {
+            if (btnClose.width > 0) {
+                spaceRight.layoutParams = LinearLayout.LayoutParams(btnClose.width, btnClose.height)
+            }
+        }
+
+        headerLayout.addView(btnClose)
+        headerLayout.addView(headerTitle)
+        headerLayout.addView(spaceRight)
 
         val statusContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         tvStatusLine1 = TextView(this).apply {
@@ -91,22 +128,8 @@ class RadarMapActivity : Activity(), LocationListener {
         statusContainer.addView(tvStatusLine1)
         statusContainer.addView(tvStatusLine2)
 
-        val btnClose = Button(this).apply {
-            text = "Close"
-            textSize = 12f
-            setOnClickListener {
-                val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-                startActivity(intent)
-                finish()
-            }
-        }
-
-        topRow.addView(statusContainer)
-        topRow.addView(btnClose)
-
-        topPanel.addView(topRow)
+        topPanel.addView(headerLayout)
+        topPanel.addView(statusContainer)
 
         rootLayout.addView(topPanel, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
