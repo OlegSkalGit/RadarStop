@@ -1,7 +1,6 @@
 package com.example.radardetector
 
 import android.app.Activity
-import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
@@ -9,7 +8,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
-import com.example.radardetector.audio.AcousticRadarEngine
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -97,19 +95,15 @@ class RadarMapActivity : Activity(), LocationListener {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val btnMenu = Button(this).apply {
+        val btnSpacer = Button(this).apply {
             text = "Menu"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
             textSize = 14f
-            setOnClickListener {
-                showMapMenuDialog()
-            }
+            visibility = View.INVISIBLE
         }
 
         headerLayout.addView(btnBack)
         headerLayout.addView(headerTitle)
-        headerLayout.addView(btnMenu)
+        headerLayout.addView(btnSpacer)
 
         val statusContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -250,67 +244,6 @@ class RadarMapActivity : Activity(), LocationListener {
             e.printStackTrace()
         }
         super.onDestroy()
-    }
-
-    private fun showMapMenuDialog() {
-        val dialog = Dialog(this)
-        dialog.setTitle("Menu")
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
-            setBackgroundColor(Color.parseColor("#252525"))
-        }
-
-        val itemStyleParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            setMargins(0, 4, 0, 4)
-        }
-
-        val btnBeep = Button(this).apply {
-            text = "Beep"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                val audioEngine = AcousticRadarEngine(this@RadarMapActivity)
-                audioEngine.playSingleBeep()
-            }
-        }
-
-        val btnAdb = Button(this).apply {
-            text = "ADB"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java)
-                startActivity(intent)
-            }
-        }
-
-        val btnHelp = Button(this).apply {
-            text = "Help"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                val intent = Intent(this@RadarMapActivity, HelpActivity::class.java)
-                startActivity(intent)
-            }
-        }
-
-        container.addView(btnBeep)
-        container.addView(btnAdb)
-        container.addView(btnHelp)
-
-        dialog.setContentView(container)
-        dialog.show()
     }
 
     inner class RadarMapView(context: Context) : View(context) {
