@@ -223,7 +223,7 @@ class RadarMapActivity : Activity(), LocationListener {
         tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $gpsStatusStr | Interval: $pollingIntervalStr"
         tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
 
-        mapView.updateData(location, nearbyCameras)
+        mapView.updateData(location, nearbyCameras, metrics.trajectoryBearing)
     }
 
     override fun onResume() {
@@ -250,6 +250,7 @@ class RadarMapActivity : Activity(), LocationListener {
 
         private var currentLocation: Location? = null
         private var cameras: List<Camera> = emptyList()
+        private var trajectoryBearing: Float? = null
 
         private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2A3A4A")
@@ -285,6 +286,10 @@ class RadarMapActivity : Activity(), LocationListener {
             style = Paint.Style.STROKE
             strokeWidth = 5f
         }
+        private val carVectorFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#00FF66")
+            style = Paint.Style.FILL
+        }
         private val camPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#FF5252")
             style = Paint.Style.FILL
@@ -316,9 +321,10 @@ class RadarMapActivity : Activity(), LocationListener {
             textSize = 20f
         }
 
-        fun updateData(location: Location, newCameras: List<Camera>) {
+        fun updateData(location: Location, newCameras: List<Camera>, bearing: Float? = null) {
             this.currentLocation = location
             this.cameras = newCameras
+            this.trajectoryBearing = bearing
             postInvalidate()
         }
 
@@ -387,8 +393,34 @@ class RadarMapActivity : Activity(), LocationListener {
                 }
             }
 
-            // 3. Draw Vehicle at Center
+            // 3. Draw Vehicle at Center with Direction Vector Arrow
             canvas.drawCircle(cx, cy, 16f, carPaint)
+
+            trajectoryBearing?.let { bearing ->
+                val rad = Math.toRadians(bearing.toDouble())
+                val vecLenPx = 70f
+                val endX = cx + (vecLenPx * sin(rad)).toFloat()
+                val endY = cy - (vecLenPx * cos(rad)).toFloat()
+
+                // Vector Direction Line
+                canvas.drawLine(cx, cy, endX, endY, carVectorPaint)
+
+                // Vector Arrowhead
+                val arrowHeadLen = 20f
+                val arrowAngle = Math.toRadians(25.0)
+                val leftX = endX - (arrowHeadLen * sin(rad - arrowAngle)).toFloat()
+                val leftY = endY + (arrowHeadLen * cos(rad - arrowAngle)).toFloat()
+                val rightX = endX - (arrowHeadLen * sin(rad + arrowAngle)).toFloat()
+                val rightY = endY + (arrowHeadLen * cos(rad + arrowAngle)).toFloat()
+
+                val arrowPath = Path().apply {
+                    moveTo(endX, endY)
+                    lineTo(leftX, leftY)
+                    lineTo(rightX, rightY)
+                    close()
+                }
+                canvas.drawPath(arrowPath, carVectorFillPaint)
+            }
         }
     }
 }

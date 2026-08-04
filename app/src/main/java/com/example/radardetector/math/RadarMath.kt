@@ -414,7 +414,8 @@ object RadarMath {
             minDistToAnyCamera = minDistToAnyCam,
             closestAlertCamera = closestAlertCam,
             minDistanceToAlert = minAlertDist,
-            continuousThreshold = continuousThresh
+            continuousThreshold = continuousThresh,
+            trajectoryBearing = trajectoryBearing
         )
     }
 }
@@ -455,5 +456,6 @@ data class ProcessedLocationMetrics(
     val minDistToAnyCamera: Float,
     val closestAlertCamera: com.example.radardetector.db.Camera?,
     val minDistanceToAlert: Float,
-    val continuousThreshold: Float
+    val continuousThreshold: Float,
+    val trajectoryBearing: Float = 0f
 )
