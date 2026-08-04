@@ -109,10 +109,10 @@ class LogViewerActivity : Activity() {
         headerLayout.addView(btnMenu)
         rootLayout.addView(headerLayout)
 
-        val loggingBar = LinearLayout(this).apply {
+        val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 12)
+            setPadding(0, 0, 0, 8)
         }
 
         val checkBoxLogging = CheckBox(this).apply {
@@ -129,6 +129,47 @@ class LogViewerActivity : Activity() {
                     refreshLog()
                 }
             }
+        }
+
+        spinnerLogFiles = Spinner(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply {
+                setMargins(16, 0, 0, 0)
+            }
+        }
+
+        topBar.addView(checkBoxLogging)
+        topBar.addView(spinnerLogFiles)
+        rootLayout.addView(topBar)
+
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            ).apply {
+                setMargins(0, 4, 0, 8)
+            }
+        }
+
+        textViewLog = TextView(this).apply {
+            textSize = currentTextSizeSp
+            setTextColor(Color.parseColor("#E0E0E0"))
+            setTypeface(Typeface.MONOSPACE)
+            setPadding(12, 12, 12, 12)
+            setBackgroundColor(Color.parseColor("#1E1E1E"))
+        }
+
+        scrollView.addView(textViewLog)
+        rootLayout.addView(scrollView)
+
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 8, 0, 0)
         }
 
         val btnParams = LinearLayout.LayoutParams(
@@ -177,48 +218,10 @@ class LogViewerActivity : Activity() {
             }
         }
 
-        loggingBar.addView(checkBoxLogging)
-        loggingBar.addView(btnRefresh)
-        loggingBar.addView(btnShare)
-        loggingBar.addView(btnClear)
-        rootLayout.addView(loggingBar)
-
-        val spinnerLabel = TextView(this).apply {
-            text = "Select Log File:"
-            setTextColor(Color.parseColor("#AAAAAA"))
-            textSize = 12f
-            setPadding(0, 4, 0, 4)
-        }
-        rootLayout.addView(spinnerLabel)
-
-        spinnerLogFiles = Spinner(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(0, 0, 0, 8)
-            }
-        }
-        rootLayout.addView(spinnerLogFiles)
-
-        val scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
-
-        textViewLog = TextView(this).apply {
-            textSize = currentTextSizeSp
-            setTextColor(Color.parseColor("#E0E0E0"))
-            setTypeface(Typeface.MONOSPACE)
-            setPadding(12, 12, 12, 12)
-            setBackgroundColor(Color.parseColor("#1E1E1E"))
-        }
-
-        scrollView.addView(textViewLog)
-        rootLayout.addView(scrollView)
+        bottomBar.addView(btnRefresh)
+        bottomBar.addView(btnShare)
+        bottomBar.addView(btnClear)
+        rootLayout.addView(bottomBar)
 
         setContentView(rootLayout)
 
