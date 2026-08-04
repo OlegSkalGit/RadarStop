@@ -110,12 +110,14 @@ object RadarMath {
         fun processLocation(location: Location): TrajectoryResult {
             val isWeak = location.hasAccuracy() && location.accuracy > 100f
             if (isWeak) {
+                val lm = computeLineMetrics()
                 return TrajectoryResult(
                     isValid = false,
                     isAccuracyWeak = true,
                     points = buffer.toList(),
-                    averageSpeedKmh = calculateAverageSpeed(),
-                    trajectoryBearing = calculateTrajectoryBearing()
+                    averageSpeedKmh = lm.speedKmh,
+                    trajectoryBearing = lm.trajectoryBearing,
+                    projectedDistanceMeters = lm.projectedDistanceMeters
                 )
             }
 
@@ -127,7 +129,8 @@ object RadarMath {
                     isAccuracyWeak = false,
                     points = buffer.toList(),
                     averageSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else 0f,
-                    trajectoryBearing = location.bearing
+                    trajectoryBearing = location.bearing,
+                    projectedDistanceMeters = 0f
                 )
             }
 
@@ -156,17 +159,20 @@ object RadarMath {
                         isAccuracyWeak = false,
                         points = buffer.toList(),
                         averageSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else 0f,
-                        trajectoryBearing = location.bearing
+                        trajectoryBearing = location.bearing,
+                        projectedDistanceMeters = 0f
                     )
                 }
             }
 
+            val lm = computeLineMetrics()
             return TrajectoryResult(
                 isValid = isForward,
                 isAccuracyWeak = false,
                 points = buffer.toList(),
-                averageSpeedKmh = calculateAverageSpeed(),
-                trajectoryBearing = calculateTrajectoryBearing()
+                averageSpeedKmh = lm.speedKmh,
+                trajectoryBearing = lm.trajectoryBearing,
+                projectedDistanceMeters = lm.projectedDistanceMeters
             )
         }
 
@@ -245,28 +251,98 @@ object RadarMath {
             return candProj > lastProj + 0.01
         }
 
-        fun calculateAverageSpeed(): Float {
+        fun computeLineMetrics(): LineMetrics {
             if (buffer.size < 2) {
                 val single = buffer.lastOrNull()
-                return if (single != null && single.hasSpeed()) single.speed * 3.6f else 0f
+                val speed = if (single != null && single.hasSpeed()) single.speed * 3.6f else 0f
+                val bearing = single?.bearing ?: 0f
+                return LineMetrics(speedKmh = speed, trajectoryBearing = bearing, projectedDistanceMeters = 0f)
             }
-            val first = buffer.first()
-            val last = buffer.last()
-            val timeS = (last.time - first.time) / 1000.0f
-            if (timeS <= 0f) return 0f
-            val distM = first.distanceTo(last)
-            return (distM / timeS) * 3.6f
-        }
 
-        fun calculateTrajectoryBearing(): Float {
-            if (buffer.size < 2) return buffer.lastOrNull()?.bearing ?: 0f
-            val first = buffer.first()
-            val last = buffer.last()
-            val dist = first.distanceTo(last)
-            if (dist > 1.0f) {
-                return first.bearingTo(last)
+            val points = buffer.toList()
+            val ref = points.first()
+
+            val radLat = Math.toRadians(ref.latitude)
+            val metersPerDegLat = 111139.0
+            val metersPerDegLon = 111139.0 * Math.cos(radLat)
+
+            val n = points.size
+            val xs = DoubleArray(n)
+            val ys = DoubleArray(n)
+
+            var sumX = 0.0
+            var sumY = 0.0
+            for (i in 0 until n) {
+                xs[i] = (points[i].longitude - ref.longitude) * metersPerDegLon
+                ys[i] = (points[i].latitude - ref.latitude) * metersPerDegLat
+                sumX += xs[i]
+                sumY += ys[i]
             }
-            return last.bearing
+
+            val meanX = sumX / n
+            val meanY = sumY / n
+
+            var sxx = 0.0
+            var syy = 0.0
+            var sxy = 0.0
+            for (i in 0 until n) {
+                val dx = xs[i] - meanX
+                val dy = ys[i] - meanY
+                sxx += dx * dx
+                syy += dy * dy
+                sxy += dx * dy
+            }
+
+            val ux: Double
+            val uy: Double
+            if (Math.abs(sxx) > 1e-4 || Math.abs(syy) > 1e-4 || Math.abs(sxy) > 1e-4) {
+                val angle = 0.5 * Math.atan2(2.0 * sxy, sxx - syy)
+                var vx = Math.cos(angle)
+                var vy = Math.sin(angle)
+
+                val totalDx = xs.last() - xs.first()
+                val totalDy = ys.last() - ys.first()
+                if (vx * totalDx + vy * totalDy < 0) {
+                    vx = -vx
+                    vy = -vy
+                }
+                ux = vx
+                uy = vy
+            } else {
+                val dxTotal = xs.last() - xs.first()
+                val dyTotal = ys.last() - ys.first()
+                val len = Math.hypot(dxTotal, dyTotal)
+                if (len > 0.5) {
+                    ux = dxTotal / len
+                    uy = dyTotal / len
+                } else {
+                    val single = buffer.last()
+                    val speed = if (single.hasSpeed()) single.speed * 3.6f else 0f
+                    return LineMetrics(speedKmh = speed, trajectoryBearing = single.bearing, projectedDistanceMeters = 0f)
+                }
+            }
+
+            // 1. Azimuth from trend vector (ux=East, uy=North) in degrees (0..360)
+            var azimuth = (90.0 - Math.toDegrees(Math.atan2(uy, ux))).toFloat()
+            if (azimuth < 0f) azimuth += 360f
+            if (azimuth >= 360f) azimuth -= 360f
+
+            // 2. Projections of first and last points onto trend line
+            val firstProj = xs.first() * ux + ys.first() * uy
+            val lastProj = xs.last() * ux + ys.last() * uy
+            val projDistMeters = (lastProj - firstProj).toFloat()
+
+            // 3. Time delta and speed along line projection
+            val timeS = (points.last().time - points.first().time) / 1000.0f
+            val speedKmh = if (timeS > 0f && projDistMeters > 0f) {
+                (projDistMeters / timeS) * 3.6f
+            } else 0f
+
+            return LineMetrics(
+                speedKmh = speedKmh,
+                trajectoryBearing = azimuth,
+                projectedDistanceMeters = projDistMeters
+            )
         }
     }
 
@@ -339,12 +415,19 @@ object RadarMath {
     }
 }
 
+data class LineMetrics(
+    val speedKmh: Float,
+    val trajectoryBearing: Float,
+    val projectedDistanceMeters: Float
+)
+
 data class TrajectoryResult(
     val isValid: Boolean,
     val isAccuracyWeak: Boolean,
     val points: List<Location>,
     val averageSpeedKmh: Float,
-    val trajectoryBearing: Float
+    val trajectoryBearing: Float,
+    val projectedDistanceMeters: Float = 0f
 )
 
 data class CameraLoadResult(
