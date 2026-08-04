@@ -87,15 +87,20 @@ object RadarMath {
     }
 
     /**
-     * Trajectory filter maintaining a 10-point sliding buffer with linear approximation
-     * and forward-projection validation.
+     * Trajectory filter maintaining a 10-point sliding buffer with linear approximation,
+     * forward-projection validation, and auto-reset after 3 consecutive rejections (turn detection).
      */
-    class TrajectoryFilter(private val maxBufferSize: Int = 10) {
+    class TrajectoryFilter(
+        private val maxBufferSize: Int = 10,
+        private val maxConsecutiveRejections: Int = 3
+    ) {
         private val buffer = java.util.ArrayDeque<Location>()
+        private var consecutiveRejections = 0
 
         @Synchronized
         fun reset() {
             buffer.clear()
+            consecutiveRejections = 0
         }
 
         @Synchronized
@@ -116,6 +121,7 @@ object RadarMath {
 
             if (buffer.isEmpty()) {
                 buffer.addLast(location)
+                consecutiveRejections = 0
                 return TrajectoryResult(
                     isValid = true,
                     isAccuracyWeak = false,
@@ -133,10 +139,26 @@ object RadarMath {
             }
 
             if (isForward) {
+                consecutiveRejections = 0
                 if (buffer.size >= maxBufferSize) {
                     buffer.removeFirst()
                 }
                 buffer.addLast(location)
+            } else {
+                consecutiveRejections++
+                if (consecutiveRejections >= maxConsecutiveRejections) {
+                    // Turn detected! Auto-reset buffer and start fresh trajectory from current location
+                    buffer.clear()
+                    buffer.addLast(location)
+                    consecutiveRejections = 0
+                    return TrajectoryResult(
+                        isValid = true,
+                        isAccuracyWeak = false,
+                        points = buffer.toList(),
+                        averageSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else 0f,
+                        trajectoryBearing = location.bearing
+                    )
+                }
             }
 
             return TrajectoryResult(
