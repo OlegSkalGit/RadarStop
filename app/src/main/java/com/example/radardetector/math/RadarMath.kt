@@ -176,11 +176,19 @@ object RadarMath {
             )
         }
 
-        private fun checkForwardProjection(candidate: Location): Boolean {
-            val points = buffer.toList()
-            if (points.isEmpty()) return true
-            val ref = points.first()
+        private data class SubLineFit(
+            val ux: Double,
+            val uy: Double,
+            val azimuth: Float
+        )
 
+        private data class ActiveTrend(
+            val ux: Double,
+            val uy: Double,
+            val azimuth: Float
+        )
+
+        private fun fitSubBufferLine(points: List<Location>, ref: Location): SubLineFit {
             val radLat = Math.toRadians(ref.latitude)
             val metersPerDegLat = 111139.0
             val metersPerDegLon = 111139.0 * Math.cos(radLat)
@@ -198,11 +206,9 @@ object RadarMath {
                 sumY += ys[i]
             }
 
-            // Centroid (center of mass across all N points in buffer)
             val meanX = sumX / n
             val meanY = sumY / n
 
-            // Calculate covariances across ALL points (Linear Least Squares / PCA)
             var sxx = 0.0
             var syy = 0.0
             var sxy = 0.0
@@ -217,12 +223,10 @@ object RadarMath {
             val ux: Double
             val uy: Double
             if (Math.abs(sxx) > 1e-4 || Math.abs(syy) > 1e-4 || Math.abs(sxy) > 1e-4) {
-                // Angle of line of best fit through all N points
                 val angle = 0.5 * Math.atan2(2.0 * sxy, sxx - syy)
                 var vx = Math.cos(angle)
                 var vy = Math.sin(angle)
 
-                // Align vector orientation chronologically (from start towards latest point)
                 val totalDx = xs.last() - xs.first()
                 val totalDy = ys.last() - ys.first()
                 if (vx * totalDx + vy * totalDy < 0) {
@@ -239,14 +243,70 @@ object RadarMath {
                     ux = dxTotal / len
                     uy = dyTotal / len
                 } else {
-                    return candidate.distanceTo(points.last()) > 0.1f
+                    val bearing = points.last().bearing
+                    val rad = Math.toRadians((90.0 - bearing).toDouble())
+                    return SubLineFit(Math.cos(rad), Math.sin(rad), bearing)
                 }
             }
 
+            var azimuth = (90.0 - Math.toDegrees(Math.atan2(uy, ux))).toFloat()
+            if (azimuth < 0f) azimuth += 360f
+            if (azimuth >= 360f) azimuth -= 360f
+
+            return SubLineFit(ux, uy, azimuth)
+        }
+
+        private fun computeActiveTrendLine(): ActiveTrend {
+            val points = buffer.toList()
+            if (points.isEmpty()) return ActiveTrend(1.0, 0.0, 0f)
+            val ref = points.first()
+
+            if (points.size < 10) {
+                val subPoints = points.takeLast(5)
+                val fit = fitSubBufferLine(subPoints, ref)
+                return ActiveTrend(fit.ux, fit.uy, fit.azimuth)
+            } else {
+                val headPoints = points.take(5)
+                val tailPoints = points.takeLast(5)
+                val fit1 = fitSubBufferLine(headPoints, ref)
+                val fit2 = fitSubBufferLine(tailPoints, ref)
+
+                val diffAngle = Math.abs(angleDifference(fit1.azimuth, fit2.azimuth))
+                if (diffAngle < 30f) {
+                    var medianAzimuth = fit1.azimuth + 0.5f * angleDifference(fit2.azimuth, fit1.azimuth)
+                    if (medianAzimuth < 0f) medianAzimuth += 360f
+                    if (medianAzimuth >= 360f) medianAzimuth -= 360f
+
+                    val rad = Math.toRadians((90.0 - medianAzimuth).toDouble())
+                    return ActiveTrend(Math.cos(rad), Math.sin(rad), medianAzimuth)
+                } else {
+                    // Turn detected (>= 30 deg)! Truncate head (drop 5 points), use tail vector
+                    repeat(5) {
+                        if (buffer.isNotEmpty()) buffer.removeFirst()
+                    }
+                    return ActiveTrend(fit2.ux, fit2.uy, fit2.azimuth)
+                }
+            }
+        }
+
+        private fun checkForwardProjection(candidate: Location): Boolean {
+            val points = buffer.toList()
+            if (points.isEmpty()) return true
+            val ref = points.first()
+
+            val activeTrend = computeActiveTrendLine()
+
+            val radLat = Math.toRadians(ref.latitude)
+            val metersPerDegLat = 111139.0
+            val metersPerDegLon = 111139.0 * Math.cos(radLat)
+
             val candX = (candidate.longitude - ref.longitude) * metersPerDegLon
             val candY = (candidate.latitude - ref.latitude) * metersPerDegLat
-            val candProj = candX * ux + candY * uy
-            val lastProj = xs.last() * ux + ys.last() * uy
+            val candProj = candX * activeTrend.ux + candY * activeTrend.uy
+
+            val lastX = (points.last().longitude - ref.longitude) * metersPerDegLon
+            val lastY = (points.last().latitude - ref.latitude) * metersPerDegLat
+            val lastProj = lastX * activeTrend.ux + lastY * activeTrend.uy
 
             return candProj > lastProj + 0.01
         }
@@ -262,77 +322,21 @@ object RadarMath {
             val points = buffer.toList()
             val ref = points.first()
 
+            val activeTrend = computeActiveTrendLine()
+
             val radLat = Math.toRadians(ref.latitude)
             val metersPerDegLat = 111139.0
             val metersPerDegLon = 111139.0 * Math.cos(radLat)
 
-            val n = points.size
-            val xs = DoubleArray(n)
-            val ys = DoubleArray(n)
+            val firstX = (points.first().longitude - ref.longitude) * metersPerDegLon
+            val firstY = (points.first().latitude - ref.latitude) * metersPerDegLat
+            val firstProj = firstX * activeTrend.ux + firstY * activeTrend.uy
 
-            var sumX = 0.0
-            var sumY = 0.0
-            for (i in 0 until n) {
-                xs[i] = (points[i].longitude - ref.longitude) * metersPerDegLon
-                ys[i] = (points[i].latitude - ref.latitude) * metersPerDegLat
-                sumX += xs[i]
-                sumY += ys[i]
-            }
+            val lastX = (points.last().longitude - ref.longitude) * metersPerDegLon
+            val lastY = (points.last().latitude - ref.latitude) * metersPerDegLat
+            val lastProj = lastX * activeTrend.ux + lastY * activeTrend.uy
 
-            val meanX = sumX / n
-            val meanY = sumY / n
-
-            var sxx = 0.0
-            var syy = 0.0
-            var sxy = 0.0
-            for (i in 0 until n) {
-                val dx = xs[i] - meanX
-                val dy = ys[i] - meanY
-                sxx += dx * dx
-                syy += dy * dy
-                sxy += dx * dy
-            }
-
-            val ux: Double
-            val uy: Double
-            if (Math.abs(sxx) > 1e-4 || Math.abs(syy) > 1e-4 || Math.abs(sxy) > 1e-4) {
-                val angle = 0.5 * Math.atan2(2.0 * sxy, sxx - syy)
-                var vx = Math.cos(angle)
-                var vy = Math.sin(angle)
-
-                val totalDx = xs.last() - xs.first()
-                val totalDy = ys.last() - ys.first()
-                if (vx * totalDx + vy * totalDy < 0) {
-                    vx = -vx
-                    vy = -vy
-                }
-                ux = vx
-                uy = vy
-            } else {
-                val dxTotal = xs.last() - xs.first()
-                val dyTotal = ys.last() - ys.first()
-                val len = Math.hypot(dxTotal, dyTotal)
-                if (len > 0.5) {
-                    ux = dxTotal / len
-                    uy = dyTotal / len
-                } else {
-                    val single = buffer.last()
-                    val speed = if (single.hasSpeed()) single.speed * 3.6f else 0f
-                    return LineMetrics(speedKmh = speed, trajectoryBearing = single.bearing, projectedDistanceMeters = 0f)
-                }
-            }
-
-            // 1. Azimuth from trend vector (ux=East, uy=North) in degrees (0..360)
-            var azimuth = (90.0 - Math.toDegrees(Math.atan2(uy, ux))).toFloat()
-            if (azimuth < 0f) azimuth += 360f
-            if (azimuth >= 360f) azimuth -= 360f
-
-            // 2. Projections of first and last points onto trend line
-            val firstProj = xs.first() * ux + ys.first() * uy
-            val lastProj = xs.last() * ux + ys.last() * uy
             val projDistMeters = (lastProj - firstProj).toFloat()
-
-            // 3. Time delta and speed along line projection
             val timeS = (points.last().time - points.first().time) / 1000.0f
             val speedKmh = if (timeS > 0f && projDistMeters > 0f) {
                 (projDistMeters / timeS) * 3.6f
@@ -340,7 +344,7 @@ object RadarMath {
 
             return LineMetrics(
                 speedKmh = speedKmh,
-                trajectoryBearing = azimuth,
+                trajectoryBearing = activeTrend.azimuth,
                 projectedDistanceMeters = projDistMeters
             )
         }
