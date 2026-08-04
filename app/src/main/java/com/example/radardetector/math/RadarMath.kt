@@ -87,6 +87,140 @@ object RadarMath {
     }
 
     /**
+     * Trajectory filter maintaining a 10-point sliding buffer with linear approximation
+     * and forward-projection validation.
+     */
+    class TrajectoryFilter(private val maxBufferSize: Int = 10) {
+        private val buffer = java.util.ArrayDeque<Location>()
+
+        @Synchronized
+        fun reset() {
+            buffer.clear()
+        }
+
+        @Synchronized
+        fun getPoints(): List<Location> = buffer.toList()
+
+        @Synchronized
+        fun processLocation(location: Location): TrajectoryResult {
+            val isWeak = location.hasAccuracy() && location.accuracy > 100f
+            if (isWeak) {
+                return TrajectoryResult(
+                    isValid = false,
+                    isAccuracyWeak = true,
+                    points = buffer.toList(),
+                    averageSpeedKmh = calculateAverageSpeed(),
+                    trajectoryBearing = calculateTrajectoryBearing()
+                )
+            }
+
+            if (buffer.isEmpty()) {
+                buffer.addLast(location)
+                return TrajectoryResult(
+                    isValid = true,
+                    isAccuracyWeak = false,
+                    points = buffer.toList(),
+                    averageSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else 0f,
+                    trajectoryBearing = location.bearing
+                )
+            }
+
+            val isForward = if (buffer.size >= 2) {
+                checkForwardProjection(location)
+            } else {
+                val prev = buffer.last
+                location.time > prev.time && prev.distanceTo(location) > 0.1f
+            }
+
+            if (isForward) {
+                if (buffer.size >= maxBufferSize) {
+                    buffer.removeFirst()
+                }
+                buffer.addLast(location)
+            }
+
+            return TrajectoryResult(
+                isValid = isForward,
+                isAccuracyWeak = false,
+                points = buffer.toList(),
+                averageSpeedKmh = calculateAverageSpeed(),
+                trajectoryBearing = calculateTrajectoryBearing()
+            )
+        }
+
+        private fun checkForwardProjection(candidate: Location): Boolean {
+            val points = buffer.toList()
+            if (points.isEmpty()) return true
+            val ref = points.first()
+
+            val radLat = Math.toRadians(ref.latitude)
+            val metersPerDegLat = 111139.0
+            val metersPerDegLon = 111139.0 * Math.cos(radLat)
+
+            val xs = DoubleArray(points.size)
+            val ys = DoubleArray(points.size)
+
+            for (i in points.indices) {
+                xs[i] = (points[i].longitude - ref.longitude) * metersPerDegLon
+                ys[i] = (points[i].latitude - ref.latitude) * metersPerDegLat
+            }
+
+            val dxTotal = xs.last() - xs.first()
+            val dyTotal = ys.last() - ys.first()
+            val len = Math.hypot(dxTotal, dyTotal)
+
+            val ux: Double
+            val uy: Double
+            if (len > 0.5) {
+                ux = dxTotal / len
+                uy = dyTotal / len
+            } else {
+                return candidate.distanceTo(points.last()) > 0.1f
+            }
+
+            val candX = (candidate.longitude - ref.longitude) * metersPerDegLon
+            val candY = (candidate.latitude - ref.latitude) * metersPerDegLat
+            val candProj = candX * ux + candY * uy
+            val lastProj = xs.last() * ux + ys.last() * uy
+
+            return candProj > lastProj + 0.01
+        }
+
+        fun calculateAverageSpeed(): Float {
+            if (buffer.size < 2) {
+                val single = buffer.lastOrNull()
+                return if (single != null && single.hasSpeed()) single.speed * 3.6f else 0f
+            }
+            val first = buffer.first()
+            val last = buffer.last()
+            val timeS = (last.time - first.time) / 1000.0f
+            if (timeS <= 0f) return 0f
+            val distM = first.distanceTo(last)
+            return (distM / timeS) * 3.6f
+        }
+
+        fun calculateTrajectoryBearing(): Float {
+            if (buffer.size < 2) return buffer.lastOrNull()?.bearing ?: 0f
+            val first = buffer.first()
+            val last = buffer.last()
+            val dist = first.distanceTo(last)
+            if (dist > 1.0f) {
+                return first.bearingTo(last)
+            }
+            return last.bearing
+        }
+    }
+
+    /**
+     * Checks if trajectory bearing matches camera direction within +-15 degrees.
+     */
+    fun isCameraDirectionMatched(trajectoryBearing: Float, cameraDir: Float?): Boolean {
+        if (cameraDir == null) return true // Omnidirectional
+        val diff = abs(angleDifference(trajectoryBearing, cameraDir))
+        return diff <= 15f
+    }
+
+    /**
      * Single authoritative location evaluator function used identically by both
      * RadarForegroundService and RadarMapActivity to produce 100% unified metrics.
      */
@@ -94,14 +228,15 @@ object RadarMath {
         location: Location,
         currentEffectiveSpeedKmh: Float,
         dbHelper: com.example.radardetector.db.DatabaseHelper,
-        ramCacheOverride: CameraLoadResult? = null
+        ramCacheOverride: CameraLoadResult? = null,
+        trajectoryBearing: Float = location.bearing
     ): ProcessedLocationMetrics {
         val rawSpeedKmh = location.speed * 3.6f
         val effectiveSpeedKmh = calculateEffectiveSpeed(rawSpeedKmh, currentEffectiveSpeedKmh)
-        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 15f
+        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
 
         val gpsStatusStr = if (isAccuracyWeak) {
-            "GPS: WEAK (>15m [${location.accuracy.toInt()}m])"
+            "GPS: WEAK (>100m [${location.accuracy.toInt()}m])"
         } else if (location.hasAccuracy()) {
             "GPS: OK (±${location.accuracy.toInt()}m)"
         } else {
@@ -119,7 +254,7 @@ object RadarMath {
             val dist = calculateDistance(location, cam.lat, cam.lon)
             if (dist < minDistToAnyCam) minDistToAnyCam = dist
 
-            if (dist <= 300f) {
+            if (dist <= 300f && isCameraDirectionMatched(trajectoryBearing, cam.dir)) {
                 if (dist < minAlertDist) {
                     minAlertDist = dist
                     closestAlertCam = cam
@@ -144,6 +279,14 @@ object RadarMath {
         )
     }
 }
+
+data class TrajectoryResult(
+    val isValid: Boolean,
+    val isAccuracyWeak: Boolean,
+    val points: List<Location>,
+    val averageSpeedKmh: Float,
+    val trajectoryBearing: Float
+)
 
 data class CameraLoadResult(
     val cameras: List<com.example.radardetector.db.Camera>,

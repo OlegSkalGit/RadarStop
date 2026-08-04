@@ -321,6 +321,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     private var isWeakGpsState: Boolean = false
+    private val trajectoryFilter = RadarMath.TrajectoryFilter()
 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
@@ -328,7 +329,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         audioEngine.notifyLocationUpdate()
         lastLocation = location
 
-        val rawSpeedKmh = if (location.hasSpeed() && location.speed > 0f) {
+        val trajResult = trajectoryFilter.processLocation(location)
+
+        val rawSpeedKmh = if (trajResult.averageSpeedKmh > 0f) {
+            trajResult.averageSpeedKmh
+        } else if (location.hasSpeed() && location.speed > 0f) {
             location.speed * 3.6f
         } else {
             val prevLoc = lastLocation
@@ -356,28 +361,39 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         // 2. Evaluate metrics and update lastMetrics for Map UI
-        val metrics = RadarMath.evaluateLocationData(location, effectiveSpeedKmh, dbHelper, getRamCachedLoadResult())
+        val metrics = RadarMath.evaluateLocationData(
+            location,
+            effectiveSpeedKmh,
+            dbHelper,
+            getRamCachedLoadResult(),
+            trajResult.trajectoryBearing
+        )
         lastMetrics = metrics
 
         // 3. Trigger network sync update
         syncManager.onLocationUpdate(location, speedKmh)
 
-        // 4. Weak GPS Check (Alerting paused if accuracy > 15m, but RAM cache is ALREADY loaded)
-        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 15f
+        // 4. Weak GPS Check (Alerting paused if accuracy > 100m, but RAM cache is ALREADY loaded)
+        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
         if (isAccuracyWeak) {
             if (!isWeakGpsState) {
                 isWeakGpsState = true
-                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>15m [${location.accuracy.toInt()}m]). Alerting paused.")
+                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>100m [${location.accuracy.toInt()}m]). Alerting paused.")
             }
             val accInt = location.accuracy.toInt()
-            updateNotificationText("Weak GPS signal (>15m [${accInt}m])")
+            updateNotificationText("Weak GPS signal (>100m [${accInt}m])")
             audioEngine.stopAlert()
             return
         } else {
             if (isWeakGpsState) {
                 isWeakGpsState = false
-                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "GPS accuracy restored (<=15m). Alerting resumed.")
+                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "GPS accuracy restored (<=100m). Alerting resumed.")
             }
+        }
+
+        if (!trajResult.isValid) {
+            AppLogger.log("RadarForegroundService", "onLocationChanged", false, "Candidate location rejected by TrajectoryFilter (backward/jitter projection).")
+            return
         }
 
         val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
@@ -394,8 +410,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 minDistToAnyCamera = distance
             }
 
+            val isDirMatched = RadarMath.isCameraDirectionMatched(trajResult.trajectoryBearing, camera.dir)
+
             // Log 1 time when entering 300m zone
-            if (distance <= maxBeepAlertDistance) {
+            if (distance <= maxBeepAlertDistance && isDirMatched) {
                 if (logged300mCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
@@ -409,7 +427,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
 
             // Log 1 time at direct camera crossing (within continuous zone <= 50m/100m)
-            if (distance <= continuousThreshold) {
+            if (distance <= continuousThreshold && isDirMatched) {
                 if (loggedCrossingCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
@@ -422,7 +440,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 loggedCrossingCameraIds.remove(camera.id)
             }
 
-            if (distance <= maxBeepAlertDistance) {
+            if (distance <= maxBeepAlertDistance && isDirMatched) {
                 if (distance < minDistanceToAlert) {
                     minDistanceToAlert = distance
                     closestAlertCamera = camera
