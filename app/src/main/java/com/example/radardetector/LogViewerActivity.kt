@@ -62,7 +62,7 @@ class LogViewerActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            setPadding(16, 16, 16, 16)
+            setPadding(24, 24, 24, 24)
         }
 
         val headerLayout = LinearLayout(this).apply {

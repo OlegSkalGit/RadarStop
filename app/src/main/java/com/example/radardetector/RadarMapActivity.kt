@@ -63,13 +63,13 @@ class RadarMapActivity : Activity(), LocationListener {
         val topPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#E614181F"))
-            setPadding(16, 16, 16, 12)
+            setPadding(24, 24, 24, 16)
         }
 
         val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 12)
+            setPadding(0, 0, 0, 16)
         }
 
         val btnClose = Button(this).apply {
@@ -95,18 +95,15 @@ class RadarMapActivity : Activity(), LocationListener {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val spaceRight = View(this).apply {
+        val btnSpacer = Button(this).apply {
+            text = "Menu"
+            textSize = 14f
             visibility = View.INVISIBLE
-        }
-        btnClose.post {
-            if (btnClose.width > 0) {
-                spaceRight.layoutParams = LinearLayout.LayoutParams(btnClose.width, btnClose.height)
-            }
         }
 
         headerLayout.addView(btnClose)
         headerLayout.addView(headerTitle)
-        headerLayout.addView(spaceRight)
+        headerLayout.addView(btnSpacer)
 
         val statusContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
