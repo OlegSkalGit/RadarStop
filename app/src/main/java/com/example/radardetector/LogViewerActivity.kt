@@ -1,6 +1,7 @@
 package com.example.radardetector
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -41,7 +42,7 @@ class LogViewerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        title = "ADB Logs"
+        title = "RadarStop Debug"
         AppLogger.initNewSession(this)
         audioEngine = AcousticRadarEngine(this)
 
@@ -75,59 +76,17 @@ class LogViewerActivity : Activity() {
             setPadding(16, 16, 16, 16)
         }
 
-        val headerTitle = TextView(this).apply {
-            text = "RadarStop Logs (v$appVersionName)"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        rootLayout.addView(headerTitle)
-
-        val btnLayout = LinearLayout(this).apply {
+        val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, 12, 0, 8)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 12)
         }
 
-        val btnBeep = Button(this).apply {
-            text = "Beep"
-            setOnClickListener {
-                audioEngine.playSingleBeep()
-            }
-        }
-        val btnMap = Button(this).apply {
-            text = "Map"
-            setOnClickListener {
-                val intent = Intent(this@LogViewerActivity, RadarMapActivity::class.java)
-                startActivity(intent)
-            }
-        }
-        val btnRefresh = Button(this).apply {
-            text = "Refresh"
-            setOnClickListener {
-                val todayFile = AppLogger.getTodayFileName()
-                if (selectedLogFileName == todayFile) {
-                    refreshLog()
-                }
-            }
-        }
-        val btnShare = Button(this).apply {
-            text = "Share"
-            setOnClickListener { shareLog() }
-        }
-        val btnClear = Button(this).apply {
-            text = "Clear"
-            setOnClickListener {
-                val fileToDelete = selectedLogFileName
-                if (!fileToDelete.isNullOrEmpty()) {
-                    AppLogger.deleteLogFile(fileToDelete)
-                    updateSpinnerFiles(selectToday = true)
-                }
-            }
-        }
         val btnClose = Button(this).apply {
             text = "Close"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
             setOnClickListener {
                 val intent = Intent(this@LogViewerActivity, HelpActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -137,17 +96,33 @@ class LogViewerActivity : Activity() {
             }
         }
 
-        btnLayout.addView(btnBeep)
-        btnLayout.addView(btnMap)
-        btnLayout.addView(btnRefresh)
-        btnLayout.addView(btnShare)
-        btnLayout.addView(btnClear)
-        btnLayout.addView(btnClose)
-        rootLayout.addView(btnLayout)
+        val headerTitle = TextView(this).apply {
+            text = "RadarStop Debug (v$appVersionName)"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val btnMenu = Button(this).apply {
+            text = "Menu"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
+            setOnClickListener {
+                showDebugMenuDialog()
+            }
+        }
+
+        headerLayout.addView(btnClose)
+        headerLayout.addView(headerTitle)
+        headerLayout.addView(btnMenu)
+        rootLayout.addView(headerLayout)
 
         val loggingBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, 8)
         }
 
@@ -167,7 +142,49 @@ class LogViewerActivity : Activity() {
             }
         }
 
+        val btnParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            setMargins(6, 0, 0, 0)
+        }
+
+        val btnRefresh = Button(this).apply {
+            text = "Refresh"
+            textSize = 12f
+            layoutParams = btnParams
+            setOnClickListener {
+                val todayFile = AppLogger.getTodayFileName()
+                if (selectedLogFileName == todayFile) {
+                    refreshLog()
+                }
+            }
+        }
+
+        val btnShare = Button(this).apply {
+            text = "Share"
+            textSize = 12f
+            layoutParams = btnParams
+            setOnClickListener { shareLog() }
+        }
+
+        val btnClear = Button(this).apply {
+            text = "Clear"
+            textSize = 12f
+            layoutParams = btnParams
+            setOnClickListener {
+                val fileToDelete = selectedLogFileName
+                if (!fileToDelete.isNullOrEmpty()) {
+                    AppLogger.deleteLogFile(fileToDelete)
+                    updateSpinnerFiles(selectToday = true)
+                }
+            }
+        }
+
         loggingBar.addView(checkBoxLogging)
+        loggingBar.addView(btnRefresh)
+        loggingBar.addView(btnShare)
+        loggingBar.addView(btnClear)
         rootLayout.addView(loggingBar)
 
         val spinnerLabel = TextView(this).apply {
@@ -210,6 +227,53 @@ class LogViewerActivity : Activity() {
         setContentView(rootLayout)
 
         updateSpinnerFiles(selectToday = true)
+    }
+
+    private fun showDebugMenuDialog() {
+        val dialog = Dialog(this)
+        dialog.setTitle("Menu")
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
+            setBackgroundColor(Color.parseColor("#252525"))
+        }
+
+        val itemStyleParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            setMargins(0, 4, 0, 4)
+        }
+
+        val btnBeep = Button(this).apply {
+            text = "Beep"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                dialog.dismiss()
+                audioEngine.playSingleBeep()
+            }
+        }
+
+        val btnMap = Button(this).apply {
+            text = "Map"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                dialog.dismiss()
+                val intent = Intent(this@LogViewerActivity, RadarMapActivity::class.java)
+                startActivity(intent)
+            }
+        }
+
+        container.addView(btnBeep)
+        container.addView(btnMap)
+
+        dialog.setContentView(container)
+        dialog.show()
     }
 
     private fun updateSpinnerFiles(selectToday: Boolean = false) {

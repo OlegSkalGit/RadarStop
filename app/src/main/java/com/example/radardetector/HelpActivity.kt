@@ -16,7 +16,6 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -38,8 +37,6 @@ class HelpActivity : Activity() {
         super.onCreate(savedInstanceState)
         title = "Help"
 
-        val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
-
         scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 val factor = detector.scaleFactor
@@ -59,15 +56,43 @@ class HelpActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
 
-        val headerTitle = TextView(this).apply {
-            text = "RadarStop Help"
-            textSize = 22f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER_HORIZONTAL
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, 16)
         }
-        rootLayout.addView(headerTitle)
+
+        val btnClose = Button(this).apply {
+            text = "Close"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
+            setOnClickListener { finish() }
+        }
+
+        val headerTitle = TextView(this).apply {
+            text = "RadarStop Help"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val btnMenu = Button(this).apply {
+            text = "Menu"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
+            setOnClickListener {
+                showHelpMenuDialog()
+            }
+        }
+
+        headerLayout.addView(btnClose)
+        headerLayout.addView(headerTitle)
+        headerLayout.addView(btnMenu)
+        rootLayout.addView(headerLayout)
 
         val scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -120,34 +145,61 @@ Sound Alerts & Tracking:
         scrollView.addView(textViewHelp)
         rootLayout.addView(scrollView)
 
-        val bottomBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 16, 0, 0)
+        setContentView(rootLayout)
+    }
+
+    private fun showHelpMenuDialog() {
+        val dialog = Dialog(this)
+        dialog.setTitle("Menu")
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
+            setBackgroundColor(Color.parseColor("#252525"))
         }
 
-        val checkBoxAutostart = CheckBox(this).apply {
-            text = "Autostart"
+        val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+
+        val itemStyleParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            setMargins(0, 4, 0, 4)
+        }
+
+        var isAutostart = prefs.getBoolean("autostart", false)
+        val btnAutostart = Button(this).apply {
+            text = if (isAutostart) "Autostart: ON" else "Autostart: OFF"
             setTextColor(Color.WHITE)
-            textSize = 14f
-            isChecked = prefs.getBoolean("autostart", false)
-            setOnCheckedChangeListener { _, isChecked ->
-                prefs.edit().putBoolean("autostart", isChecked).apply()
-                AppLogger.log("HelpActivity", "onCheckedChanged", true, "Autostart on boot setting changed: $isChecked")
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                isAutostart = !isAutostart
+                prefs.edit().putBoolean("autostart", isAutostart).apply()
+                text = if (isAutostart) "Autostart: ON" else "Autostart: OFF"
+                AppLogger.log("HelpActivity", "onCheckedChanged", true, "Autostart on boot setting changed: $isAutostart")
+                Toast.makeText(this@HelpActivity, "Autostart ${if (isAutostart) "enabled" else "disabled"}", Toast.LENGTH_SHORT).show()
             }
         }
 
         val btnLoadCountryCams = Button(this).apply {
-            text = "Load Country Cams"
-            textSize = 11f
+            text = "Load country cameras"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
             setOnClickListener {
+                dialog.dismiss()
                 showCountrySelectionDialog()
             }
         }
 
-        val btnUpd = Button(this).apply {
-            text = "Upd"
+        val btnCheckUpdates = Button(this).apply {
+            text = "Check updates"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
             setOnClickListener {
+                dialog.dismiss()
                 Toast.makeText(this@HelpActivity, "Checking for updates...", Toast.LENGTH_SHORT).show()
                 AppUpdateManager.checkAndDownloadUpdate(this@HelpActivity, force = true) { result ->
                     Toast.makeText(this@HelpActivity, result, Toast.LENGTH_LONG).show()
@@ -155,32 +207,25 @@ Sound Alerts & Tracking:
             }
         }
 
-        val btnAdb = Button(this).apply {
-            text = "ADB"
+        val btnDebug = Button(this).apply {
+            text = "Debug"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
             setOnClickListener {
+                dialog.dismiss()
                 val intent = Intent(this@HelpActivity, LogViewerActivity::class.java)
                 startActivity(intent)
             }
         }
 
-        val btnClose = Button(this).apply {
-            text = "Close"
-            setOnClickListener { finish() }
-        }
+        container.addView(btnAutostart)
+        container.addView(btnLoadCountryCams)
+        container.addView(btnCheckUpdates)
+        container.addView(btnDebug)
 
-        val spaceLayout = LinearLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        bottomBar.addView(checkBoxAutostart)
-        bottomBar.addView(btnLoadCountryCams)
-        bottomBar.addView(spaceLayout)
-        bottomBar.addView(btnUpd)
-        bottomBar.addView(btnAdb)
-        bottomBar.addView(btnClose)
-        rootLayout.addView(bottomBar)
-
-        setContentView(rootLayout)
+        dialog.setContentView(container)
+        dialog.show()
     }
 
     private data class CountryItem(val name: String, val code: String)

@@ -1,12 +1,26 @@
 package com.example.radardetector.network
 
+import android.app.Activity
+import android.app.AlertDialog
+import android.app.DownloadManager
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.FileProvider
+import com.example.radardetector.receiver.UpdateActionReceiver
 import com.example.radardetector.util.AppLogger
 import org.json.JSONArray
 import java.io.File
@@ -23,6 +37,13 @@ object AppUpdateManager {
     private const val CHECK_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
     private const val PREFS_NAME = "radar_prefs"
     private const val PREF_KEY_LAST_UPDATE_CHECK = "last_app_update_check_ms"
+
+    const val NOTIFICATION_ID = 9901
+    const val NOTIFICATION_CHANNEL_ID = "radar_update_channel"
+    const val ACTION_DOWNLOAD_UPDATE = "com.example.radardetector.ACTION_DOWNLOAD_UPDATE"
+    const val ACTION_POSTPONE_UPDATE = "com.example.radardetector.ACTION_POSTPONE_UPDATE"
+    const val EXTRA_DOWNLOAD_URL = "extra_download_url"
+    const val EXTRA_FILE_NAME = "extra_file_name"
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
@@ -59,19 +80,19 @@ object AppUpdateManager {
         }
 
         executor.execute {
-            performUpdateCheck(context, prefs, onResult)
+            performUpdateCheck(context, prefs, force, onResult)
         }
     }
 
     private fun performUpdateCheck(
         context: Context,
         prefs: SharedPreferences,
+        force: Boolean,
         onResult: ((String) -> Unit)?
     ) {
         val appContext = context.applicationContext
         AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Starting GitHub release update check for $REPO_OWNER/$REPO_NAME...")
 
-        // 1. Get current installed app version (versionName) ONLY
         val installedVersionName = try {
             if (Build.VERSION.SDK_INT >= 33) {
                 appContext.packageManager.getPackageInfo(appContext.packageName, PackageManager.PackageInfoFlags.of(0L)).versionName
@@ -91,7 +112,6 @@ object AppUpdateManager {
             "Local installed version (versionName): $installedVersionName ($localInstalledVer)"
         )
 
-        // 2. Fetch releases from GitHub API
         var conn: HttpURLConnection? = null
         try {
             val url = URL(API_URL)
@@ -147,31 +167,23 @@ object AppUpdateManager {
 
             AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Latest remote version on GitHub: $latestRemoteName ($latestRemoteVer)")
 
-            // 3. Compare remote version directly with local installed version
             if (isVersionNewer(latestRemoteVer, localInstalledVer)) {
                 AppLogger.log(
                     "AppUpdateManager",
                     "performUpdateCheck",
                     true,
-                    "NEW VERSION DETECTED! Downloading $latestRemoteName from GitHub releases..."
+                    "NEW VERSION DETECTED! Remote: $latestRemoteName ($latestRemoteVer) > Local: $installedVersionName ($localInstalledVer)"
                 )
-                val downloadDir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: appContext.filesDir
-                val destFile = File(downloadDir, latestRemoteName)
-                val success = downloadFileWithRedirects(latestRemoteUrl, destFile)
-                if (success) {
+
+                if (force) {
+                    // Manual check: start update download immediately without asking
+                    AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Manual check forced - starting update download immediately.")
                     prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
-                    val successMsg = "New version downloaded: $latestRemoteName"
-                    AppLogger.log(
-                        "AppUpdateManager",
-                        "performUpdateCheck",
-                        true,
-                        "SUCCESS: App update downloaded to ${destFile.absolutePath} (${destFile.length()} bytes)"
-                    )
-                    onResult?.let { mainHandler.post { it(successMsg) } }
+                    startDownload(appContext, latestRemoteUrl, latestRemoteName, onResult)
                 } else {
-                    val failMsg = "Failed to download update APK: $latestRemoteName"
-                    AppLogger.log("AppUpdateManager", "performUpdateCheck", false, failMsg)
-                    onResult?.let { mainHandler.post { it(failMsg) } }
+                    // Automatic check: prompt user in English ("New version available (Current / New). Download? Later.")
+                    AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
+                    promptUserForUpdate(context, prefs, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
                 }
             } else {
                 prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
@@ -191,6 +203,261 @@ object AppUpdateManager {
             onResult?.let { mainHandler.post { it(errMsg) } }
         } finally {
             conn?.disconnect()
+        }
+    }
+
+    private fun promptUserForUpdate(
+        context: Context,
+        prefs: SharedPreferences,
+        installedVerStr: String,
+        latestRemoteName: String,
+        latestRemoteUrl: String,
+        onResult: ((String) -> Unit)?
+    ) {
+        mainHandler.post {
+            val title = "New version available"
+            val message = "New version available (Current: $installedVerStr / New: $latestRemoteName).\n\nDownload now?"
+
+            val downloadAction = {
+                executor.execute {
+                    prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                    startDownload(context.applicationContext, latestRemoteUrl, latestRemoteName, onResult)
+                }
+            }
+
+            val laterAction = {
+                postponeUpdate(context.applicationContext)
+                val msg = "Update postponed."
+                onResult?.let { mainHandler.post { it(msg) } }
+            }
+
+            val activity = findActivity(context)
+            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
+                AlertDialog.Builder(activity)
+                    .setTitle(title)
+                    .setMessage(message)
+                    .setPositiveButton("Download") { dialog, _ ->
+                        dialog.dismiss()
+                        downloadAction()
+                    }
+                    .setNegativeButton("Later") { dialog, _ ->
+                        dialog.dismiss()
+                        laterAction()
+                    }
+                    .setCancelable(false)
+                    .show()
+            } else {
+                showUpdateNotification(context, title, message, latestRemoteUrl, latestRemoteName)
+            }
+        }
+    }
+
+    fun postponeUpdate(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+        AppLogger.log("AppUpdateManager", "postponeUpdate", true, "Update postponed by user. Next check in 24h.")
+    }
+
+    fun startDownloadFromNotification(context: Context, downloadUrl: String, fileName: String) {
+        executor.execute {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+            startDownload(context, downloadUrl, fileName, null)
+        }
+    }
+
+    fun startDownload(
+        context: Context,
+        downloadUrl: String,
+        fileName: String,
+        onResult: ((String) -> Unit)? = null
+    ) {
+        val started = downloadWithDownloadManager(context, downloadUrl, fileName)
+        if (started) {
+            val successMsg = "Downloading update: $fileName"
+            AppLogger.log("AppUpdateManager", "startDownload", true, successMsg)
+            onResult?.let { mainHandler.post { it(successMsg) } }
+        } else {
+            val publicDownloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val destFile = File(publicDownloadDir, fileName)
+            val success = downloadFileWithRedirects(downloadUrl, destFile)
+            if (success) {
+                val successMsg = "New version downloaded: $fileName"
+                AppLogger.log(
+                    "AppUpdateManager",
+                    "startDownload",
+                    true,
+                    "SUCCESS: App update downloaded to ${destFile.absolutePath} (${destFile.length()} bytes)"
+                )
+                installApk(context, destFile)
+                onResult?.let { mainHandler.post { it(successMsg) } }
+            } else {
+                val failMsg = "Failed to download update APK: $fileName"
+                AppLogger.log("AppUpdateManager", "startDownload", false, failMsg)
+                onResult?.let { mainHandler.post { it(failMsg) } }
+            }
+        }
+    }
+
+    private fun findActivity(context: Context?): Activity? {
+        var ctx = context
+        while (ctx is ContextWrapper) {
+            if (ctx is Activity) return ctx
+            ctx = ctx.baseContext
+        }
+        return null
+    }
+
+    private fun showUpdateNotification(
+        context: Context,
+        title: String,
+        message: String,
+        downloadUrl: String,
+        fileName: String
+    ) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID,
+                    "App Updates",
+                    NotificationManager.IMPORTANCE_HIGH
+                )
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val downloadIntent = Intent(context, UpdateActionReceiver::class.java).apply {
+                action = ACTION_DOWNLOAD_UPDATE
+                putExtra(EXTRA_DOWNLOAD_URL, downloadUrl)
+                putExtra(EXTRA_FILE_NAME, fileName)
+            }
+            val pendingDownload = PendingIntent.getBroadcast(
+                context,
+                1,
+                downloadIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+
+            val laterIntent = Intent(context, UpdateActionReceiver::class.java).apply {
+                action = ACTION_POSTPONE_UPDATE
+            }
+            val pendingLater = PendingIntent.getBroadcast(
+                context,
+                2,
+                laterIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(context, NOTIFICATION_CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(context)
+            }
+
+            val notification = builder
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(Notification.BigTextStyle().bigText(message))
+                .setPriority(Notification.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .addAction(android.R.drawable.ic_menu_save, "Download", pendingDownload)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Later", pendingLater)
+                .setContentIntent(pendingDownload)
+                .build()
+
+            notificationManager.notify(NOTIFICATION_ID, notification)
+            AppLogger.log("AppUpdateManager", "showUpdateNotification", true, "Posted notification prompt for new version: $fileName")
+        } catch (e: Exception) {
+            AppLogger.log("AppUpdateManager", "showUpdateNotification", false, "Failed to post update notification: ${e.message}")
+        }
+    }
+
+    private fun downloadWithDownloadManager(context: Context, downloadUrl: String, fileName: String): Boolean {
+        return try {
+            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                ?: return false
+
+            val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!publicDir.exists()) publicDir.mkdirs()
+            val existingFile = File(publicDir, fileName)
+            if (existingFile.exists()) {
+                existingFile.delete()
+            }
+
+            val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
+                setTitle("RadarStop Update")
+                setDescription("Downloading $fileName...")
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                setMimeType("application/vnd.android.package-archive")
+            }
+
+            val downloadId = downloadManager.enqueue(request)
+            AppLogger.log("AppUpdateManager", "downloadWithDownloadManager", true, "Enqueued DownloadManager job $downloadId for $fileName")
+
+            val onCompleteReceiver = object : BroadcastReceiver() {
+                override fun onReceive(recvContext: Context?, intent: Intent?) {
+                    val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) ?: -1L
+                    if (id == downloadId) {
+                        try {
+                            context.unregisterReceiver(this)
+                        } catch (_: Exception) {}
+
+                        val downloadedFile = File(publicDir, fileName)
+                        if (downloadedFile.exists() && downloadedFile.length() > 0) {
+                            AppLogger.log("AppUpdateManager", "onDownloadComplete", true, "Download complete via DownloadManager: ${downloadedFile.absolutePath}")
+                            installApk(context, downloadedFile)
+                        }
+                    }
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(
+                    onCompleteReceiver,
+                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                    Context.RECEIVER_EXPORTED
+                )
+            } else {
+                context.registerReceiver(
+                    onCompleteReceiver,
+                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+                )
+            }
+
+            true
+        } catch (e: Exception) {
+            AppLogger.log("AppUpdateManager", "downloadWithDownloadManager", false, "Failed to enqueue DownloadManager: ${e.message}")
+            false
+        }
+    }
+
+    fun installApk(context: Context, apkFile: File) {
+        mainHandler.post {
+            try {
+                if (!apkFile.exists()) {
+                    AppLogger.log("AppUpdateManager", "installApk", false, "APK file does not exist: ${apkFile.absolutePath}")
+                    return@post
+                }
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
+                    } else {
+                        Uri.fromFile(apkFile)
+                    }
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                AppLogger.log("AppUpdateManager", "installApk", true, "Launched installer intent for ${apkFile.name}")
+            } catch (e: Exception) {
+                AppLogger.log("AppUpdateManager", "installApk", false, "Failed to launch installer intent: ${e.message}")
+            }
         }
     }
 
