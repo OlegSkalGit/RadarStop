@@ -179,25 +179,62 @@ object RadarMath {
             val metersPerDegLat = 111139.0
             val metersPerDegLon = 111139.0 * Math.cos(radLat)
 
-            val xs = DoubleArray(points.size)
-            val ys = DoubleArray(points.size)
+            val n = points.size
+            val xs = DoubleArray(n)
+            val ys = DoubleArray(n)
 
-            for (i in points.indices) {
+            var sumX = 0.0
+            var sumY = 0.0
+            for (i in 0 until n) {
                 xs[i] = (points[i].longitude - ref.longitude) * metersPerDegLon
                 ys[i] = (points[i].latitude - ref.latitude) * metersPerDegLat
+                sumX += xs[i]
+                sumY += ys[i]
             }
 
-            val dxTotal = xs.last() - xs.first()
-            val dyTotal = ys.last() - ys.first()
-            val len = Math.hypot(dxTotal, dyTotal)
+            // Centroid (center of mass across all N points in buffer)
+            val meanX = sumX / n
+            val meanY = sumY / n
+
+            // Calculate covariances across ALL points (Linear Least Squares / PCA)
+            var sxx = 0.0
+            var syy = 0.0
+            var sxy = 0.0
+            for (i in 0 until n) {
+                val dx = xs[i] - meanX
+                val dy = ys[i] - meanY
+                sxx += dx * dx
+                syy += dy * dy
+                sxy += dx * dy
+            }
 
             val ux: Double
             val uy: Double
-            if (len > 0.5) {
-                ux = dxTotal / len
-                uy = dyTotal / len
+            if (Math.abs(sxx) > 1e-4 || Math.abs(syy) > 1e-4 || Math.abs(sxy) > 1e-4) {
+                // Angle of line of best fit through all N points
+                val angle = 0.5 * Math.atan2(2.0 * sxy, sxx - syy)
+                var vx = Math.cos(angle)
+                var vy = Math.sin(angle)
+
+                // Align vector orientation chronologically (from start towards latest point)
+                val totalDx = xs.last() - xs.first()
+                val totalDy = ys.last() - ys.first()
+                if (vx * totalDx + vy * totalDy < 0) {
+                    vx = -vx
+                    vy = -vy
+                }
+                ux = vx
+                uy = vy
             } else {
-                return candidate.distanceTo(points.last()) > 0.1f
+                val dxTotal = xs.last() - xs.first()
+                val dyTotal = ys.last() - ys.first()
+                val len = Math.hypot(dxTotal, dyTotal)
+                if (len > 0.5) {
+                    ux = dxTotal / len
+                    uy = dyTotal / len
+                } else {
+                    return candidate.distanceTo(points.last()) > 0.1f
+                }
             }
 
             val candX = (candidate.longitude - ref.longitude) * metersPerDegLon
