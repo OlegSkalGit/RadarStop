@@ -324,7 +324,7 @@ class RadarMapActivity : Activity(), LocationListener {
         fun updateData(location: Location, newCameras: List<Camera>, bearing: Float? = null) {
             this.currentLocation = location
             this.cameras = newCameras
-            this.trajectoryBearing = bearing
+            this.trajectoryBearing = if (bearing != null && bearing != 0f) bearing else null
             postInvalidate()
         }
 

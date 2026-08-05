@@ -129,19 +129,23 @@ class TrajectoryFilter(
             }
             rawMotionBuffer.addLast(location)
 
-            // Stationary check BEFORE forward projection: Check motion across raw points buffer (>= 3 points)
+            // Speed check BEFORE forward projection: Check motion speed across raw points buffer (>= 3 points)
             if (rawMotionBuffer.size >= 3) {
-                val spanDist = rawMotionBuffer.first.distanceTo(rawMotionBuffer.last)
-                val gpsAccuracy = if (location.hasAccuracy()) location.accuracy else 10f
+                val firstPt = rawMotionBuffer.first
+                val lastPt = rawMotionBuffer.last
+                val distMeters = firstPt.distanceTo(lastPt)
+                val timeSeconds = (lastPt.time - firstPt.time) / 1000.0f
+                val rawSpeedKmh = if (timeSeconds > 0f) (distMeters / timeSeconds) * 3.6f else 0f
+                val currentSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else rawSpeedKmh
 
-                if (spanDist <= gpsAccuracy) {
-                    // Vehicle stationary / GPS jitter: Speed 0, vector calculation skipped
+                if (currentSpeedKmh <= 30f) {
+                    // Speed <= 30 km/h: Return evaluated speed, vector calculation skipped (trajectoryBearing = 0f)
                     return TrajectoryResult(
                         isValid = true,
                         isAccuracyWeak = false,
                         points = buffer.toList(),
-                        averageSpeedKmh = 0f,
-                        trajectoryBearing = if (location.hasBearing()) location.bearing else 0f,
+                        averageSpeedKmh = currentSpeedKmh,
+                        trajectoryBearing = 0f,
                         projectedDistanceMeters = 0f
                     )
                 }
@@ -150,12 +154,13 @@ class TrajectoryFilter(
             if (buffer.isEmpty()) {
                 buffer.addLast(location)
                 consecutiveRejections = 0
+                val speed = if (location.hasSpeed()) location.speed * 3.6f else 0f
                 return TrajectoryResult(
                     isValid = true,
                     isAccuracyWeak = false,
                     points = buffer.toList(),
-                    averageSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else 0f,
-                    trajectoryBearing = location.bearing,
+                    averageSpeedKmh = speed,
+                    trajectoryBearing = if (speed > 30f) location.bearing else 0f,
                     projectedDistanceMeters = 0f
                 )
             }
