@@ -136,15 +136,14 @@ class TrajectoryFilter(
                 val distMeters = firstPt.distanceTo(lastPt)
                 val timeSeconds = (lastPt.time - firstPt.time) / 1000.0f
                 val rawSpeedKmh = if (timeSeconds > 0f) (distMeters / timeSeconds) * 3.6f else 0f
-                val currentSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else rawSpeedKmh
 
-                if (currentSpeedKmh <= 30f) {
-                    // Speed <= 30 km/h: Return evaluated speed, vector calculation skipped (trajectoryBearing = 0f)
+                if (rawSpeedKmh <= 30f) {
+                    // Speed <= 30 km/h: Return calculated rawSpeedKmh, vector calculation skipped (trajectoryBearing = 0f)
                     return TrajectoryResult(
                         isValid = true,
                         isAccuracyWeak = false,
                         points = buffer.toList(),
-                        averageSpeedKmh = currentSpeedKmh,
+                        averageSpeedKmh = rawSpeedKmh,
                         trajectoryBearing = 0f,
                         projectedDistanceMeters = 0f
                     )
