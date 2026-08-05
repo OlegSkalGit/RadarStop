@@ -129,8 +129,8 @@ class TrajectoryFilter(
             }
             rawMotionBuffer.addLast(location)
 
-            // Stationary check BEFORE forward projection: Check motion across raw points buffer
-            if (rawMotionBuffer.size >= 2) {
+            // Stationary check BEFORE forward projection: Check motion across raw points buffer (>= 3 points)
+            if (rawMotionBuffer.size >= 3) {
                 val spanDist = rawMotionBuffer.first.distanceTo(rawMotionBuffer.last)
                 val gpsAccuracy = if (location.hasAccuracy()) location.accuracy else 10f
 
