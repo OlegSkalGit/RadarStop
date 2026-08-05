@@ -90,16 +90,18 @@ object RadarMath {
      * Trajectory filter maintaining a 10-point sliding buffer with linear approximation,
      * forward-projection validation, and auto-reset after 3 consecutive rejections (turn detection).
      */
-    class TrajectoryFilter(
+class TrajectoryFilter(
         private val maxBufferSize: Int = 10,
         private val maxConsecutiveRejections: Int = 3
     ) {
         private val buffer = java.util.ArrayDeque<Location>()
+        private val rawMotionBuffer = java.util.ArrayDeque<Location>()
         private var consecutiveRejections = 0
 
         @Synchronized
         fun reset() {
             buffer.clear()
+            rawMotionBuffer.clear()
             consecutiveRejections = 0
         }
 
@@ -119,6 +121,30 @@ object RadarMath {
                     trajectoryBearing = lm.trajectoryBearing,
                     projectedDistanceMeters = lm.projectedDistanceMeters
                 )
+            }
+
+            // Always add incoming valid raw point to rawMotionBuffer (max 10 points)
+            if (rawMotionBuffer.size >= maxBufferSize) {
+                rawMotionBuffer.removeFirst()
+            }
+            rawMotionBuffer.addLast(location)
+
+            // Stationary check BEFORE forward projection: Check motion across raw points buffer
+            if (rawMotionBuffer.size >= 2) {
+                val spanDist = rawMotionBuffer.first.distanceTo(rawMotionBuffer.last)
+                val gpsAccuracy = if (location.hasAccuracy()) location.accuracy else 10f
+
+                if (spanDist <= gpsAccuracy) {
+                    // Vehicle stationary / GPS jitter: Speed 0, vector calculation skipped
+                    return TrajectoryResult(
+                        isValid = true,
+                        isAccuracyWeak = false,
+                        points = buffer.toList(),
+                        averageSpeedKmh = 0f,
+                        trajectoryBearing = if (location.hasBearing()) location.bearing else 0f,
+                        projectedDistanceMeters = 0f
+                    )
+                }
             }
 
             if (buffer.isEmpty()) {
@@ -163,24 +189,6 @@ object RadarMath {
                         projectedDistanceMeters = 0f
                     )
                 }
-            }
-
-            // Check if distance between extreme points of buffer is within GPS accuracy error margin
-            val firstPt = buffer.first
-            val lastPt = buffer.last
-            val spanDist = firstPt.distanceTo(lastPt)
-            val gpsAccuracy = if (location.hasAccuracy()) location.accuracy else 10f
-
-            if (spanDist <= gpsAccuracy) {
-                // Vehicle stationary/jitter: Speed 0, vector calculation skipped
-                return TrajectoryResult(
-                    isValid = isForward,
-                    isAccuracyWeak = false,
-                    points = buffer.toList(),
-                    averageSpeedKmh = 0f,
-                    trajectoryBearing = if (location.hasBearing()) location.bearing else 0f,
-                    projectedDistanceMeters = 0f
-                )
             }
 
             val lm = computeLineMetrics()
