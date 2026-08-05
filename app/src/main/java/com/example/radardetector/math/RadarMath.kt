@@ -304,12 +304,12 @@ class TrajectoryFilter(
     }
 
     /**
-     * Checks if trajectory bearing matches camera direction within +-15 degrees.
+     * Checks if trajectory bearing matches camera direction within +-30 degrees.
      */
     fun isCameraDirectionMatched(trajectoryBearing: Float, cameraDir: Float?): Boolean {
         if (cameraDir == null) return true // Omnidirectional
         val diff = abs(angleDifference(trajectoryBearing, cameraDir))
-        return diff <= 15f
+        return diff <= 30f
     }
 
     /**
