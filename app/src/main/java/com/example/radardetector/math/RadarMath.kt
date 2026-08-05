@@ -91,18 +91,15 @@ object RadarMath {
      * forward-projection validation, and auto-reset after 3 consecutive rejections (turn detection).
      */
 class TrajectoryFilter(
-        private val maxBufferSize: Int = 10,
-        private val maxConsecutiveRejections: Int = 3
+        private val maxBufferSize: Int = 10
     ) {
         private val buffer = java.util.ArrayDeque<Location>()
         private val rawMotionBuffer = java.util.ArrayDeque<Location>()
-        private var consecutiveRejections = 0
 
         @Synchronized
         fun reset() {
             buffer.clear()
             rawMotionBuffer.clear()
-            consecutiveRejections = 0
         }
 
         @Synchronized
@@ -129,7 +126,7 @@ class TrajectoryFilter(
             }
             rawMotionBuffer.addLast(location)
 
-            // Distance drift check BEFORE forward projection: Check motion distance across raw points buffer (>= 3 points)
+            // Distance drift check BEFORE vector projection: Check motion distance across raw points buffer (>= 3 points)
             if (rawMotionBuffer.size >= 3) {
                 val firstPt = rawMotionBuffer.first
                 val lastPt = rawMotionBuffer.last
@@ -152,54 +149,15 @@ class TrajectoryFilter(
                 }
             }
 
-            if (buffer.isEmpty()) {
-                buffer.addLast(location)
-                consecutiveRejections = 0
-                val speed = if (location.hasSpeed()) location.speed * 3.6f else 0f
-                return TrajectoryResult(
-                    isValid = true,
-                    isAccuracyWeak = false,
-                    points = buffer.toList(),
-                    averageSpeedKmh = speed,
-                    trajectoryBearing = if (speed > 30f) location.bearing else 0f,
-                    projectedDistanceMeters = 0f
-                )
+            // Points are NOT rejected! Always add incoming point to buffer
+            if (buffer.size >= maxBufferSize) {
+                buffer.removeFirst()
             }
-
-            val isForward = if (buffer.size >= 2) {
-                checkForwardProjection(location)
-            } else {
-                val prev = buffer.last
-                location.time > prev.time && prev.distanceTo(location) > 0.1f
-            }
-
-            if (isForward) {
-                consecutiveRejections = 0
-                if (buffer.size >= maxBufferSize) {
-                    buffer.removeFirst()
-                }
-                buffer.addLast(location)
-            } else {
-                consecutiveRejections++
-                if (consecutiveRejections >= maxConsecutiveRejections) {
-                    // Turn detected! Auto-reset buffer and start fresh trajectory from current location
-                    buffer.clear()
-                    buffer.addLast(location)
-                    consecutiveRejections = 0
-                    return TrajectoryResult(
-                        isValid = true,
-                        isAccuracyWeak = false,
-                        points = buffer.toList(),
-                        averageSpeedKmh = if (location.hasSpeed()) location.speed * 3.6f else 0f,
-                        trajectoryBearing = location.bearing,
-                        projectedDistanceMeters = 0f
-                    )
-                }
-            }
+            buffer.addLast(location)
 
             val lm = computeLineMetrics()
             return TrajectoryResult(
-                isValid = isForward,
+                isValid = true,
                 isAccuracyWeak = false,
                 points = buffer.toList(),
                 averageSpeedKmh = lm.speedKmh,
@@ -294,7 +252,7 @@ class TrajectoryFilter(
             val ref = points.first()
 
             if (points.size < 10) {
-                val subPoints = points.takeLast(5)
+                val subPoints = points.takeLast(points.size)
                 val fit = fitSubBufferLine(subPoints, ref)
                 return ActiveTrend(fit.ux, fit.uy, fit.azimuth)
             } else {
@@ -312,70 +270,33 @@ class TrajectoryFilter(
                     val rad = Math.toRadians((90.0 - medianAzimuth).toDouble())
                     return ActiveTrend(Math.cos(rad), Math.sin(rad), medianAzimuth)
                 } else {
-                    // Turn detected (>= 30 deg)! Truncate head (drop 5 points), use tail vector
-                    repeat(5) {
-                        if (buffer.isNotEmpty()) buffer.removeFirst()
+                    // Turn detected (>= 30 deg)! Truncate buffer to keep ONLY the last 3 points, return tail vector (fit2)
+                    while (buffer.size > 3) {
+                        buffer.removeFirst()
                     }
                     return ActiveTrend(fit2.ux, fit2.uy, fit2.azimuth)
                 }
             }
         }
 
-        private fun checkForwardProjection(candidate: Location): Boolean {
-            val points = buffer.toList()
-            if (points.isEmpty()) return true
-            val ref = points.first()
-
-            val activeTrend = computeActiveTrendLine()
-
-            val radLat = Math.toRadians(ref.latitude)
-            val metersPerDegLat = 111139.0
-            val metersPerDegLon = 111139.0 * Math.cos(radLat)
-
-            val candX = (candidate.longitude - ref.longitude) * metersPerDegLon
-            val candY = (candidate.latitude - ref.latitude) * metersPerDegLat
-            val candProj = candX * activeTrend.ux + candY * activeTrend.uy
-
-            val lastX = (points.last().longitude - ref.longitude) * metersPerDegLon
-            val lastY = (points.last().latitude - ref.latitude) * metersPerDegLat
-            val lastProj = lastX * activeTrend.ux + lastY * activeTrend.uy
-
-            return candProj > lastProj + 0.01
-        }
-
         fun computeLineMetrics(): LineMetrics {
-            if (buffer.size < 2) {
-                val single = buffer.lastOrNull()
-                val speed = if (single != null && single.hasSpeed()) single.speed * 3.6f else 0f
-                val bearing = single?.bearing ?: 0f
-                return LineMetrics(speedKmh = speed, trajectoryBearing = bearing, projectedDistanceMeters = 0f)
+            val points = buffer.toList()
+            if (points.isEmpty()) {
+                return LineMetrics(speedKmh = 0f, trajectoryBearing = 0f, projectedDistanceMeters = 0f)
             }
 
-            val points = buffer.toList()
-            val ref = points.first()
-
             val activeTrend = computeActiveTrendLine()
 
-            val radLat = Math.toRadians(ref.latitude)
-            val metersPerDegLat = 111139.0
-            val metersPerDegLon = 111139.0 * Math.cos(radLat)
+            // Calculate average speed from sensor speeds across all points in buffer
+            val speedSum = points.sumOf { if (it.hasSpeed()) (it.speed * 3.6f).toDouble() else 0.0 }
+            val avgSpeedKmh = (speedSum / points.size).toFloat()
 
-            val firstX = (points.first().longitude - ref.longitude) * metersPerDegLon
-            val firstY = (points.first().latitude - ref.latitude) * metersPerDegLat
-            val firstProj = firstX * activeTrend.ux + firstY * activeTrend.uy
-
-            val lastX = (points.last().longitude - ref.longitude) * metersPerDegLon
-            val lastY = (points.last().latitude - ref.latitude) * metersPerDegLat
-            val lastProj = lastX * activeTrend.ux + lastY * activeTrend.uy
-
-            val projDistMeters = (lastProj - firstProj).toFloat()
-            val timeS = (points.last().time - points.first().time) / 1000.0f
-            val speedKmh = if (timeS > 0f && projDistMeters > 0f) {
-                (projDistMeters / timeS) * 3.6f
-            } else 0f
+            val ref = points.first()
+            val last = points.last()
+            val projDistMeters = ref.distanceTo(last)
 
             return LineMetrics(
-                speedKmh = speedKmh,
+                speedKmh = avgSpeedKmh,
                 trajectoryBearing = activeTrend.azimuth,
                 projectedDistanceMeters = projDistMeters
             )
