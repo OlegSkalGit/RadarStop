@@ -23,6 +23,7 @@ import android.widget.TextView
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.math.RadarMath
+import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
 import java.util.Locale
 import kotlin.math.cos
