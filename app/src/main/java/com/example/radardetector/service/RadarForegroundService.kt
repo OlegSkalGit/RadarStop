@@ -337,7 +337,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         val rawSpeedKmh = if (trajResult.isStationary) {
             0f
-        } else if (location.hasSpeed()) {
+        } else if (trajResult.averageSpeedKmh > 0f) {
+            trajResult.averageSpeedKmh
+        } else if (location.hasSpeed() && location.speed > 0f) {
             location.speed * 3.6f
         } else {
             val prevLoc = lastLocation
