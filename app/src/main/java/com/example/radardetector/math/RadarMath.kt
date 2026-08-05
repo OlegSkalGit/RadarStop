@@ -136,12 +136,11 @@ class TrajectoryFilter(
                 val doubleAccuracyThreshold = 2f * maxOf(firstAcc, lastAcc)
 
                 if (distMeters <= doubleAccuracyThreshold) {
-                    // Distance is within GPS drift noise (<= 2 * accuracy): speed set to 0, clear buffer to prevent phantom stationary tail points
-                    buffer.clear()
+                    // Distance is within GPS drift noise (<= 2 * accuracy): speed set to 0, vector calculation (MNK) skipped, isStationary = true
                     return TrajectoryResult(
                         isValid = true,
                         isAccuracyWeak = false,
-                        points = emptyList(),
+                        points = buffer.toList(),
                         averageSpeedKmh = 0f,
                         trajectoryBearing = 0f,
                         projectedDistanceMeters = 0f,
@@ -280,6 +279,47 @@ class TrajectoryFilter(
             }
         }
 
+        private fun computeMnkSpeed(points: List<Location>): Float {
+            if (points.isEmpty()) return 0f
+            val validPoints = points.filter { it.hasSpeed() }
+            if (validPoints.isEmpty()) {
+                return points.lastOrNull()?.let { if (it.hasSpeed()) it.speed * 3.6f else 0f } ?: 0f
+            }
+            if (validPoints.size < 3) {
+                val speedSum = validPoints.sumOf { (it.speed * 3.6f).toDouble() }
+                return (speedSum / validPoints.size).toFloat().coerceAtLeast(0f)
+            }
+
+            val firstTime = validPoints.first().time
+            val xs = DoubleArray(validPoints.size)
+            val ys = DoubleArray(validPoints.size)
+
+            for (i in validPoints.indices) {
+                xs[i] = (validPoints[i].time - firstTime) / 1000.0
+                ys[i] = (validPoints[i].speed * 3.6f).toDouble()
+            }
+
+            val n = validPoints.size
+            val meanX = xs.average()
+            val meanY = ys.average()
+
+            var num = 0.0
+            var den = 0.0
+            for (i in 0 until n) {
+                val dx = xs[i] - meanX
+                val dy = ys[i] - meanY
+                num += dx * dy
+                den += dx * dx
+            }
+
+            val slope = if (Math.abs(den) > 1e-6) num / den else 0.0
+            val intercept = meanY - slope * meanX
+            val xLast = xs.last()
+            val projectedSpeed = slope * xLast + intercept
+
+            return projectedSpeed.toFloat().coerceAtLeast(0f)
+        }
+
         fun computeLineMetrics(): LineMetrics {
             val points = buffer.toList()
             if (points.isEmpty()) {
@@ -288,9 +328,9 @@ class TrajectoryFilter(
 
             val activeTrend = computeActiveTrendLine()
 
-            // Calculate average speed from sensor speeds across all points in buffer
-            val speedSum = points.sumOf { if (it.hasSpeed()) (it.speed * 3.6f).toDouble() else 0.0 }
-            val avgSpeedKmh = (speedSum / points.size).toFloat()
+            // OLS speed regression over last 3-5 buffer points (subPoints)
+            val subPoints = points.takeLast(5)
+            val avgSpeedKmh = computeMnkSpeed(subPoints)
 
             val ref = points.first()
             val last = points.last()
