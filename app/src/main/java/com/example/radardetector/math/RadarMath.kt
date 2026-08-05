@@ -321,7 +321,8 @@ class TrajectoryFilter(
         currentEffectiveSpeedKmh: Float,
         dbHelper: com.example.radardetector.db.DatabaseHelper,
         ramCacheOverride: CameraLoadResult? = null,
-        trajectoryBearing: Float = location.bearing
+        trajectoryBearing: Float = location.bearing,
+        trajectoryPoints: List<Location> = emptyList()
     ): ProcessedLocationMetrics {
         val effectiveSpeedKmh = currentEffectiveSpeedKmh
         val rawSpeedKmh = currentEffectiveSpeedKmh
@@ -368,7 +369,8 @@ class TrajectoryFilter(
             closestAlertCamera = closestAlertCam,
             minDistanceToAlert = minAlertDist,
             continuousThreshold = continuousThresh,
-            trajectoryBearing = trajectoryBearing
+            trajectoryBearing = trajectoryBearing,
+            trajectoryPoints = trajectoryPoints
         )
     }
 }
@@ -411,5 +413,6 @@ data class ProcessedLocationMetrics(
     val closestAlertCamera: com.example.radardetector.db.Camera?,
     val minDistanceToAlert: Float,
     val continuousThreshold: Float,
-    val trajectoryBearing: Float = 0f
+    val trajectoryBearing: Float = 0f,
+    val trajectoryPoints: List<Location> = emptyList()
 )

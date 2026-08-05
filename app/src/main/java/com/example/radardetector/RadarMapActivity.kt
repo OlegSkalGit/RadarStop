@@ -165,7 +165,7 @@ class RadarMapActivity : Activity() {
         tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $gpsStatusStr | Interval: $pollingIntervalStr"
         tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
 
-        mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing)
+        mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing, metrics.trajectoryPoints)
     }
 
     override fun onResume() {
@@ -205,6 +205,7 @@ class RadarMapActivity : Activity() {
         private var currentLocation: Location? = null
         private var cameras: List<Camera> = emptyList()
         private var trajectoryBearing: Float? = null
+        private var rawTrajectoryPoints: List<Location> = emptyList()
 
         private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2A3A4A")
@@ -244,6 +245,15 @@ class RadarMapActivity : Activity() {
             color = Color.parseColor("#00FF66")
             style = Paint.Style.FILL
         }
+        private val rawTailPointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#A0A0A0")
+            style = Paint.Style.FILL
+        }
+        private val rawTailLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#60A0A0A0")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
         private val camPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#FF5252")
             style = Paint.Style.FILL
@@ -275,10 +285,16 @@ class RadarMapActivity : Activity() {
             textSize = 20f
         }
 
-        fun updateData(location: Location, newCameras: List<Camera>, bearing: Float? = null) {
+        fun updateData(
+            location: Location,
+            newCameras: List<Camera>,
+            bearing: Float? = null,
+            points: List<Location> = emptyList()
+        ) {
             this.currentLocation = location
             this.cameras = newCameras
             this.trajectoryBearing = if (bearing != null && bearing != 0f) bearing else null
+            this.rawTrajectoryPoints = points
             postInvalidate()
         }
 
@@ -344,6 +360,31 @@ class RadarMapActivity : Activity() {
 
                     canvas.drawCircle(outerX, outerY, 5f, camOuterFillPaint)
                     canvas.drawCircle(outerX, outerY, 5f, camOuterPaint)
+                }
+            }
+
+            // 2.5 Draw Raw Trajectory Tail (Gray Points & Lines) during movement
+            if (trajectoryBearing != null && rawTrajectoryPoints.size >= 2) {
+                var prevSx = -1f
+                var prevSy = -1f
+                for (rawLoc in rawTrajectoryPoints) {
+                    val dist = loc.distanceTo(rawLoc)
+                    if (dist <= maxRangeMeters) {
+                        val bearingToPt = loc.bearingTo(rawLoc)
+                        val rad = Math.toRadians(bearingToPt.toDouble())
+                        val dx = (dist * sin(rad)).toFloat()
+                        val dy = (dist * cos(rad)).toFloat()
+
+                        val screenX = cx + (dx / maxRangeMeters) * maxRadiusPx
+                        val screenY = cy - (dy / maxRangeMeters) * maxRadiusPx
+
+                        if (prevSx >= 0f && prevSy >= 0f) {
+                            canvas.drawLine(prevSx, prevSy, screenX, screenY, rawTailLinePaint)
+                        }
+                        canvas.drawCircle(screenX, screenY, 6f, rawTailPointPaint)
+                        prevSx = screenX
+                        prevSy = screenY
+                    }
                 }
             }
 
