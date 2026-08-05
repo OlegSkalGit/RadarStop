@@ -402,8 +402,8 @@ class TrajectoryFilter(
         ramCacheOverride: CameraLoadResult? = null,
         trajectoryBearing: Float = location.bearing
     ): ProcessedLocationMetrics {
-        val rawSpeedKmh = location.speed * 3.6f
-        val effectiveSpeedKmh = calculateEffectiveSpeed(rawSpeedKmh, currentEffectiveSpeedKmh)
+        val effectiveSpeedKmh = currentEffectiveSpeedKmh
+        val rawSpeedKmh = currentEffectiveSpeedKmh
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
 
         val gpsStatusStr = if (isAccuracyWeak) {

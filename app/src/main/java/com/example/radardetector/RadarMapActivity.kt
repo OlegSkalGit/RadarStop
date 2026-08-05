@@ -29,25 +29,23 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-class RadarMapActivity : Activity(), LocationListener {
+class RadarMapActivity : Activity() {
 
     private lateinit var mapView: RadarMapView
-    private lateinit var locationManager: LocationManager
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var tvStatusLine1: TextView
     private lateinit var tvStatusLine2: TextView
-    private var lastLocation: Location? = null
-    private var nearbyCameras: List<Camera> = emptyList()
-    private var speedDropBelow30TimeMs = 0L
-    private var effectiveSpeedKmh: Float = 0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!RadarForegroundService.isRunning) {
+            finish()
+            return
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         AppLogger.log("RadarMapActivity", "onCreate", true, "RadarMapActivity launched. Keep-awake set.")
 
         dbHelper = DatabaseHelper(this)
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
         val rootLayout = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#121212"))
@@ -134,71 +132,15 @@ class RadarMapActivity : Activity(), LocationListener {
         ))
 
         setContentView(rootLayout)
-
-        registerGpsUpdates()
     }
 
-    private fun registerGpsUpdates() {
-        try {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                1000L,
-                0f,
-                this
-            )
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            if (lastGps != null) {
-                onLocationChanged(lastGps)
-            }
-        } catch (e: SecurityException) {
-            tvStatusLine1.text = "GPS Permission missing"
-        } catch (e: Exception) {
-            tvStatusLine1.text = "GPS Error: ${e.message}"
-        }
-    }
-
-    override fun onLocationChanged(location: Location) {
-        val activeServiceMetrics = if (com.example.radardetector.service.RadarForegroundService.isRunning) {
-            com.example.radardetector.service.RadarForegroundService.lastMetrics
-        } else null
-
-        val metrics = activeServiceMetrics ?: run {
-            val ramCache = com.example.radardetector.service.RadarForegroundService.getRamCachedLoadResult()
-            RadarMath.evaluateLocationData(location, effectiveSpeedKmh, dbHelper, ramCache)
-        }
-        effectiveSpeedKmh = metrics.effectiveSpeedKmh
-        lastLocation = metrics.location
-        nearbyCameras = metrics.cameraLoadResult.cameras
-
+    private fun updateUi(metrics: com.example.radardetector.math.ProcessedLocationMetrics) {
         val speedKmh = metrics.effectiveSpeedKmh
         val gpsStatusStr = metrics.gpsStatusStr
         val closestAlertCam = metrics.closestAlertCamera
         val minAlertDist = metrics.minDistanceToAlert
 
-        // Polling Interval
-        val activeIntervalMs = if (com.example.radardetector.service.RadarForegroundService.isRunning) {
-            com.example.radardetector.service.RadarForegroundService.currentGpsIntervalMs
-        } else {
-            when {
-                speedKmh <= 30f -> {
-                    val now = System.currentTimeMillis()
-                    if (speedDropBelow30TimeMs == 0L) speedDropBelow30TimeMs = now
-                    val timeBelow30 = now - speedDropBelow30TimeMs
-                    if (timeBelow30 < 3 * 60 * 1000L) 3000L else 30000L
-                }
-                else -> {
-                    speedDropBelow30TimeMs = 0L
-                    val maxGpsReadDist = if (speedKmh <= 60f) 500f else 1000f
-                    when {
-                        metrics.minDistToAnyCamera <= maxGpsReadDist -> 1000L
-                        metrics.minDistToAnyCamera <= 3000f -> 3000L
-                        else -> 15000L
-                    }
-                }
-            }
-        }
-
+        val activeIntervalMs = RadarForegroundService.currentGpsIntervalMs
         val activeSec = if (activeIntervalMs > 0) activeIntervalMs / 1000L else 1L
         val pollingIntervalStr = when (activeIntervalMs) {
             1000L -> "1s (Camera Nearby)"
@@ -208,7 +150,6 @@ class RadarMapActivity : Activity(), LocationListener {
             else -> "${activeSec}s"
         }
 
-        // Beep Status
         val beepStatusStr = when {
             metrics.isAccuracyWeak -> "PAUSED (Weak GPS)"
             speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
@@ -223,26 +164,38 @@ class RadarMapActivity : Activity(), LocationListener {
         tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $gpsStatusStr | Interval: $pollingIntervalStr"
         tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
 
-        mapView.updateData(location, nearbyCameras, metrics.trajectoryBearing)
+        mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing)
     }
 
     override fun onResume() {
         super.onResume()
-        lastLocation?.let { onLocationChanged(it) } ?: run {
-            val totalDb = dbHelper.getCameraCount()
-            tvStatusLine2.text = "Beep Status: -- | Cams: -- in 3km / -- in 10x10km / $totalDb total DB"
+        if (!RadarForegroundService.isRunning) {
+            finish()
+            return
+        }
+
+        RadarForegroundService.serviceStateListener = { isRunning ->
+            if (!isRunning) {
+                runOnUiThread { finish() }
+            }
+        }
+
+        RadarForegroundService.metricsListener = { metrics ->
+            runOnUiThread { updateUi(metrics) }
+        }
+
+        RadarForegroundService.lastMetrics?.let {
+            updateUi(it)
         }
     }
 
-    override fun onProviderEnabled(provider: String) {}
-    override fun onProviderDisabled(provider: String) {}
+    override fun onPause() {
+        super.onPause()
+        RadarForegroundService.metricsListener = null
+        RadarForegroundService.serviceStateListener = null
+    }
 
     override fun onDestroy() {
-        try {
-            locationManager.removeUpdates(this)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
         super.onDestroy()
     }
 

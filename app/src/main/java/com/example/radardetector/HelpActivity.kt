@@ -379,6 +379,13 @@ Sound Alerts & Tracking:
         return super.dispatchTouchEvent(ev)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (!RadarForegroundService.isRunning) {
+            finish()
+        }
+    }
+
     override fun onDestroy() {
         activeSyncManager?.shutdown()
         activeSyncManager = null

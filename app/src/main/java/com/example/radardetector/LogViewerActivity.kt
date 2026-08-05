@@ -445,6 +445,13 @@ class LogViewerActivity : Activity() {
         }.start()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (!com.example.radardetector.service.RadarForegroundService.isRunning) {
+            finish()
+        }
+    }
+
     override fun onDestroy() {
         audioEngine.release()
         super.onDestroy()

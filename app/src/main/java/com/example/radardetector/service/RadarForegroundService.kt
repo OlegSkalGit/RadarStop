@@ -50,6 +50,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         var instance: RadarForegroundService? = null
         @Volatile
         var lastMetrics: com.example.radardetector.math.ProcessedLocationMetrics? = null
+        @Volatile
+        var metricsListener: ((com.example.radardetector.math.ProcessedLocationMetrics) -> Unit)? = null
+        @Volatile
+        var serviceStateListener: ((Boolean) -> Unit)? = null
 
         fun getRamCachedLoadResult(): com.example.radardetector.math.CameraLoadResult? {
             val s = instance
@@ -371,6 +375,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             trajResult.trajectoryBearing
         )
         lastMetrics = metrics
+        metricsListener?.invoke(metrics)
 
         // 3. Trigger network sync update
         syncManager.onLocationUpdate(location, speedKmh)
@@ -650,6 +655,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         isRunning = false
         lastMetrics = null
         if (instance == this) instance = null
+        val stateCb = serviceStateListener
+        serviceStateListener = null
+        metricsListener = null
+        stateCb?.invoke(false)
         getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).edit().putBoolean("user_stopped", true).apply()
         AlarmWatchdogReceiver.cancelAlarm(this)
         AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cancelled background AlarmManager timer.")
