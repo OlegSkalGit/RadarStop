@@ -129,21 +129,22 @@ class TrajectoryFilter(
             }
             rawMotionBuffer.addLast(location)
 
-            // Speed check BEFORE forward projection: Check motion speed across raw points buffer (>= 3 points)
+            // Distance drift check BEFORE forward projection: Check motion distance across raw points buffer (>= 3 points)
             if (rawMotionBuffer.size >= 3) {
                 val firstPt = rawMotionBuffer.first
                 val lastPt = rawMotionBuffer.last
                 val distMeters = firstPt.distanceTo(lastPt)
-                val timeSeconds = (lastPt.time - firstPt.time) / 1000.0f
-                val rawSpeedKmh = if (timeSeconds > 0f) (distMeters / timeSeconds) * 3.6f else 0f
+                val firstAcc = if (firstPt.hasAccuracy()) firstPt.accuracy else 10f
+                val lastAcc = if (lastPt.hasAccuracy()) lastPt.accuracy else 10f
+                val doubleAccuracyThreshold = 2f * maxOf(firstAcc, lastAcc)
 
-                if (rawSpeedKmh <= 30f) {
-                    // Speed <= 30 km/h: Return calculated rawSpeedKmh, vector calculation skipped (trajectoryBearing = 0f)
+                if (distMeters <= doubleAccuracyThreshold) {
+                    // Distance is within GPS drift noise (<= 2 * accuracy): speed set to 0, vector calculation (MNK) skipped
                     return TrajectoryResult(
                         isValid = true,
                         isAccuracyWeak = false,
                         points = buffer.toList(),
-                        averageSpeedKmh = rawSpeedKmh,
+                        averageSpeedKmh = 0f,
                         trajectoryBearing = 0f,
                         projectedDistanceMeters = 0f
                     )
