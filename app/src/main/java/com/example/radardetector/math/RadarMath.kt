@@ -165,6 +165,24 @@ object RadarMath {
                 }
             }
 
+            // Check if distance between extreme points of buffer is within GPS accuracy error margin
+            val firstPt = buffer.first
+            val lastPt = buffer.last
+            val spanDist = firstPt.distanceTo(lastPt)
+            val gpsAccuracy = if (location.hasAccuracy()) location.accuracy else 10f
+
+            if (spanDist <= gpsAccuracy) {
+                // Vehicle stationary/jitter: Speed 0, vector calculation skipped
+                return TrajectoryResult(
+                    isValid = isForward,
+                    isAccuracyWeak = false,
+                    points = buffer.toList(),
+                    averageSpeedKmh = 0f,
+                    trajectoryBearing = if (location.hasBearing()) location.bearing else 0f,
+                    projectedDistanceMeters = 0f
+                )
+            }
+
             val lm = computeLineMetrics()
             return TrajectoryResult(
                 isValid = isForward,
