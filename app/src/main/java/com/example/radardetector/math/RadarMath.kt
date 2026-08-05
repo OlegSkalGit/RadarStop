@@ -136,11 +136,12 @@ class TrajectoryFilter(
                 val doubleAccuracyThreshold = 2f * maxOf(firstAcc, lastAcc)
 
                 if (distMeters <= doubleAccuracyThreshold) {
-                    // Distance is within GPS drift noise (<= 2 * accuracy): speed set to 0, vector calculation (MNK) skipped, isStationary = true
+                    // Distance is within GPS drift noise (<= 2 * accuracy): speed set to 0, clear buffer to prevent phantom stationary tail points
+                    buffer.clear()
                     return TrajectoryResult(
                         isValid = true,
                         isAccuracyWeak = false,
-                        points = buffer.toList(),
+                        points = emptyList(),
                         averageSpeedKmh = 0f,
                         trajectoryBearing = 0f,
                         projectedDistanceMeters = 0f,
