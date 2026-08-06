@@ -184,6 +184,12 @@ class TrajectoryFilter(
             val doubleAccuracyThreshold = 2f * maxOf(firstAcc, lastAcc)
 
             if (distMeters <= doubleAccuracyThreshold) {
+                while (buffer.size > 3) {
+                    buffer.removeFirst()
+                }
+                while (rawMotionBuffer.size > 3) {
+                    rawMotionBuffer.removeFirst()
+                }
                 return TrajectoryResult(
                     isValid = true,
                     isAccuracyWeak = false,

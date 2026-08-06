@@ -375,8 +375,8 @@ class RadarMapActivity : Activity() {
                 }
             }
 
-            // 3. Draw Vehicle Position Marker at Center
-            canvas.drawCircle(cx, cy, 16f, carPaint)
+            // 3. Draw Vehicle Position Marker at Center (radius reduced 3x to 5.33f)
+            canvas.drawCircle(cx, cy, 5.33f, carPaint)
         }
     }
 }
