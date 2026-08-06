@@ -28,18 +28,16 @@ object RadarMath {
     /**
      * Calculates beep delay based on distance in the 300m to -300m zone.
      * Approaching (300m -> 0m) and Departing (0m -> 300m):
-     * 300-200m: 2000 ms
-     * 200-100m: 1500 ms
-     * 100-50m:  1000 ms
-     * 50-0m:    500 ms
+     * 200-300m: 2000 ms (2.0s)
+     * 100-200m: 1000 ms (1.0s)
+     * 0-100m:    500 ms (0.5s)
      */
     @Suppress("UNUSED_PARAMETER")
     fun calculateBeepDelay(distanceMeters: Float, speedKmh: Float = 0f): Long {
         val dist = abs(distanceMeters)
         return when {
-            dist <= 50f -> 500L
-            dist <= 100f -> 1000L
-            dist <= 200f -> 1500L
+            dist <= 100f -> 500L
+            dist <= 200f -> 1000L
             else -> 2000L
         }
     }
