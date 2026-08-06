@@ -302,31 +302,27 @@ class TrajectoryFilter(
 
         val ref = points.first()
         val last = points.last()
-        val refTime = ref.time
-        val targetX = (last.time - refTime) / 1000.0
 
         val radLat = Math.toRadians(ref.latitude)
         val metersPerDegLat = 111139.0
         val metersPerDegLon = 111139.0 * Math.cos(radLat)
 
-        val seriesX = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.longitude - ref.longitude) * metersPerDegLon) }
-        val seriesY = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.latitude - ref.latitude) * metersPerDegLat) }
-
-        val projX = evaluateTwoVectorSeries(seriesX, targetX) {
-            while (buffer.size > 3) {
-                buffer.removeFirst()
-            }
+        // 1. Call 1: Spatial OLS Y (Latitude meters) vs X (Longitude meters)
+        val pointsXY = points.map {
+            SeriesPoint((it.longitude - ref.longitude) * metersPerDegLon, (it.latitude - ref.latitude) * metersPerDegLat)
         }
-        val projY = evaluateTwoVectorSeries(seriesY, targetX) {
+        val targetX = pointsXY.last().x
+        val projY = evaluateTwoVectorSeries(pointsXY, targetX) {
             while (buffer.size > 3) {
                 buffer.removeFirst()
             }
         }
 
+        // 2. Call 2: Speed OLS V (km/h) vs T (seconds)
         val avgSpeedKmh = computeTwoVectorSpeed(points)
 
         val projLat = ref.latitude + (projY / metersPerDegLat)
-        val projLon = ref.longitude + (projX / metersPerDegLon)
+        val projLon = ref.longitude + (targetX / metersPerDegLon)
 
         val projectedLoc = Location(last).apply {
             latitude = projLat
