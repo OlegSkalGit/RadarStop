@@ -450,7 +450,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
         }
 
-        // Camera direction check (azimuth angle within +-15 degrees of car trajectory)
+        // Line-of-sight direction check (camera location bearing within +-15 degrees of car trajectory)
         if (closestAlertCamera != null) {
             val cameraBearing = effectiveLoc.bearingTo(Location("").apply {
                 latitude = closestAlertCamera!!.lat

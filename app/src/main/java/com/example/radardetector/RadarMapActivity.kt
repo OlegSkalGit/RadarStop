@@ -271,11 +271,6 @@ class RadarMapActivity : Activity() {
             color = Color.parseColor("#60FFCC00")
             style = Paint.Style.FILL
         }
-        private val camAzimuthPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FF1744") // Bright Red
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-        }
         private val camTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textSize = 22f
