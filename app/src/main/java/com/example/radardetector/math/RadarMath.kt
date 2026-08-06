@@ -365,15 +365,6 @@ class TrajectoryFilter(
     }
 
     /**
-     * Checks if trajectory bearing matches camera direction within +-30 degrees.
-     */
-    fun isCameraDirectionMatched(trajectoryBearing: Float, cameraDir: Float?): Boolean {
-        if (cameraDir == null) return true // Omnidirectional
-        val diff = abs(angleDifference(trajectoryBearing, cameraDir))
-        return diff <= 30f
-    }
-
-    /**
      * Single authoritative location evaluator function used identically by both
      * RadarForegroundService and RadarMapActivity to produce 100% unified metrics.
      */
@@ -408,7 +399,7 @@ class TrajectoryFilter(
             val dist = calculateDistance(location, cam.lat, cam.lon)
             if (dist < minDistToAnyCam) minDistToAnyCam = dist
 
-            if (dist <= 300f && isCameraDirectionMatched(trajectoryBearing, cam.dir)) {
+            if (dist <= 300f) {
                 if (dist < minAlertDist) {
                     minAlertDist = dist
                     closestAlertCam = cam

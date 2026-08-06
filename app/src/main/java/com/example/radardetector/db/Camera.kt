@@ -4,6 +4,5 @@ data class Camera(
     val id: Long,
     val lat: Double,
     val lon: Double,
-    val dir: Float?,
     val isLinear: Boolean = false
 )

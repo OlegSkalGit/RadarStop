@@ -418,10 +418,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 minDistToAnyCamera = distance
             }
 
-            val isDirMatched = RadarMath.isCameraDirectionMatched(trajResult.trajectoryBearing, camera.dir)
-
             // Log 1 time when entering 300m zone
-            if (distance <= maxBeepAlertDistance && isDirMatched) {
+            if (distance <= maxBeepAlertDistance) {
                 if (logged300mCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
@@ -435,7 +433,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
 
             // Log 1 time at direct camera crossing (within continuous zone <= 50m/100m)
-            if (distance <= continuousThreshold && isDirMatched) {
+            if (distance <= continuousThreshold) {
                 if (loggedCrossingCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
@@ -448,7 +446,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 loggedCrossingCameraIds.remove(camera.id)
             }
 
-            if (distance <= maxBeepAlertDistance && isDirMatched) {
+            if (distance <= maxBeepAlertDistance) {
                 if (distance < minDistanceToAlert) {
                     minDistanceToAlert = distance
                     closestAlertCamera = camera
@@ -544,7 +542,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     "RadarForegroundService",
                     "onLocationChanged",
                     true,
-                    "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}, Linear: ${closestAlertCamera.isLinear}"
+                    "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Linear: ${closestAlertCamera.isLinear}"
                 )
             }
 

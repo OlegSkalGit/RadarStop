@@ -227,7 +227,6 @@ class OverpassSyncManager(
                         var id = 0L
                         var lat = 0.0
                         var lon = 0.0
-                        var dir: Float? = null
                         var isLinear = false
 
                         while (reader.hasNext()) {
@@ -241,9 +240,6 @@ class OverpassSyncManager(
                                     while (reader.hasNext()) {
                                         val tagName = reader.nextName()
                                         val tagValue = reader.nextString()
-                                        if (tagName == "direction" || tagName == "camera:direction") {
-                                            dir = parseDirection(tagValue)
-                                        }
                                         if (tagName == "enforcement" || tagName == "camera:type" || tagName == "enforcement:type") {
                                             if (tagValue.contains("average_speed") || tagValue.contains("section")) {
                                                 isLinear = true
@@ -256,7 +252,7 @@ class OverpassSyncManager(
                             }
                         }
                         reader.endObject()
-                        cameras.add(Camera(id, lat, lon, dir, isLinear))
+                        cameras.add(Camera(id, lat, lon, isLinear))
                     }
                     reader.endArray()
                 } else {
@@ -269,32 +265,6 @@ class OverpassSyncManager(
         } catch (e: Exception) {
             AppLogger.log("OverpassSyncManager", "parseOverpassStream", false, "Stream JSON Error: ${e.message}")
             null
-        }
-    }
-
-    private fun parseDirection(dirStr: String): Float? {
-        val trimmed = dirStr.trim()
-        val num = trimmed.toFloatOrNull()
-        if (num != null) return num
-
-        return when (trimmed.uppercase()) {
-            "N" -> 0.0f
-            "NNE" -> 22.5f
-            "NE" -> 45.0f
-            "ENE" -> 67.5f
-            "E" -> 90.0f
-            "ESE" -> 112.5f
-            "SE" -> 135.0f
-            "SSE" -> 157.5f
-            "S" -> 180.0f
-            "SSW" -> 202.5f
-            "SW" -> 225.0f
-            "WSW" -> 247.5f
-            "W" -> 270.0f
-            "WNW" -> 292.5f
-            "NW" -> 315.0f
-            "NNW" -> 337.5f
-            else -> null
         }
     }
 

@@ -10,13 +10,12 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     companion object {
         private const val DATABASE_NAME = "radar_detector.db"
-        private const val DATABASE_VERSION = 3
+        private const val DATABASE_VERSION = 4
 
         const val TABLE_CAMERAS = "cameras"
         const val COLUMN_ID = "id"
         const val COLUMN_LAT = "lat"
         const val COLUMN_LON = "lon"
-        const val COLUMN_DIR = "dir"
         const val COLUMN_IS_LINEAR = "is_linear"
 
         const val TABLE_COUNTRIES = "countries"
@@ -31,7 +30,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
                 $COLUMN_ID INTEGER PRIMARY KEY,
                 $COLUMN_LAT REAL NOT NULL,
                 $COLUMN_LON REAL NOT NULL,
-                $COLUMN_DIR REAL,
                 $COLUMN_IS_LINEAR INTEGER DEFAULT 0
             )
             """.trimIndent()
@@ -93,18 +91,13 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
                 "DELETE FROM $TABLE_CAMERAS WHERE $COLUMN_LAT BETWEEN ? AND ? AND $COLUMN_LON BETWEEN ? AND ?",
                 arrayOf(minLat, maxLat, minLon, maxLon)
             )
-            db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_DIR, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?, ?)").use { stmt ->
+            db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?)").use { stmt ->
                 for (cam in cameras) {
                     stmt.clearBindings()
                     stmt.bindLong(1, cam.id)
                     stmt.bindDouble(2, cam.lat)
                     stmt.bindDouble(3, cam.lon)
-                    if (cam.dir != null) {
-                        stmt.bindDouble(4, cam.dir.toDouble())
-                    } else {
-                        stmt.bindNull(4)
-                    }
-                    stmt.bindLong(5, if (cam.isLinear) 1L else 0L)
+                    stmt.bindLong(4, if (cam.isLinear) 1L else 0L)
                     stmt.executeInsert()
                 }
             }
@@ -124,18 +117,13 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_DIR, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?, ?)").use { stmt ->
+            db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?)").use { stmt ->
                 for (cam in cameras) {
                     stmt.clearBindings()
                     stmt.bindLong(1, cam.id)
                     stmt.bindDouble(2, cam.lat)
                     stmt.bindDouble(3, cam.lon)
-                    if (cam.dir != null) {
-                        stmt.bindDouble(4, cam.dir.toDouble())
-                    } else {
-                        stmt.bindNull(4)
-                    }
-                    stmt.bindLong(5, if (cam.isLinear) 1L else 0L)
+                    stmt.bindLong(4, if (cam.isLinear) 1L else 0L)
                     stmt.executeInsert()
                 }
             }
@@ -154,7 +142,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         val db = readableDatabase
         db.query(
             TABLE_CAMERAS,
-            arrayOf(COLUMN_ID, COLUMN_LAT, COLUMN_LON, COLUMN_DIR, COLUMN_IS_LINEAR),
+            arrayOf(COLUMN_ID, COLUMN_LAT, COLUMN_LON, COLUMN_IS_LINEAR),
             "$COLUMN_LAT BETWEEN ? AND ? AND $COLUMN_LON BETWEEN ? AND ?",
             arrayOf(minLat.toString(), maxLat.toString(), minLon.toString(), maxLon.toString()),
             null, null, null
@@ -162,16 +150,14 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             val idIdx = cursor.getColumnIndexOrThrow(COLUMN_ID)
             val latIdx = cursor.getColumnIndexOrThrow(COLUMN_LAT)
             val lonIdx = cursor.getColumnIndexOrThrow(COLUMN_LON)
-            val dirIdx = cursor.getColumnIndexOrThrow(COLUMN_DIR)
             val isLinearIdx = cursor.getColumnIndexOrThrow(COLUMN_IS_LINEAR)
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idIdx)
                 val lat = cursor.getDouble(latIdx)
                 val lon = cursor.getDouble(lonIdx)
-                val dir = if (cursor.isNull(dirIdx)) null else cursor.getFloat(dirIdx)
                 val isLinear = cursor.getInt(isLinearIdx) == 1
-                list.add(Camera(id, lat, lon, dir, isLinear))
+                list.add(Camera(id, lat, lon, isLinear))
             }
         }
         return list
@@ -182,21 +168,19 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         val db = readableDatabase
         db.query(
             TABLE_CAMERAS,
-            arrayOf(COLUMN_ID, COLUMN_LAT, COLUMN_LON, COLUMN_DIR, COLUMN_IS_LINEAR),
+            arrayOf(COLUMN_ID, COLUMN_LAT, COLUMN_LON, COLUMN_IS_LINEAR),
             "$COLUMN_IS_LINEAR = 1",
             null, null, null, null
         ).use { cursor ->
             val idIdx = cursor.getColumnIndexOrThrow(COLUMN_ID)
             val latIdx = cursor.getColumnIndexOrThrow(COLUMN_LAT)
             val lonIdx = cursor.getColumnIndexOrThrow(COLUMN_LON)
-            val dirIdx = cursor.getColumnIndexOrThrow(COLUMN_DIR)
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idIdx)
                 val lat = cursor.getDouble(latIdx)
                 val lon = cursor.getDouble(lonIdx)
-                val dir = if (cursor.isNull(dirIdx)) null else cursor.getFloat(dirIdx)
-                list.add(Camera(id, lat, lon, dir, true))
+                list.add(Camera(id, lat, lon, true))
             }
         }
         return list
