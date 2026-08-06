@@ -325,31 +325,21 @@ class TrajectoryFilter(
         }
     }
 
-    private fun fitSpeedLine(points: List<Location>, refTime: Long): Pair<Double, Double> {
-        val validPoints = points.filter { it.hasSpeed() }
-        if (validPoints.isEmpty()) return Pair(0.0, 0.0)
-        if (validPoints.size < 2) {
-            val s = (validPoints.last().speed * 3.6f).toDouble()
-            return Pair(0.0, s)
-        }
+    private data class SeriesPoint(val x: Double, val y: Double)
 
-        val n = validPoints.size
-        val xs = DoubleArray(n)
-        val ys = DoubleArray(n)
+    private fun fitLinearSeries(points: List<SeriesPoint>): Pair<Double, Double> {
+        val n = points.size
+        if (n == 0) return Pair(0.0, 0.0)
+        if (n == 1) return Pair(0.0, points[0].y)
 
-        for (i in 0 until n) {
-            xs[i] = (validPoints[i].time - refTime) / 1000.0
-            ys[i] = (validPoints[i].speed * 3.6f).toDouble()
-        }
-
-        val meanX = xs.average()
-        val meanY = ys.average()
+        val meanX = points.sumOf { it.x } / n
+        val meanY = points.sumOf { it.y } / n
 
         var num = 0.0
         var den = 0.0
-        for (i in 0 until n) {
-            val dx = xs[i] - meanX
-            val dy = ys[i] - meanY
+        for (p in points) {
+            val dx = p.x - meanX
+            val dy = p.y - meanY
             num += dx * dy
             den += dx * dx
         }
@@ -359,48 +349,55 @@ class TrajectoryFilter(
         return Pair(slope, intercept)
     }
 
+    private fun evaluateTwoVectorSeries(
+        points: List<SeriesPoint>,
+        targetX: Double,
+        onSharpChange: () -> Unit
+    ): Double {
+        if (points.isEmpty()) return 0.0
+        if (points.size < 3) return points.map { it.y }.average()
+
+        if (points.size < 6) {
+            val (slope, intercept) = fitLinearSeries(points)
+            return slope * targetX + intercept
+        }
+
+        val mid = points.size / 2
+        val head = points.take(mid)
+        val tail = points.takeLast(points.size - mid)
+
+        val (slope1, intercept1) = fitLinearSeries(head)
+        val (slope2, intercept2) = fitLinearSeries(tail)
+
+        val proj1 = slope1 * targetX + intercept1
+        val proj2 = slope2 * targetX + intercept2
+
+        val maxVal = maxOf(Math.abs(proj1), Math.abs(proj2), 1.0)
+        val diffRatio = Math.abs(proj2 - proj1) / maxVal
+
+        if (diffRatio < 0.30) {
+            return 0.5 * (proj1 + proj2)
+        } else {
+            onSharpChange()
+            return proj2
+        }
+    }
+
     private fun computeTwoVectorSpeed(points: List<Location>): Float {
-        if (points.isEmpty()) return 0f
         val validPoints = points.filter { it.hasSpeed() }
         if (validPoints.isEmpty()) {
             return points.lastOrNull()?.let { if (it.hasSpeed()) it.speed * 3.6f else 0f } ?: 0f
         }
-        if (validPoints.size < 3) {
-            val speedSum = validPoints.sumOf { (it.speed * 3.6f).toDouble() }
-            return (speedSum / validPoints.size).toFloat().coerceAtLeast(0f)
-        }
-
         val refTime = validPoints.first().time
-        val lastTime = (validPoints.last().time - refTime) / 1000.0
+        val targetX = (validPoints.last().time - refTime) / 1000.0
+        val series = validPoints.map { SeriesPoint((it.time - refTime) / 1000.0, (it.speed * 3.6f).toDouble()) }
 
-        if (validPoints.size < 6) {
-            val (slope, intercept) = fitSpeedLine(validPoints, refTime)
-            val projSpeed = slope * lastTime + intercept
-            return projSpeed.toFloat().coerceAtLeast(0f)
-        } else {
-            val mid = validPoints.size / 2
-            val headPoints = validPoints.take(mid)
-            val tailPoints = validPoints.takeLast(validPoints.size - mid)
-
-            val (slope1, intercept1) = fitSpeedLine(headPoints, refTime)
-            val (slope2, intercept2) = fitSpeedLine(tailPoints, refTime)
-
-            val proj1 = slope1 * lastTime + intercept1
-            val proj2 = slope2 * lastTime + intercept2
-
-            val maxSpeed = maxOf(Math.abs(proj1), Math.abs(proj2), 1.0)
-            val diffRatio = Math.abs(proj2 - proj1) / maxSpeed
-
-            if (diffRatio < 0.30) {
-                val medianSpeed = 0.5 * (proj1 + proj2)
-                return medianSpeed.toFloat().coerceAtLeast(0f)
-            } else {
-                while (buffer.size > 3) {
-                    buffer.removeFirst()
-                }
-                return proj2.toFloat().coerceAtLeast(0f)
+        val speed = evaluateTwoVectorSeries(series, targetX) {
+            while (buffer.size > 3) {
+                buffer.removeFirst()
             }
         }
+        return speed.toFloat().coerceAtLeast(0f)
     }
 
     fun computeLineMetrics(): LineMetrics {
