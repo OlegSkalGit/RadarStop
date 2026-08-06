@@ -450,18 +450,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
         }
 
-        // Approaching check: camera must be ahead along movement trajectory (within +-15 degrees)
-        if (closestAlertCamera != null) {
-            val cameraBearing = effectiveLoc.bearingTo(Location("").apply {
-                latitude = closestAlertCamera!!.lat
-                longitude = closestAlertCamera!!.lon
-            })
-            val angleDiff = Math.abs(RadarMath.angleDifference(trajResult.trajectoryBearing, cameraBearing))
-            if (angleDiff > 15f) {
-                closestAlertCamera = null
-                minDistanceToAlert = Float.MAX_VALUE
-            }
-        }
 
         val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
         val isInActiveLinearZone = (activeLinearEntryCam != null)
