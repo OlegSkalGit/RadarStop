@@ -25,7 +25,7 @@ import com.example.radardetector.HelpActivity
 import com.example.radardetector.audio.AcousticRadarEngine
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
-import com.example.radardetector.math.RadarMath
+import com.example.radardetector.math.*
 import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.receiver.AlarmWatchdogReceiver
 import com.example.radardetector.util.AppLogger
@@ -325,7 +325,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     private var isWeakGpsState: Boolean = false
-    private val trajectoryFilter = RadarMath.TrajectoryFilter()
+    private val trajectoryFilter = TrajectoryFilter()
 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
@@ -335,7 +335,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         val trajResult = trajectoryFilter.processLocation(location)
 
-        val rawSpeedKmh = if (trajResult.isStationary) {
+        val speedKmh = if (trajResult.isStationary) {
             0f
         } else if (trajResult.averageSpeedKmh > 0f) {
             trajResult.averageSpeedKmh
@@ -349,7 +349,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 if (timeS > 0f) (distM / timeS) * 3.6f else 0f
             } else 0f
         }
-        val speedKmh = RadarMath.calculateEffectiveSpeed(rawSpeedKmh, effectiveSpeedKmh)
         effectiveSpeedKmh = speedKmh
 
         val now = System.currentTimeMillis()
@@ -404,22 +403,18 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             return
         }
 
-        val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
-        val maxBeepAlertDistance = 300f
-        val continuousThreshold = if (speedKmh <= 60f) 50f else 100f
-
         var minDistToAnyCamera = Float.MAX_VALUE
         var closestAlertCamera: Camera? = null
         var minDistanceToAlert = Float.MAX_VALUE
 
         for (camera in cachedCameras) {
-            val distance = RadarMath.calculateDistance(location, camera.lat, camera.lon)
+            val distance = RadarMath.calculateDistance(effectiveLoc, camera.lat, camera.lon)
             if (distance < minDistToAnyCamera) {
                 minDistToAnyCamera = distance
             }
 
             // Log 1 time when entering 300m zone
-            if (distance <= maxBeepAlertDistance) {
+            if (distance <= 300f) {
                 if (logged300mCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
@@ -433,6 +428,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
 
             // Log 1 time at direct camera crossing (within continuous zone <= 50m/100m)
+            val continuousThreshold = if (speedKmh <= 60f) 50f else 100f
             if (distance <= continuousThreshold) {
                 if (loggedCrossingCameraIds.add(camera.id)) {
                     AppLogger.log(
@@ -446,7 +442,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 loggedCrossingCameraIds.remove(camera.id)
             }
 
-            if (distance <= maxBeepAlertDistance) {
+            if (distance <= 300f) {
                 if (distance < minDistanceToAlert) {
                     minDistanceToAlert = distance
                     closestAlertCamera = camera
@@ -454,6 +450,20 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
         }
 
+        // Camera direction check (azimuth angle within +-15 degrees of car trajectory)
+        if (closestAlertCamera != null) {
+            val cameraBearing = effectiveLoc.bearingTo(Location("").apply {
+                latitude = closestAlertCamera!!.lat
+                longitude = closestAlertCamera!!.lon
+            })
+            val angleDiff = Math.abs(RadarMath.angleDifference(trajResult.trajectoryBearing, cameraBearing))
+            if (angleDiff > 15f) {
+                closestAlertCamera = null
+                minDistanceToAlert = Float.MAX_VALUE
+            }
+        }
+
+        val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
         val isInActiveLinearZone = (activeLinearEntryCam != null)
         val isWithinGps1sDistance = (minDistToAnyCamera <= maxGpsReadDistance)
         val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
@@ -524,9 +534,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 if (activeLinearEntryCam?.id != closestAlertCamera.id) {
                     activeLinearEntryCam = closestAlertCamera
                     activeLinearExitCam = cachedCameras.filter { it.isLinear && it.id != closestAlertCamera.id }
-                        .minByOrNull { RadarMath.calculateDistance(location, it.lat, it.lon) }
-                    prevDistToEntryCam = RadarMath.calculateDistance(location, activeLinearEntryCam!!.lat, activeLinearEntryCam!!.lon)
-                    prevDistToExitCam = activeLinearExitCam?.let { RadarMath.calculateDistance(location, it.lat, it.lon) } ?: Float.MAX_VALUE
+                        .minByOrNull { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) }
+                    prevDistToEntryCam = RadarMath.calculateDistance(effectiveLoc, activeLinearEntryCam!!.lat, activeLinearEntryCam!!.lon)
+                    prevDistToExitCam = activeLinearExitCam?.let { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) } ?: Float.MAX_VALUE
                     isDepartingFromEntry = false
                 }
             }
@@ -546,7 +556,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 )
             }
 
-            val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, speedKmh)
+            val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert)
             audioEngine.startAlert(delayMs)
             audioEngine.updateDelay(delayMs)
 
@@ -554,9 +564,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         } else {
             val entryCam = activeLinearEntryCam
             if (entryCam != null) {
-                val distEntry = RadarMath.calculateDistance(location, entryCam.lat, entryCam.lon)
+                val distEntry = RadarMath.calculateDistance(effectiveLoc, entryCam.lat, entryCam.lon)
                 val exitCam = activeLinearExitCam
-                val distExit = exitCam?.let { RadarMath.calculateDistance(location, it.lat, it.lon) } ?: Float.MAX_VALUE
+                val distExit = exitCam?.let { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) } ?: Float.MAX_VALUE
 
                 if (distEntry > prevDistToEntryCam + 3f || distEntry > 50f) {
                     isDepartingFromEntry = true

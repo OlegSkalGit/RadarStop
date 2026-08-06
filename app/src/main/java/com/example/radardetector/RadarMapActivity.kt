@@ -22,7 +22,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
-import com.example.radardetector.math.RadarMath
+import com.example.radardetector.math.*
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
 import java.util.Locale
@@ -136,7 +136,7 @@ class RadarMapActivity : Activity() {
     }
 
     private fun updateUi(metrics: com.example.radardetector.math.ProcessedLocationMetrics) {
-        val speedKmh = metrics.effectiveSpeedKmh
+        val speedKmh = metrics.speedKmh
         val gpsStatusStr = metrics.gpsStatusStr
         val closestAlertCam = metrics.closestAlertCamera
         val minAlertDist = metrics.minDistanceToAlert
@@ -155,7 +155,7 @@ class RadarMapActivity : Activity() {
             metrics.isAccuracyWeak -> "PAUSED (Weak GPS)"
             speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
             closestAlertCam != null -> {
-                val delayMs = RadarMath.calculateBeepDelay(minAlertDist, speedKmh)
+                val delayMs = RadarMath.calculateBeepDelay(minAlertDist)
                 "ALERT (${delayMs}ms)"
             }
             else -> "OFF (Idle)"
