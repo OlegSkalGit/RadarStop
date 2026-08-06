@@ -26,6 +26,7 @@ import com.example.radardetector.network.AppUpdateManager
 import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.getAppVersionName
 
 class HelpActivity : Activity() {
 
@@ -37,16 +38,7 @@ class HelpActivity : Activity() {
         super.onCreate(savedInstanceState)
         title = "Help"
 
-        val appVersionName = try {
-            if (Build.VERSION.SDK_INT >= 33) {
-                packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0L)).versionName
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageInfo(packageName, 0).versionName
-            }
-        } catch (e: Exception) {
-            "1.0"
-        }
+        val appVersionName = getAppVersionName()
 
         scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {

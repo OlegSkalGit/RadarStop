@@ -213,118 +213,6 @@ class TrajectoryFilter(
         )
     }
 
-    private data class SubLineFit(
-        val ux: Double,
-        val uy: Double,
-        val azimuth: Float
-    )
-
-    private data class ActiveTrend(
-        val ux: Double,
-        val uy: Double,
-        val azimuth: Float
-    )
-
-    private fun fitSubBufferLine(points: List<Location>, ref: Location): SubLineFit {
-        val radLat = Math.toRadians(ref.latitude)
-        val metersPerDegLat = 111139.0
-        val metersPerDegLon = 111139.0 * Math.cos(radLat)
-
-        val n = points.size
-        val xs = DoubleArray(n)
-        val ys = DoubleArray(n)
-
-        var sumX = 0.0
-        var sumY = 0.0
-        for (i in 0 until n) {
-            xs[i] = (points[i].longitude - ref.longitude) * metersPerDegLon
-            ys[i] = (points[i].latitude - ref.latitude) * metersPerDegLat
-            sumX += xs[i]
-            sumY += ys[i]
-        }
-
-        val meanX = sumX / n
-        val meanY = sumY / n
-
-        var sxx = 0.0
-        var syy = 0.0
-        var sxy = 0.0
-        for (i in 0 until n) {
-            val dx = xs[i] - meanX
-            val dy = ys[i] - meanY
-            sxx += dx * dx
-            syy += dy * dy
-            sxy += dx * dy
-        }
-
-        val ux: Double
-        val uy: Double
-        if (Math.abs(sxx) > 1e-4 || Math.abs(syy) > 1e-4 || Math.abs(sxy) > 1e-4) {
-            val angle = 0.5 * Math.atan2(2.0 * sxy, sxx - syy)
-            var vx = Math.cos(angle)
-            var vy = Math.sin(angle)
-
-            val totalDx = xs.last() - xs.first()
-            val totalDy = ys.last() - ys.first()
-            if (vx * totalDx + vy * totalDy < 0) {
-                vx = -vx
-                vy = -vy
-            }
-            ux = vx
-            uy = vy
-        } else {
-            val dxTotal = xs.last() - xs.first()
-            val dyTotal = ys.last() - ys.first()
-            val len = Math.hypot(dxTotal, dyTotal)
-            if (len > 0.5) {
-                ux = dxTotal / len
-                uy = dyTotal / len
-            } else {
-                val bearing = points.last().bearing
-                val rad = Math.toRadians((90.0 - bearing).toDouble())
-                return SubLineFit(Math.cos(rad), Math.sin(rad), bearing)
-            }
-        }
-
-        var azimuth = (90.0 - Math.toDegrees(Math.atan2(uy, ux))).toFloat()
-        if (azimuth < 0f) azimuth += 360f
-        if (azimuth >= 360f) azimuth -= 360f
-
-        return SubLineFit(ux, uy, azimuth)
-    }
-
-    private fun computeActiveTrendLine(): ActiveTrend {
-        val points = buffer.toList()
-        if (points.isEmpty()) return ActiveTrend(1.0, 0.0, 0f)
-        val ref = points.first()
-
-        if (points.size < 10) {
-            val subPoints = points.takeLast(points.size)
-            val fit = fitSubBufferLine(subPoints, ref)
-            return ActiveTrend(fit.ux, fit.uy, fit.azimuth)
-        } else {
-            val headPoints = points.take(5)
-            val tailPoints = points.takeLast(5)
-            val fit1 = fitSubBufferLine(headPoints, ref)
-            val fit2 = fitSubBufferLine(tailPoints, ref)
-
-            val diffAngle = Math.abs(RadarMath.angleDifference(fit1.azimuth, fit2.azimuth))
-            if (diffAngle < 30f) {
-                var medianAzimuth = fit1.azimuth + 0.5f * RadarMath.angleDifference(fit2.azimuth, fit1.azimuth)
-                if (medianAzimuth < 0f) medianAzimuth += 360f
-                if (medianAzimuth >= 360f) medianAzimuth -= 360f
-
-                val rad = Math.toRadians((90.0 - medianAzimuth).toDouble())
-                return ActiveTrend(Math.cos(rad), Math.sin(rad), medianAzimuth)
-            } else {
-                while (buffer.size > 3) {
-                    buffer.removeFirst()
-                }
-                return ActiveTrend(fit2.ux, fit2.uy, fit2.azimuth)
-            }
-        }
-    }
-
     private data class SeriesPoint(val x: Double, val y: Double)
 
     private fun fitLinearSeries(points: List<SeriesPoint>): Pair<Double, Double> {
@@ -406,24 +294,30 @@ class TrajectoryFilter(
             return LineMetrics(speedKmh = 0f, trajectoryBearing = 0f, projectedDistanceMeters = 0f)
         }
 
-        val activeTrend = computeActiveTrendLine()
-
-        val avgSpeedKmh = computeTwoVectorSpeed(points)
-
         val ref = points.first()
         val last = points.last()
-        val projDistMeters = ref.distanceTo(last)
+        val refTime = ref.time
+        val targetX = (last.time - refTime) / 1000.0
 
         val radLat = Math.toRadians(ref.latitude)
         val metersPerDegLat = 111139.0
         val metersPerDegLon = 111139.0 * Math.cos(radLat)
 
-        val dx = (last.longitude - ref.longitude) * metersPerDegLon
-        val dy = (last.latitude - ref.latitude) * metersPerDegLat
-        val projDist = dx * activeTrend.ux + dy * activeTrend.uy
+        val seriesX = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.longitude - ref.longitude) * metersPerDegLon) }
+        val seriesY = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.latitude - ref.latitude) * metersPerDegLat) }
 
-        val projX = projDist * activeTrend.ux
-        val projY = projDist * activeTrend.uy
+        val projX = evaluateTwoVectorSeries(seriesX, targetX) {
+            while (buffer.size > 3) {
+                buffer.removeFirst()
+            }
+        }
+        val projY = evaluateTwoVectorSeries(seriesY, targetX) {
+            while (buffer.size > 3) {
+                buffer.removeFirst()
+            }
+        }
+
+        val avgSpeedKmh = computeTwoVectorSpeed(points)
 
         val projLat = ref.latitude + (projY / metersPerDegLat)
         val projLon = ref.longitude + (projX / metersPerDegLon)
@@ -433,9 +327,11 @@ class TrajectoryFilter(
             longitude = projLon
         }
 
+        val projDistMeters = ref.distanceTo(last)
+
         return LineMetrics(
             speedKmh = avgSpeedKmh,
-            trajectoryBearing = activeTrend.azimuth,
+            trajectoryBearing = last.bearing,
             projectedDistanceMeters = projDistMeters,
             projectedLocation = projectedLoc
         )

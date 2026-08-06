@@ -22,6 +22,7 @@ import android.os.Looper
 import androidx.core.content.FileProvider
 import com.example.radardetector.receiver.UpdateActionReceiver
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.getAppVersionName
 import org.json.JSONArray
 import java.io.File
 import java.io.FileOutputStream
@@ -93,16 +94,7 @@ object AppUpdateManager {
         val appContext = context.applicationContext
         AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Starting GitHub release update check for $REPO_OWNER/$REPO_NAME...")
 
-        val installedVersionName = try {
-            if (Build.VERSION.SDK_INT >= 33) {
-                appContext.packageManager.getPackageInfo(appContext.packageName, PackageManager.PackageInfoFlags.of(0L)).versionName
-            } else {
-                @Suppress("DEPRECATION")
-                appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
-            }
-        } catch (e: Exception) {
-            "1.0"
-        }
+        val installedVersionName = appContext.getAppVersionName()
         val localInstalledVer = extractVersionNumbers(installedVersionName ?: "1.0")
 
         AppLogger.log(

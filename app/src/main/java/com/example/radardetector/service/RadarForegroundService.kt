@@ -403,17 +403,13 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             return
         }
 
-        var minDistToAnyCamera = Float.MAX_VALUE
-        var closestAlertCamera: Camera? = null
-        var minDistanceToAlert = Float.MAX_VALUE
+        val minDistToAnyCamera = metrics.minDistToAnyCamera
+        val closestAlertCamera = metrics.closestAlertCamera
+        val minDistanceToAlert = metrics.minDistanceToAlert
 
-        for (camera in cachedCameras) {
-            val distance = RadarMath.calculateDistance(effectiveLoc, camera.lat, camera.lon)
-            if (distance < minDistToAnyCamera) {
-                minDistToAnyCamera = distance
-            }
-
-            // Log 1 time when entering 300m zone
+        // 1-time logging for entering 300m zone and direct crossing
+        closestAlertCamera?.let { camera ->
+            val distance = minDistanceToAlert
             if (distance <= 300f) {
                 if (logged300mCameraIds.add(camera.id)) {
                     AppLogger.log(
@@ -427,8 +423,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 logged300mCameraIds.remove(camera.id)
             }
 
-            // Log 1 time at direct camera crossing (within continuous zone <= 50m/100m)
-            val continuousThreshold = if (speedKmh <= 60f) 50f else 100f
+            val continuousThreshold = metrics.continuousThreshold
             if (distance <= continuousThreshold) {
                 if (loggedCrossingCameraIds.add(camera.id)) {
                     AppLogger.log(
@@ -440,13 +435,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 }
             } else if (distance > continuousThreshold + 50f) {
                 loggedCrossingCameraIds.remove(camera.id)
-            }
-
-            if (distance <= 300f) {
-                if (distance < minDistanceToAlert) {
-                    minDistanceToAlert = distance
-                    closestAlertCamera = camera
-                }
             }
         }
 
