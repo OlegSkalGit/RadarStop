@@ -349,15 +349,24 @@ class TrajectoryFilter(
      */
     fun calculatePerpendicularDistance(location: Location, cameraLat: Double, cameraLon: Double, trajectoryBearing: Float): Float {
         val rad = Math.toRadians(trajectoryBearing.toDouble())
-        val ux = sin(rad)
-        val uy = cos(rad)
+        val ux = kotlin.math.sin(rad)
+        val uy = kotlin.math.cos(rad)
 
         val latRad = Math.toRadians(location.latitude)
-        val dx = (cameraLon - location.longitude) * 111139.0 * cos(latRad)
+        val dx = (cameraLon - location.longitude) * 111139.0 * kotlin.math.cos(latRad)
         val dy = (cameraLat - location.latitude) * 111139.0
 
         val perpDist = abs(dx * uy - dy * ux)
         return perpDist.toFloat()
+    }
+
+    /**
+     * Checks if trajectory bearing matches camera direction within +-30 degrees.
+     */
+    fun isCameraDirectionMatched(trajectoryBearing: Float, cameraDir: Float?): Boolean {
+        if (cameraDir == null) return true // Omnidirectional
+        val diff = abs(angleDifference(trajectoryBearing, cameraDir))
+        return diff <= 30f
     }
 
     /**
