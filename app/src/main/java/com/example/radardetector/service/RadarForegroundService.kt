@@ -335,6 +335,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         val trajResult = trajectoryFilter.processLocation(location)
 
+        val evalLocation = trajResult.projectedLocation ?: location
+
         val rawSpeedKmh = if (trajResult.isStationary) {
             0f
         } else if (trajResult.averageSpeedKmh > 0f) {
@@ -353,8 +355,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         effectiveSpeedKmh = speedKmh
 
         val now = System.currentTimeMillis()
-        val lat = location.latitude
-        val lon = location.longitude
+        val lat = evalLocation.latitude
+        val lon = evalLocation.longitude
 
         val distFromRamReload = FloatArray(1)
         if (lastRamReloadLat != 0.0 || lastRamReloadLon != 0.0) {
@@ -363,7 +365,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // 1. UNCONDITIONAL RAM CACHE LOAD: Always load 10x10km cameras into RAM on fix (even for coarse GPS)
         if (cachedCameras.isEmpty() || distFromRamReload[0] >= 4000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
-            reloadCameraCacheForLocation(location)
+            reloadCameraCacheForLocation(evalLocation)
         }
 
         // 2. Evaluate metrics and update lastMetrics for Map UI
@@ -373,22 +375,23 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             dbHelper,
             getRamCachedLoadResult(),
             trajResult.trajectoryBearing,
-            trajResult.points
+            trajResult.points,
+            trajResult.projectedLocation
         )
         lastMetrics = metrics
         metricsListener?.invoke(metrics)
 
         // 3. Trigger network sync update
-        syncManager.onLocationUpdate(location, speedKmh)
+        syncManager.onLocationUpdate(evalLocation, speedKmh)
 
         // 4. Weak GPS Check (Alerting paused if accuracy > 100m, but RAM cache is ALREADY loaded)
-        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
+        val isAccuracyWeak = evalLocation.hasAccuracy() && evalLocation.accuracy > 100f
         if (isAccuracyWeak) {
             if (!isWeakGpsState) {
                 isWeakGpsState = true
-                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>100m [${location.accuracy.toInt()}m]). Alerting paused.")
+                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>100m [${evalLocation.accuracy.toInt()}m]). Alerting paused.")
             }
-            val accInt = location.accuracy.toInt()
+            val accInt = evalLocation.accuracy.toInt()
             updateNotificationText("Weak GPS signal (>100m [${accInt}m])")
             audioEngine.stopAlert()
             return
@@ -413,7 +416,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         var minDistanceToAlert = Float.MAX_VALUE
 
         for (camera in cachedCameras) {
-            val distance = RadarMath.calculateDistance(location, camera.lat, camera.lon)
+            val distance = RadarMath.calculateDistance(evalLocation, camera.lat, camera.lon)
             if (distance < minDistToAnyCamera) {
                 minDistToAnyCamera = distance
             }
@@ -556,9 +559,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         } else {
             val entryCam = activeLinearEntryCam
             if (entryCam != null) {
-                val distEntry = RadarMath.calculateDistance(location, entryCam.lat, entryCam.lon)
+                val distEntry = RadarMath.calculateDistance(evalLocation, entryCam.lat, entryCam.lon)
                 val exitCam = activeLinearExitCam
-                val distExit = exitCam?.let { RadarMath.calculateDistance(location, it.lat, it.lon) } ?: Float.MAX_VALUE
+                val distExit = exitCam?.let { RadarMath.calculateDistance(evalLocation, it.lat, it.lon) } ?: Float.MAX_VALUE
 
                 if (distEntry > prevDistToEntryCam + 3f || distEntry > 50f) {
                     isDepartingFromEntry = true

@@ -323,7 +323,7 @@ class TrajectoryFilter(
         fun computeLineMetrics(): LineMetrics {
             val points = buffer.toList()
             if (points.isEmpty()) {
-                return LineMetrics(speedKmh = 0f, trajectoryBearing = 0f, projectedDistanceMeters = 0f)
+                return LineMetrics(speedKmh = 0f, trajectoryBearing = 0f, projectedDistanceMeters = 0f, projectedLocation = null)
             }
 
             val activeTrend = computeActiveTrendLine()
@@ -336,10 +336,30 @@ class TrajectoryFilter(
             val last = points.last()
             val projDistMeters = ref.distanceTo(last)
 
+            val metersPerDegLat = 111139.0
+            val radLat = Math.toRadians(ref.latitude)
+            val metersPerDegLon = 111139.0 * Math.cos(radLat)
+
+            val xLast = (last.longitude - ref.longitude) * metersPerDegLon
+            val yLast = (last.latitude - ref.latitude) * metersPerDegLat
+
+            val t = xLast * activeTrend.ux + yLast * activeTrend.uy
+            val xProj = t * activeTrend.ux
+            val yProj = t * activeTrend.uy
+
+            val projLat = ref.latitude + (yProj / metersPerDegLat)
+            val projLon = ref.longitude + (xProj / metersPerDegLon)
+
+            val projLocation = Location(last).apply {
+                latitude = projLat
+                longitude = projLon
+            }
+
             return LineMetrics(
                 speedKmh = avgSpeedKmh,
                 trajectoryBearing = activeTrend.azimuth,
-                projectedDistanceMeters = projDistMeters
+                projectedDistanceMeters = projDistMeters,
+                projectedLocation = projLocation
             )
         }
     }
@@ -363,21 +383,23 @@ class TrajectoryFilter(
         dbHelper: com.example.radardetector.db.DatabaseHelper,
         ramCacheOverride: CameraLoadResult? = null,
         trajectoryBearing: Float = location.bearing,
-        trajectoryPoints: List<Location> = emptyList()
+        trajectoryPoints: List<Location> = emptyList(),
+        projectedLocation: Location? = null
     ): ProcessedLocationMetrics {
+        val evalLocation = projectedLocation ?: location
         val effectiveSpeedKmh = currentEffectiveSpeedKmh
         val rawSpeedKmh = currentEffectiveSpeedKmh
-        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
+        val isAccuracyWeak = evalLocation.hasAccuracy() && evalLocation.accuracy > 100f
 
         val gpsStatusStr = if (isAccuracyWeak) {
-            "GPS: WEAK (>100m [${location.accuracy.toInt()}m])"
-        } else if (location.hasAccuracy()) {
-            "GPS: OK (±${location.accuracy.toInt()}m)"
+            "GPS: WEAK (>100m [${evalLocation.accuracy.toInt()}m])"
+        } else if (evalLocation.hasAccuracy()) {
+            "GPS: OK (±${evalLocation.accuracy.toInt()}m)"
         } else {
             "GPS: ACTIVE"
         }
 
-        val loadResult = ramCacheOverride ?: load10x10Cameras(dbHelper, location.latitude, location.longitude)
+        val loadResult = ramCacheOverride ?: load10x10Cameras(dbHelper, evalLocation.latitude, evalLocation.longitude)
         val continuousThresh = if (effectiveSpeedKmh <= 60f) 50f else 100f
 
         var minDistToAnyCam = Float.MAX_VALUE
@@ -385,7 +407,7 @@ class TrajectoryFilter(
         var minAlertDist = Float.MAX_VALUE
 
         for (cam in loadResult.cameras) {
-            val dist = calculateDistance(location, cam.lat, cam.lon)
+            val dist = calculateDistance(evalLocation, cam.lat, cam.lon)
             if (dist < minDistToAnyCam) minDistToAnyCam = dist
 
             if (dist <= 300f && isCameraDirectionMatched(trajectoryBearing, cam.dir)) {
@@ -396,10 +418,10 @@ class TrajectoryFilter(
             }
         }
 
-        val inRange3kmCount = loadResult.cameras.count { calculateDistance(location, it.lat, it.lon) <= 3000f }
+        val inRange3kmCount = loadResult.cameras.count { calculateDistance(evalLocation, it.lat, it.lon) <= 3000f }
 
         return ProcessedLocationMetrics(
-            location = location,
+            location = evalLocation,
             rawSpeedKmh = rawSpeedKmh,
             effectiveSpeedKmh = effectiveSpeedKmh,
             isAccuracyWeak = isAccuracyWeak,
@@ -419,7 +441,8 @@ class TrajectoryFilter(
 data class LineMetrics(
     val speedKmh: Float,
     val trajectoryBearing: Float,
-    val projectedDistanceMeters: Float
+    val projectedDistanceMeters: Float,
+    val projectedLocation: Location? = null
 )
 
 data class TrajectoryResult(
@@ -429,7 +452,8 @@ data class TrajectoryResult(
     val averageSpeedKmh: Float,
     val trajectoryBearing: Float,
     val projectedDistanceMeters: Float = 0f,
-    val isStationary: Boolean = false
+    val isStationary: Boolean = false,
+    val projectedLocation: Location? = null
 )
 
 data class CameraLoadResult(
