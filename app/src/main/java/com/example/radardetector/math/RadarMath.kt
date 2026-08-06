@@ -248,18 +248,15 @@ class TrajectoryFilter(
 
         private fun computeActiveTrendLine(): ActiveTrend {
             val points = buffer.toList()
-            if (points.isEmpty()) return ActiveTrend(1.0, 0.0, 0f)
-            val ref = points.first()
-
             if (points.size < 10) {
-                val subPoints = points.takeLast(points.size)
-                val fit = fitSubBufferLine(subPoints, ref)
+                val fit = fitSubBufferLine(points)
                 return ActiveTrend(fit.ux, fit.uy, fit.azimuth)
             } else {
                 val headPoints = points.take(5)
                 val tailPoints = points.takeLast(5)
-                val fit1 = fitSubBufferLine(headPoints, ref)
-                val fit2 = fitSubBufferLine(tailPoints, ref)
+
+                val fit1 = fitSubBufferLine(headPoints)
+                val fit2 = fitSubBufferLine(tailPoints)
 
                 val diffAngle = Math.abs(angleDifference(fit1.azimuth, fit2.azimuth))
                 if (diffAngle < 30f) {
@@ -339,8 +336,40 @@ class TrajectoryFilter(
             return LineMetrics(
                 speedKmh = avgSpeedKmh,
                 trajectoryBearing = activeTrend.azimuth,
-                projectedDistanceMeters = projDistMeters
+                projectedDistanceMeters = projDistMeters,
+                ux = activeTrend.ux,
+                uy = activeTrend.uy
             )
+        }
+    }
+
+    /**
+     * Calculates the forward approach distance along motion vector (ux, uy) from carLocation to camera (camLat, camLon).
+     * Returns positive distance in meters if camera is ahead along the vector within lateral corridor (<= 50m),
+     * or null if camera is behind or off the vector corridor.
+     */
+    fun calculateVectorApproachDistance(
+        carLocation: Location,
+        camLat: Double,
+        camLon: Double,
+        ux: Double,
+        uy: Double,
+        maxLateralCorridorMeters: Double = 50.0
+    ): Float? {
+        val radLat = Math.toRadians(carLocation.latitude)
+        val metersPerDegLat = 111139.0
+        val metersPerDegLon = 111139.0 * Math.cos(radLat)
+
+        val dX = (camLon - carLocation.longitude) * metersPerDegLon
+        val dY = (camLat - carLocation.latitude) * metersPerDegLat
+
+        val projDistForward = dX * ux + dY * uy
+        val perpDistLateral = Math.abs(dX * uy - dY * ux)
+
+        return if (projDistForward > 0.0 && perpDistLateral <= maxLateralCorridorMeters) {
+            projDistForward.toFloat()
+        } else {
+            null
         }
     }
 
@@ -363,7 +392,9 @@ class TrajectoryFilter(
         dbHelper: com.example.radardetector.db.DatabaseHelper,
         ramCacheOverride: CameraLoadResult? = null,
         trajectoryBearing: Float = location.bearing,
-        trajectoryPoints: List<Location> = emptyList()
+        trajectoryPoints: List<Location> = emptyList(),
+        ux: Double = 1.0,
+        uy: Double = 0.0
     ): ProcessedLocationMetrics {
         val effectiveSpeedKmh = currentEffectiveSpeedKmh
         val rawSpeedKmh = currentEffectiveSpeedKmh
@@ -388,9 +419,10 @@ class TrajectoryFilter(
             val dist = calculateDistance(location, cam.lat, cam.lon)
             if (dist < minDistToAnyCam) minDistToAnyCam = dist
 
-            if (dist <= 300f && isCameraDirectionMatched(trajectoryBearing, cam.dir)) {
-                if (dist < minAlertDist) {
-                    minAlertDist = dist
+            val approachDist = calculateVectorApproachDistance(location, cam.lat, cam.lon, ux, uy)
+            if (approachDist != null && approachDist <= 300f) {
+                if (approachDist < minAlertDist) {
+                    minAlertDist = approachDist
                     closestAlertCam = cam
                 }
             }
@@ -419,7 +451,9 @@ class TrajectoryFilter(
 data class LineMetrics(
     val speedKmh: Float,
     val trajectoryBearing: Float,
-    val projectedDistanceMeters: Float
+    val projectedDistanceMeters: Float,
+    val ux: Double = 1.0,
+    val uy: Double = 0.0
 )
 
 data class TrajectoryResult(
@@ -429,7 +463,9 @@ data class TrajectoryResult(
     val averageSpeedKmh: Float,
     val trajectoryBearing: Float,
     val projectedDistanceMeters: Float = 0f,
-    val isStationary: Boolean = false
+    val isStationary: Boolean = false,
+    val ux: Double = 1.0,
+    val uy: Double = 0.0
 )
 
 data class CameraLoadResult(

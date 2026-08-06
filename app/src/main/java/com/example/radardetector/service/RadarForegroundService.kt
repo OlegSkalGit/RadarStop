@@ -373,7 +373,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             dbHelper,
             getRamCachedLoadResult(),
             trajResult.trajectoryBearing,
-            trajResult.points
+            trajResult.points,
+            trajResult.ux,
+            trajResult.uy
         )
         lastMetrics = metrics
         metricsListener?.invoke(metrics)
@@ -418,24 +420,29 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 minDistToAnyCamera = distance
             }
 
-            val isDirMatched = RadarMath.isCameraDirectionMatched(trajResult.trajectoryBearing, camera.dir)
+            val approachDist = RadarMath.calculateVectorApproachDistance(location, camera.lat, camera.lon, trajResult.ux, trajResult.uy)
 
-            // Log 1 time when entering 300m zone
-            if (distance <= maxBeepAlertDistance && isDirMatched) {
+            // Log 1 time when entering 300m zone along vector projection
+            if (approachDist != null && approachDist <= maxBeepAlertDistance) {
                 if (logged300mCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
                         "onCamera300mEntry",
                         true,
-                        "300M ZONE ENTERED: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m."
+                        "300M VECTOR ZONE ENTERED: Camera #${camera.id} (Linear: ${camera.isLinear}). Approach Distance: ${approachDist.toInt()}m."
                     )
+                }
+
+                if (approachDist < minDistanceToAlert) {
+                    minDistanceToAlert = approachDist
+                    closestAlertCamera = camera
                 }
             } else if (distance > 400f) {
                 logged300mCameraIds.remove(camera.id)
             }
 
             // Log 1 time at direct camera crossing (within continuous zone <= 50m/100m)
-            if (distance <= continuousThreshold && isDirMatched) {
+            if (distance <= continuousThreshold) {
                 if (loggedCrossingCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
@@ -447,12 +454,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             } else if (distance > continuousThreshold + 50f) {
                 loggedCrossingCameraIds.remove(camera.id)
             }
-
-            if (distance <= maxBeepAlertDistance && isDirMatched) {
-                if (distance < minDistanceToAlert) {
-                    minDistanceToAlert = distance
-                    closestAlertCamera = camera
-                }
             }
         }
 
