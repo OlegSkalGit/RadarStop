@@ -272,7 +272,7 @@ class RadarMapActivity : Activity() {
             style = Paint.Style.FILL
         }
         private val camAzimuthPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FFEA00")
+            color = Color.parseColor("#FF1744") // Bright Red
             style = Paint.Style.STROKE
             strokeWidth = 4f
         }
@@ -353,6 +353,24 @@ class RadarMapActivity : Activity() {
 
                     val paintToUse = if (cam.isLinear) camLinearPaint else camPaint
                     canvas.drawCircle(screenX, screenY, 7f, paintToUse)
+
+                    // Draw camera direction vector (red line/arrow) if azimuth is present
+                    if (cam.dir != null) {
+                        val dirRad = Math.toRadians(cam.dir.toDouble())
+                        val dirLenPx = 35f
+                        val dirEndX = screenX + (dirLenPx * sin(dirRad)).toFloat()
+                        val dirEndY = screenY - (dirLenPx * cos(dirRad)).toFloat()
+                        canvas.drawLine(screenX, screenY, dirEndX, dirEndY, camAzimuthPaint)
+
+                        val arrowLen = 10f
+                        val arrowAngle = Math.toRadians(25.0)
+                        val leftX = dirEndX - (arrowLen * sin(dirRad - arrowAngle)).toFloat()
+                        val leftY = dirEndY + (arrowLen * cos(dirRad - arrowAngle)).toFloat()
+                        val rightX = dirEndX - (arrowLen * sin(dirRad + arrowAngle)).toFloat()
+                        val rightY = dirEndY + (arrowLen * cos(dirRad + arrowAngle)).toFloat()
+                        canvas.drawLine(dirEndX, dirEndY, leftX, leftY, camAzimuthPaint)
+                        canvas.drawLine(dirEndX, dirEndY, rightX, rightY, camAzimuthPaint)
+                    }
                 } else {
                     // Outside 3km range (Loaded in RAM): Project onto the Outer Ring
                     val outerX = cx + (maxRadiusPx * sin(rad)).toFloat()
@@ -360,6 +378,14 @@ class RadarMapActivity : Activity() {
 
                     canvas.drawCircle(outerX, outerY, 5f, camOuterFillPaint)
                     canvas.drawCircle(outerX, outerY, 5f, camOuterPaint)
+
+                    if (cam.dir != null) {
+                        val dirRad = Math.toRadians(cam.dir.toDouble())
+                        val dirLenPx = 20f
+                        val dirEndX = outerX + (dirLenPx * sin(dirRad)).toFloat()
+                        val dirEndY = outerY - (dirLenPx * cos(dirRad)).toFloat()
+                        canvas.drawLine(outerX, outerY, dirEndX, dirEndY, camAzimuthPaint)
+                    }
                 }
             }
 
