@@ -233,6 +233,47 @@ class TrajectoryFilter(
         return Pair(slope, intercept)
     }
 
+    private fun computeOlsSpeedFromGps(points: List<Location>, refTime: Long, targetT: Double): Float {
+        val validPoints = points.filter { it.hasSpeed() }
+        if (validPoints.isEmpty()) {
+            return points.lastOrNull()?.let { if (it.hasSpeed()) it.speed * 3.6f else 0f } ?: 0f
+        }
+        if (validPoints.size < 3) {
+            return (validPoints.map { it.speed * 3.6f }.average()).toFloat().coerceAtLeast(0f)
+        }
+
+        val seriesV = validPoints.map {
+            SeriesPoint((it.time - refTime) / 1000.0, (it.speed * 3.6f).toDouble())
+        }
+
+        if (seriesV.size < 6) {
+            val (slope, intercept) = fitLinearSeries(seriesV)
+            val speed = slope * targetT + intercept
+            return speed.toFloat().coerceAtLeast(0f)
+        }
+
+        val mid = seriesV.size / 2
+        val headV = seriesV.take(mid)
+        val tailV = seriesV.takeLast(seriesV.size - mid)
+
+        val (slope1, intercept1) = fitLinearSeries(headV)
+        val (slope2, intercept2) = fitLinearSeries(tailV)
+
+        val v1 = slope1 * targetT + intercept1
+        val v2 = slope2 * targetT + intercept2
+
+        val maxVal = maxOf(Math.abs(v1), Math.abs(v2), 1.0)
+        val diffRatio = Math.abs(v2 - v1) / maxVal
+
+        val finalSpeed = if (diffRatio < 0.30) {
+            0.5 * (v1 + v2)
+        } else {
+            v2
+        }
+
+        return finalSpeed.toFloat().coerceAtLeast(0f)
+    }
+
     fun computeLineMetrics(): LineMetrics {
         val points = buffer.toList()
         if (points.isEmpty()) {
@@ -241,6 +282,9 @@ class TrajectoryFilter(
 
         val ref = points.first()
         val last = points.last()
+        val refTime = ref.time
+        val targetT = (last.time - refTime) / 1000.0
+
         if (points.size < 3) {
             val speed = if (last.hasSpeed()) last.speed * 3.6f else 0f
             return LineMetrics(
@@ -251,9 +295,6 @@ class TrajectoryFilter(
             )
         }
 
-        val refTime = ref.time
-        val targetT = (last.time - refTime) / 1000.0
-
         val radLat = Math.toRadians(ref.latitude)
         val metersPerDegLat = 111139.0
         val metersPerDegLon = 111139.0 * Math.cos(radLat)
@@ -263,8 +304,8 @@ class TrajectoryFilter(
 
         val projX: Double
         val projY: Double
-        val avgSpeedKmh: Float
         val trajectoryBearing: Float
+        val avgSpeedKmh = computeOlsSpeedFromGps(points, refTime, targetT)
 
         if (points.size < 6) {
             val (slopeX, interceptX) = fitLinearSeries(seriesX)
@@ -272,7 +313,6 @@ class TrajectoryFilter(
 
             projX = slopeX * targetT + interceptX
             projY = slopeY * targetT + interceptY
-            avgSpeedKmh = (Math.hypot(slopeX, slopeY) * 3.6).toFloat().coerceAtLeast(0f)
 
             var az = (90.0 - Math.toDegrees(Math.atan2(slopeY, slopeX))).toFloat()
             if (az < 0f) az += 360f
@@ -309,10 +349,6 @@ class TrajectoryFilter(
                 projX = 0.5 * (px1 + px2)
                 projY = 0.5 * (py1 + py2)
 
-                val speed1 = Math.hypot(slopeX1, slopeY1)
-                val speed2 = Math.hypot(slopeX2, slopeY2)
-                avgSpeedKmh = (0.5 * (speed1 + speed2) * 3.6).toFloat().coerceAtLeast(0f)
-
                 var medianAz = az1 + 0.5f * RadarMath.angleDifference(az2, az1)
                 if (medianAz < 0f) medianAz += 360f
                 if (medianAz >= 360f) medianAz -= 360f
@@ -323,7 +359,6 @@ class TrajectoryFilter(
                 }
                 projX = slopeX2 * targetT + interceptX2
                 projY = slopeY2 * targetT + interceptY2
-                avgSpeedKmh = (Math.hypot(slopeX2, slopeY2) * 3.6).toFloat().coerceAtLeast(0f)
                 trajectoryBearing = az2
             }
         }
