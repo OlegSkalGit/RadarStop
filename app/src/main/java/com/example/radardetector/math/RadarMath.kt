@@ -302,27 +302,95 @@ class TrajectoryFilter(
 
         val ref = points.first()
         val last = points.last()
+        if (points.size < 3) {
+            val speed = if (last.hasSpeed()) last.speed * 3.6f else 0f
+            return LineMetrics(
+                speedKmh = speed,
+                trajectoryBearing = last.bearing,
+                projectedDistanceMeters = ref.distanceTo(last),
+                projectedLocation = last
+            )
+        }
+
+        val refTime = ref.time
+        val targetT = (last.time - refTime) / 1000.0
 
         val radLat = Math.toRadians(ref.latitude)
         val metersPerDegLat = 111139.0
         val metersPerDegLon = 111139.0 * Math.cos(radLat)
 
-        // 1. Call 1: Spatial OLS Y (Latitude meters) vs X (Longitude meters)
-        val pointsXY = points.map {
-            SeriesPoint((it.longitude - ref.longitude) * metersPerDegLon, (it.latitude - ref.latitude) * metersPerDegLat)
-        }
-        val targetX = pointsXY.last().x
-        val projY = evaluateTwoVectorSeries(pointsXY, targetX) {
-            while (buffer.size > 3) {
-                buffer.removeFirst()
+        val seriesX = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.longitude - ref.longitude) * metersPerDegLon) }
+        val seriesY = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.latitude - ref.latitude) * metersPerDegLat) }
+
+        val projX: Double
+        val projY: Double
+        val avgSpeedKmh: Float
+        val trajectoryBearing: Float
+
+        if (points.size < 6) {
+            val (slopeX, interceptX) = fitLinearSeries(seriesX)
+            val (slopeY, interceptY) = fitLinearSeries(seriesY)
+
+            projX = slopeX * targetT + interceptX
+            projY = slopeY * targetT + interceptY
+            avgSpeedKmh = (Math.hypot(slopeX, slopeY) * 3.6).toFloat().coerceAtLeast(0f)
+
+            var az = (90.0 - Math.toDegrees(Math.atan2(slopeY, slopeX))).toFloat()
+            if (az < 0f) az += 360f
+            if (az >= 360f) az -= 360f
+            trajectoryBearing = if (Math.hypot(slopeX, slopeY) > 0.1) az else last.bearing
+        } else {
+            val mid = points.size / 2
+            val headX = seriesX.take(mid)
+            val tailX = seriesX.takeLast(seriesX.size - mid)
+            val headY = seriesY.take(mid)
+            val tailY = seriesY.takeLast(seriesY.size - mid)
+
+            val (slopeX1, interceptX1) = fitLinearSeries(headX)
+            val (slopeX2, interceptX2) = fitLinearSeries(tailX)
+            val (slopeY1, interceptY1) = fitLinearSeries(headY)
+            val (slopeY2, interceptY2) = fitLinearSeries(tailY)
+
+            var az1 = (90.0 - Math.toDegrees(Math.atan2(slopeY1, slopeX1))).toFloat()
+            if (az1 < 0f) az1 += 360f
+            if (az1 >= 360f) az1 -= 360f
+
+            var az2 = (90.0 - Math.toDegrees(Math.atan2(slopeY2, slopeX2))).toFloat()
+            if (az2 < 0f) az2 += 360f
+            if (az2 >= 360f) az2 -= 360f
+
+            val diffAngle = Math.abs(RadarMath.angleDifference(az1, az2))
+
+            if (diffAngle < 30f) {
+                val px1 = slopeX1 * targetT + interceptX1
+                val px2 = slopeX2 * targetT + interceptX2
+                val py1 = slopeY1 * targetT + interceptY1
+                val py2 = slopeY2 * targetT + interceptY2
+
+                projX = 0.5 * (px1 + px2)
+                projY = 0.5 * (py1 + py2)
+
+                val speed1 = Math.hypot(slopeX1, slopeY1)
+                val speed2 = Math.hypot(slopeX2, slopeY2)
+                avgSpeedKmh = (0.5 * (speed1 + speed2) * 3.6).toFloat().coerceAtLeast(0f)
+
+                var medianAz = az1 + 0.5f * RadarMath.angleDifference(az2, az1)
+                if (medianAz < 0f) medianAz += 360f
+                if (medianAz >= 360f) medianAz -= 360f
+                trajectoryBearing = medianAz
+            } else {
+                while (buffer.size > 3) {
+                    buffer.removeFirst()
+                }
+                projX = slopeX2 * targetT + interceptX2
+                projY = slopeY2 * targetT + interceptY2
+                avgSpeedKmh = (Math.hypot(slopeX2, slopeY2) * 3.6).toFloat().coerceAtLeast(0f)
+                trajectoryBearing = az2
             }
         }
 
-        // 2. Call 2: Speed OLS V (km/h) vs T (seconds)
-        val avgSpeedKmh = computeTwoVectorSpeed(points)
-
         val projLat = ref.latitude + (projY / metersPerDegLat)
-        val projLon = ref.longitude + (targetX / metersPerDegLon)
+        val projLon = ref.longitude + (projX / metersPerDegLon)
 
         val projectedLoc = Location(last).apply {
             latitude = projLat
@@ -333,7 +401,7 @@ class TrajectoryFilter(
 
         return LineMetrics(
             speedKmh = avgSpeedKmh,
-            trajectoryBearing = last.bearing,
+            trajectoryBearing = trajectoryBearing,
             projectedDistanceMeters = projDistMeters,
             projectedLocation = projectedLoc
         )
