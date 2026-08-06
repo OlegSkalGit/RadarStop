@@ -147,12 +147,10 @@ class TrajectoryFilter(
     private val maxBufferSize: Int = 10
 ) {
     private val buffer = java.util.ArrayDeque<Location>()
-    private val rawMotionBuffer = java.util.ArrayDeque<Location>()
 
     @Synchronized
     fun reset() {
         buffer.clear()
-        rawMotionBuffer.clear()
     }
 
     @Synchronized
@@ -173,25 +171,20 @@ class TrajectoryFilter(
             )
         }
 
-        if (rawMotionBuffer.size >= maxBufferSize) {
-            rawMotionBuffer.removeFirst()
+        if (buffer.size >= maxBufferSize) {
+            buffer.removeFirst()
         }
-        rawMotionBuffer.addLast(location)
+        buffer.addLast(location)
 
-        if (rawMotionBuffer.size >= 3) {
-            val firstPt = rawMotionBuffer.first
-            val lastPt = rawMotionBuffer.last
+        if (buffer.size >= 3) {
+            val firstPt = buffer.first
+            val lastPt = buffer.last
             val distMeters = firstPt.distanceTo(lastPt)
             val firstAcc = if (firstPt.hasAccuracy()) firstPt.accuracy else 10f
             val lastAcc = if (lastPt.hasAccuracy()) lastPt.accuracy else 10f
             val doubleAccuracyThreshold = 2f * maxOf(firstAcc, lastAcc)
 
             if (distMeters <= doubleAccuracyThreshold) {
-                if (buffer.size >= maxBufferSize) {
-                    buffer.removeFirst()
-                }
-                buffer.addLast(location)
-
                 return TrajectoryResult(
                     isValid = true,
                     isAccuracyWeak = false,
@@ -204,11 +197,6 @@ class TrajectoryFilter(
                 )
             }
         }
-
-        if (buffer.size >= maxBufferSize) {
-            buffer.removeFirst()
-        }
-        buffer.addLast(location)
 
         val lm = computeLineMetrics()
         return TrajectoryResult(
