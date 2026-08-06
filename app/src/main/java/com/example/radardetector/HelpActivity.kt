@@ -129,11 +129,10 @@ Sound Alerts & Tracking:
   - ≤ 70 km/h: 500m approach warning.
   - > 70 km/h: 1000m approach warning.
 
-• Sound Alert Intervals (300m to -300m):
+• Sound Alert Intervals (300m approach / departure zone):
   - 300-200m: 2000ms
-  - 200-100m: 1500ms
-  - 100-50m:  1000ms
-  - 50-0m (and 0m to 50m departure): 500ms
+  - 200-100m: 1000ms
+  - 100-0m (and 0m to 100m departure): 500ms
 
 • Average Speed Control (Linear Cameras):
   - Single control points operate as standard point cameras.

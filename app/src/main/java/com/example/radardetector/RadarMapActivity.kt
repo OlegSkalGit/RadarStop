@@ -156,7 +156,8 @@ class RadarMapActivity : Activity() {
             speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
             closestAlertCam != null -> {
                 val delayMs = RadarMath.calculateBeepDelay(minAlertDist)
-                "ALERT (${delayMs}ms)"
+                val distInt = minAlertDist.toInt()
+                "ALERT ${distInt}m (${delayMs}ms)"
             }
             else -> "OFF (Idle)"
         }
@@ -234,15 +235,6 @@ class RadarMapActivity : Activity() {
 
         private val carPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#00E5FF")
-            style = Paint.Style.FILL
-        }
-        private val carVectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#00FF66")
-            style = Paint.Style.STROKE
-            strokeWidth = 5f
-        }
-        private val carVectorFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#00FF66")
             style = Paint.Style.FILL
         }
         private val rawTailPointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -383,34 +375,8 @@ class RadarMapActivity : Activity() {
                 }
             }
 
-            // 3. Draw Vehicle at Center with Direction Vector Arrow
+            // 3. Draw Vehicle Position Marker at Center
             canvas.drawCircle(cx, cy, 16f, carPaint)
-
-            trajectoryBearing?.let { bearing ->
-                val rad = Math.toRadians(bearing.toDouble())
-                val vecLenPx = 70f
-                val endX = cx + (vecLenPx * sin(rad)).toFloat()
-                val endY = cy - (vecLenPx * cos(rad)).toFloat()
-
-                // Vector Direction Line
-                canvas.drawLine(cx, cy, endX, endY, carVectorPaint)
-
-                // Vector Arrowhead
-                val arrowHeadLen = 20f
-                val arrowAngle = Math.toRadians(25.0)
-                val leftX = endX - (arrowHeadLen * sin(rad - arrowAngle)).toFloat()
-                val leftY = endY + (arrowHeadLen * cos(rad - arrowAngle)).toFloat()
-                val rightX = endX - (arrowHeadLen * sin(rad + arrowAngle)).toFloat()
-                val rightY = endY + (arrowHeadLen * cos(rad + arrowAngle)).toFloat()
-
-                val arrowPath = Path().apply {
-                    moveTo(endX, endY)
-                    lineTo(leftX, leftY)
-                    lineTo(rightX, rightY)
-                    close()
-                }
-                canvas.drawPath(arrowPath, carVectorFillPaint)
-            }
         }
     }
 }

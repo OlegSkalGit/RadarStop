@@ -135,8 +135,10 @@ object RadarMath {
 }
 
 /**
- * Trajectory filter maintaining a 10-point sliding buffer with linear approximation,
- * forward-projection validation, and auto-reset after 3 consecutive rejections (turn detection).
+ * Trajectory filter maintaining a 10-point sliding buffer with two-subbuffer trend analysis (5+5 points)
+ * for both spatial trajectory coordinates and speed estimation.
+ * Features adaptive buffer truncation (down to 3 points) upon sharp turns (>= 30 degrees)
+ * or sudden speed maneuvers (>= 30% change).
  */
 class TrajectoryFilter(
     private val maxBufferSize: Int = 10
@@ -323,27 +325,23 @@ class TrajectoryFilter(
         }
     }
 
-    private fun computeMnkSpeed(points: List<Location>): Float {
-        if (points.isEmpty()) return 0f
+    private fun fitSpeedLine(points: List<Location>, refTime: Long): Pair<Double, Double> {
         val validPoints = points.filter { it.hasSpeed() }
-        if (validPoints.isEmpty()) {
-            return points.lastOrNull()?.let { if (it.hasSpeed()) it.speed * 3.6f else 0f } ?: 0f
-        }
-        if (validPoints.size < 3) {
-            val speedSum = validPoints.sumOf { (it.speed * 3.6f).toDouble() }
-            return (speedSum / validPoints.size).toFloat().coerceAtLeast(0f)
-        }
-
-        val firstTime = validPoints.first().time
-        val xs = DoubleArray(validPoints.size)
-        val ys = DoubleArray(validPoints.size)
-
-        for (i in validPoints.indices) {
-            xs[i] = (validPoints[i].time - firstTime) / 1000.0
-            ys[i] = (validPoints[i].speed * 3.6f).toDouble()
+        if (validPoints.isEmpty()) return Pair(0.0, 0.0)
+        if (validPoints.size < 2) {
+            val s = (validPoints.last().speed * 3.6f).toDouble()
+            return Pair(0.0, s)
         }
 
         val n = validPoints.size
+        val xs = DoubleArray(n)
+        val ys = DoubleArray(n)
+
+        for (i in 0 until n) {
+            xs[i] = (validPoints[i].time - refTime) / 1000.0
+            ys[i] = (validPoints[i].speed * 3.6f).toDouble()
+        }
+
         val meanX = xs.average()
         val meanY = ys.average()
 
@@ -358,10 +356,51 @@ class TrajectoryFilter(
 
         val slope = if (Math.abs(den) > 1e-6) num / den else 0.0
         val intercept = meanY - slope * meanX
-        val xLast = xs.last()
-        val projectedSpeed = slope * xLast + intercept
+        return Pair(slope, intercept)
+    }
 
-        return projectedSpeed.toFloat().coerceAtLeast(0f)
+    private fun computeTwoVectorSpeed(points: List<Location>): Float {
+        if (points.isEmpty()) return 0f
+        val validPoints = points.filter { it.hasSpeed() }
+        if (validPoints.isEmpty()) {
+            return points.lastOrNull()?.let { if (it.hasSpeed()) it.speed * 3.6f else 0f } ?: 0f
+        }
+        if (validPoints.size < 3) {
+            val speedSum = validPoints.sumOf { (it.speed * 3.6f).toDouble() }
+            return (speedSum / validPoints.size).toFloat().coerceAtLeast(0f)
+        }
+
+        val refTime = validPoints.first().time
+        val lastTime = (validPoints.last().time - refTime) / 1000.0
+
+        if (validPoints.size < 6) {
+            val (slope, intercept) = fitSpeedLine(validPoints, refTime)
+            val projSpeed = slope * lastTime + intercept
+            return projSpeed.toFloat().coerceAtLeast(0f)
+        } else {
+            val mid = validPoints.size / 2
+            val headPoints = validPoints.take(mid)
+            val tailPoints = validPoints.takeLast(validPoints.size - mid)
+
+            val (slope1, intercept1) = fitSpeedLine(headPoints, refTime)
+            val (slope2, intercept2) = fitSpeedLine(tailPoints, refTime)
+
+            val proj1 = slope1 * lastTime + intercept1
+            val proj2 = slope2 * lastTime + intercept2
+
+            val maxSpeed = maxOf(Math.abs(proj1), Math.abs(proj2), 1.0)
+            val diffRatio = Math.abs(proj2 - proj1) / maxSpeed
+
+            if (diffRatio < 0.30) {
+                val medianSpeed = 0.5 * (proj1 + proj2)
+                return medianSpeed.toFloat().coerceAtLeast(0f)
+            } else {
+                while (buffer.size > 3) {
+                    buffer.removeFirst()
+                }
+                return proj2.toFloat().coerceAtLeast(0f)
+            }
+        }
     }
 
     fun computeLineMetrics(): LineMetrics {
@@ -372,8 +411,7 @@ class TrajectoryFilter(
 
         val activeTrend = computeActiveTrendLine()
 
-        val subPoints = points.takeLast(5)
-        val avgSpeedKmh = computeMnkSpeed(subPoints)
+        val avgSpeedKmh = computeTwoVectorSpeed(points)
 
         val ref = points.first()
         val last = points.last()
