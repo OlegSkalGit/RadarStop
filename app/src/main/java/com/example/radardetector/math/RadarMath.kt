@@ -171,18 +171,12 @@ class TrajectoryFilter(
             )
         }
 
-        if (buffer.size >= maxBufferSize) {
-            buffer.removeFirst()
-        }
-        buffer.addLast(location)
-
-        if (buffer.size >= 3) {
-            val firstPt = buffer.first
-            val lastPt = buffer.last
-            val distMeters = firstPt.distanceTo(lastPt)
-            val firstAcc = if (firstPt.hasAccuracy()) firstPt.accuracy else 10f
-            val lastAcc = if (lastPt.hasAccuracy()) lastPt.accuracy else 10f
-            val doubleAccuracyThreshold = 2f * maxOf(firstAcc, lastAcc)
+        if (buffer.isNotEmpty()) {
+            val prevPt = buffer.last
+            val distMeters = prevPt.distanceTo(location)
+            val prevAcc = if (prevPt.hasAccuracy()) prevPt.accuracy else 10f
+            val newAcc = if (location.hasAccuracy()) location.accuracy else 10f
+            val doubleAccuracyThreshold = 2f * maxOf(prevAcc, newAcc)
 
             if (distMeters <= doubleAccuracyThreshold) {
                 return TrajectoryResult(
@@ -193,10 +187,15 @@ class TrajectoryFilter(
                     trajectoryBearing = 0f,
                     projectedDistanceMeters = 0f,
                     isStationary = true,
-                    projectedLocation = location
+                    projectedLocation = prevPt
                 )
             }
         }
+
+        if (buffer.size >= maxBufferSize) {
+            buffer.removeFirst()
+        }
+        buffer.addLast(location)
 
         val lm = computeLineMetrics()
         return TrajectoryResult(
