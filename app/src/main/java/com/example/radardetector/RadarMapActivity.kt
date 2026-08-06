@@ -156,7 +156,7 @@ class RadarMapActivity : Activity() {
             speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
             closestAlertCam != null -> {
                 val delayMs = RadarMath.calculateBeepDelay(minAlertDist)
-                "ALERT (${delayMs}ms)"
+                "ALERT ${minAlertDist.toInt()}m (${delayMs}ms)"
             }
             else -> "OFF (Idle)"
         }
@@ -165,7 +165,16 @@ class RadarMapActivity : Activity() {
         tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $gpsStatusStr | Interval: $pollingIntervalStr"
         tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
 
-        mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing, metrics.trajectoryPoints)
+        val isBeepingAlert = (closestAlertCam != null && speedKmh > 30f && !metrics.isAccuracyWeak)
+        mapView.updateData(
+            location = metrics.location,
+            newCameras = metrics.cameraLoadResult.cameras,
+            bearing = metrics.trajectoryBearing,
+            points = metrics.trajectoryPoints,
+            alertCam = closestAlertCam,
+            alertDist = minAlertDist,
+            isBeeping = isBeepingAlert
+        )
     }
 
     override fun onResume() {
@@ -206,6 +215,9 @@ class RadarMapActivity : Activity() {
         private var cameras: List<Camera> = emptyList()
         private var trajectoryBearing: Float? = null
         private var rawTrajectoryPoints: List<Location> = emptyList()
+        private var alertCamera: Camera? = null
+        private var alertDistanceMeters: Float = Float.MAX_VALUE
+        private var isBeepingAlert: Boolean = false
 
         private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#2A3A4A")
@@ -271,25 +283,33 @@ class RadarMapActivity : Activity() {
             color = Color.parseColor("#60FFCC00")
             style = Paint.Style.FILL
         }
-        private val camTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = 22f
+        private val alertCamRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FF1744")
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
         }
-        private val outerCamTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FFCC00")
-            textSize = 20f
+        private val alertDistTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FFEA00") // Bright Yellow
+            textSize = 24f
+            isFakeBoldText = true
         }
 
         fun updateData(
             location: Location,
             newCameras: List<Camera>,
             bearing: Float? = null,
-            points: List<Location> = emptyList()
+            points: List<Location> = emptyList(),
+            alertCam: Camera? = null,
+            alertDist: Float = Float.MAX_VALUE,
+            isBeeping: Boolean = false
         ) {
             this.currentLocation = location
             this.cameras = newCameras
             this.trajectoryBearing = if (bearing != null && bearing != 0f) bearing else null
             this.rawTrajectoryPoints = points
+            this.alertCamera = alertCam
+            this.alertDistanceMeters = alertDist
+            this.isBeepingAlert = isBeeping
             postInvalidate()
         }
 
@@ -348,6 +368,13 @@ class RadarMapActivity : Activity() {
 
                     val paintToUse = if (cam.isLinear) camLinearPaint else camPaint
                     canvas.drawCircle(screenX, screenY, 7f, paintToUse)
+
+                    // Draw Alert Halo & Distance Text during active beeps
+                    if (isBeepingAlert && alertCamera?.id == cam.id) {
+                        canvas.drawCircle(screenX, screenY, 18f, alertCamRingPaint)
+                        val distInt = alertDistanceMeters.toInt()
+                        canvas.drawText("${distInt}m", screenX + 16f, screenY + 8f, alertDistTextPaint)
+                    }
                 } else {
                     // Outside 3km range (Loaded in RAM): Project onto the Outer Ring
                     val outerX = cx + (maxRadiusPx * sin(rad)).toFloat()
