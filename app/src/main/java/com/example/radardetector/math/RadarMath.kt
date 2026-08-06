@@ -345,22 +345,6 @@ class TrajectoryFilter(
     }
 
     /**
-     * Calculates perpendicular (cross-track) distance in meters from a camera location to the vehicle's trajectory line.
-     */
-    fun calculatePerpendicularDistance(location: Location, cameraLat: Double, cameraLon: Double, trajectoryBearing: Float): Float {
-        val rad = Math.toRadians(trajectoryBearing.toDouble())
-        val ux = kotlin.math.sin(rad)
-        val uy = kotlin.math.cos(rad)
-
-        val latRad = Math.toRadians(location.latitude)
-        val dx = (cameraLon - location.longitude) * 111139.0 * kotlin.math.cos(latRad)
-        val dy = (cameraLat - location.latitude) * 111139.0
-
-        val perpDist = abs(dx * uy - dy * ux)
-        return perpDist.toFloat()
-    }
-
-    /**
      * Checks if trajectory bearing matches camera direction within +-30 degrees.
      */
     fun isCameraDirectionMatched(trajectoryBearing: Float, cameraDir: Float?): Boolean {
@@ -404,10 +388,7 @@ class TrajectoryFilter(
             val dist = calculateDistance(location, cam.lat, cam.lon)
             if (dist < minDistToAnyCam) minDistToAnyCam = dist
 
-            val perpDist = calculatePerpendicularDistance(location, cam.lat, cam.lon, trajectoryBearing)
-
-            // Within 300m direct distance AND within 30m perpendicular offset from trajectory line
-            if (dist <= 300f && perpDist <= 30f) {
+            if (dist <= 300f && isCameraDirectionMatched(trajectoryBearing, cam.dir)) {
                 if (dist < minAlertDist) {
                     minAlertDist = dist
                     closestAlertCam = cam
