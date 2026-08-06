@@ -130,6 +130,13 @@ Sound Alerts & Tracking:
   - Single control points operate as standard point cameras.
   - Paired linear sections maintain steady alert (1.5s interval) throughout the section.
 
+• Trajectory & Speed Smoothing:
+  - Parametric 2D Time-Series OLS (X(t) and Y(t)) over a 10-point sliding window.
+  - Head (5 pts) & Tail (5 pts) spatial direction vectors evaluated in real compass degrees (0-360°).
+  - Adaptive buffer truncation to 3 points only upon sharp spatial turns (angle difference ≥ 30°).
+  - Straight motion and braking preserve full 10-point trajectory tail with smooth median projection.
+  - Smoothed vector speed is derived directly from spatial velocity components sqrt(vx^2 + vy^2).
+
 • Accumulative DB & Offline Mode:
   - Cameras are saved permanently in local SQLite DB.
   - Use "Load Country Cams" to pre-download full country databases for offline use.

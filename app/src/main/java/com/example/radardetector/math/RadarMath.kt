@@ -135,10 +135,11 @@ object RadarMath {
 }
 
 /**
- * Trajectory filter maintaining a 10-point sliding buffer with two-subbuffer trend analysis (5+5 points)
- * for both spatial trajectory coordinates and speed estimation.
- * Features adaptive buffer truncation (down to 3 points) upon sharp turns (>= 30 degrees)
- * or sudden speed maneuvers (>= 30% change).
+ * Trajectory filter maintaining a 10-point sliding buffer with parametric 2D time-series OLS
+ * (X(t) and Y(t)) and two-subbuffer vector trend analysis (Head 5 + Tail 5 points).
+ * Evaluates spatial direction vector azimuths and performs adaptive buffer truncation (down to 3 points)
+ * only upon sharp spatial turns (angle difference >= 30 degrees).
+ * Derives smoothed vector speed directly from spatial velocity components sqrt(vx^2 + vy^2).
  */
 class TrajectoryFilter(
     private val maxBufferSize: Int = 10
@@ -241,57 +242,6 @@ class TrajectoryFilter(
         val slope = if (Math.abs(den) > 1e-6) num / den else 0.0
         val intercept = meanY - slope * meanX
         return Pair(slope, intercept)
-    }
-
-    private fun evaluateTwoVectorSeries(
-        points: List<SeriesPoint>,
-        targetX: Double,
-        onSharpChange: () -> Unit
-    ): Double {
-        if (points.isEmpty()) return 0.0
-        if (points.size < 3) return points.map { it.y }.average()
-
-        if (points.size < 6) {
-            val (slope, intercept) = fitLinearSeries(points)
-            return slope * targetX + intercept
-        }
-
-        val mid = points.size / 2
-        val head = points.take(mid)
-        val tail = points.takeLast(points.size - mid)
-
-        val (slope1, intercept1) = fitLinearSeries(head)
-        val (slope2, intercept2) = fitLinearSeries(tail)
-
-        val proj1 = slope1 * targetX + intercept1
-        val proj2 = slope2 * targetX + intercept2
-
-        val maxVal = maxOf(Math.abs(proj1), Math.abs(proj2), 1.0)
-        val diffRatio = Math.abs(proj2 - proj1) / maxVal
-
-        if (diffRatio < 0.30) {
-            return 0.5 * (proj1 + proj2)
-        } else {
-            onSharpChange()
-            return proj2
-        }
-    }
-
-    private fun computeTwoVectorSpeed(points: List<Location>): Float {
-        val validPoints = points.filter { it.hasSpeed() }
-        if (validPoints.isEmpty()) {
-            return points.lastOrNull()?.let { if (it.hasSpeed()) it.speed * 3.6f else 0f } ?: 0f
-        }
-        val refTime = validPoints.first().time
-        val targetX = (validPoints.last().time - refTime) / 1000.0
-        val series = validPoints.map { SeriesPoint((it.time - refTime) / 1000.0, (it.speed * 3.6f).toDouble()) }
-
-        val speed = evaluateTwoVectorSeries(series, targetX) {
-            while (buffer.size > 3) {
-                buffer.removeFirst()
-            }
-        }
-        return speed.toFloat().coerceAtLeast(0f)
     }
 
     fun computeLineMetrics(): LineMetrics {
