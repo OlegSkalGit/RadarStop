@@ -95,6 +95,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private var speedDropBelow30TimeMs = 0L
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
+    private var lastDistanceToAlertCamera: Float = Float.MAX_VALUE
+    private var isApproachingAlertCamera: Boolean = true
     private var effectiveSpeedKmh: Float = 0f
 
     private var activeLinearEntryCam: Camera? = null
@@ -373,9 +375,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             dbHelper,
             getRamCachedLoadResult(),
             trajResult.trajectoryBearing,
-            trajResult.points,
-            trajResult.ux,
-            trajResult.uy
+            trajResult.points
         )
         lastMetrics = metrics
         metricsListener?.invoke(metrics)
@@ -420,40 +420,42 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 minDistToAnyCamera = distance
             }
 
-            val approachDist = RadarMath.calculateVectorApproachDistance(location, camera.lat, camera.lon, trajResult.ux, trajResult.uy)
+            val perpDist = RadarMath.calculatePerpendicularDistance(location, camera.lat, camera.lon, trajResult.trajectoryBearing)
+            val isPerpMatched = (perpDist <= 30f)
 
-            // Log 1 time when entering 300m zone along vector projection
-            if (approachDist != null && approachDist <= maxBeepAlertDistance) {
+            // Log 1 time when entering 300m zone
+            if (distance <= maxBeepAlertDistance && isPerpMatched) {
                 if (logged300mCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
                         "onCamera300mEntry",
                         true,
-                        "300M VECTOR ZONE ENTERED: Camera #${camera.id} (Linear: ${camera.isLinear}). Approach Distance: ${approachDist.toInt()}m."
+                        "300M ZONE ENTERED: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m, PerpDist: ${perpDist.toInt()}m."
                     )
-                }
-
-                if (approachDist < minDistanceToAlert) {
-                    minDistanceToAlert = approachDist
-                    closestAlertCamera = camera
                 }
             } else if (distance > 400f) {
                 logged300mCameraIds.remove(camera.id)
             }
 
             // Log 1 time at direct camera crossing (within continuous zone <= 50m/100m)
-            if (distance <= continuousThreshold) {
+            if (distance <= continuousThreshold && isPerpMatched) {
                 if (loggedCrossingCameraIds.add(camera.id)) {
                     AppLogger.log(
                         "RadarForegroundService",
                         "onCameraCrossing",
                         true,
-                        "DIRECT CAMERA CROSSING: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m."
+                        "DIRECT CAMERA CROSSING: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m, PerpDist: ${perpDist.toInt()}m."
                     )
                 }
             } else if (distance > continuousThreshold + 50f) {
                 loggedCrossingCameraIds.remove(camera.id)
             }
+
+            if (distance <= maxBeepAlertDistance && isPerpMatched) {
+                if (distance < minDistanceToAlert) {
+                    minDistanceToAlert = distance
+                    closestAlertCamera = camera
+                }
             }
         }
 
@@ -513,6 +515,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             if (currentAlertCameraId != null) {
                 AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Speed dropped <= 30 km/h).")
                 currentAlertCameraId = null
+                lastDistanceToAlertCamera = Float.MAX_VALUE
+                isApproachingAlertCamera = true
             }
             audioEngine.stopAlert()
             updateNotificationText(defaultStatusText)
@@ -536,6 +540,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
             if (currentAlertCameraId != closestAlertCamera.id) {
                 currentAlertCameraId = closestAlertCamera.id
+                lastDistanceToAlertCamera = minDistanceToAlert
+                isApproachingAlertCamera = true
                 Toast.makeText(
                     applicationContext,
                     "Radar! Distance: ${distInt}m (${speedInt} km/h)",
@@ -545,16 +551,30 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     "RadarForegroundService",
                     "onLocationChanged",
                     true,
-                    "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Bearing: ${closestAlertCamera.dir ?: "Omnidirectional"}, Linear: ${closestAlertCamera.isLinear}"
+                    "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Linear: ${closestAlertCamera.isLinear}"
                 )
+            } else {
+                if (minDistanceToAlert < lastDistanceToAlertCamera) {
+                    isApproachingAlertCamera = true
+                } else if (minDistanceToAlert > lastDistanceToAlertCamera + 2f) {
+                    isApproachingAlertCamera = false
+                }
+                lastDistanceToAlertCamera = minDistanceToAlert
             }
 
-            val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, speedKmh)
-            audioEngine.startAlert(delayMs)
-            audioEngine.updateDelay(delayMs)
-
-            updateNotificationText("Radar! Distance: ${distInt}m (${speedInt} km/h)")
+            if (isApproachingAlertCamera) {
+                val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, speedKmh)
+                audioEngine.startAlert(delayMs)
+                audioEngine.updateDelay(delayMs)
+                updateNotificationText("Radar! Distance: ${distInt}m (${speedInt} km/h)")
+            } else {
+                audioEngine.stopAlert()
+                updateNotificationText("Passed Radar #${closestAlertCamera.id} (${speedInt} km/h)")
+            }
         } else {
+            currentAlertCameraId = null
+            lastDistanceToAlertCamera = Float.MAX_VALUE
+            isApproachingAlertCamera = true
             val entryCam = activeLinearEntryCam
             if (entryCam != null) {
                 val distEntry = RadarMath.calculateDistance(location, entryCam.lat, entryCam.lon)
