@@ -108,38 +108,23 @@ class HelpActivity : Activity() {
         val helpContentText = """
 RadarStop (v$appVersionName)
 
-Ultra-lightweight background driver assistant alerting you of speed cameras ahead.
+Ультралегкий фоновий асистент водія, який попереджає про камери фіксації швидкості поблизу.
 
-No configuration required.
+Не потребує додаткових налаштувань і працює у шторці сповіщень.
 
-Sound Alerts & Tracking:
+Звукові сповіщення та відстеження:
 
-• Speed Threshold:
-  Alerts active only when speed > 30 km/h.
+• Поріг швидкості:
+  Сповіщення активні лише при швидкості авто > 30 км/год.
 
-• Warning Distances:
-  - ≤ 70 km/h: 500m approach warning.
-  - > 70 km/h: 1000m approach warning.
+• Дистанції та частота сповіщень:
+  - При наближенні до камери частота звукових сигналів поступово збільшується (від 2.0 с до 0.5 с на дистанції від 300 м до камери).
+  - Попереднє виявлення починається за 500 м (при швидкості ≤ 70 км/год) або за 1000 м (при швидкості > 70 км/год).
+  - Для лінійних камер (контроль середньої швидкості) постійний сигнал супроводжує протягом усього відрізка контролю.
 
-• Sound Alert Intervals (300m approach / departure zone):
-  - 300-200m: 2000ms
-  - 200-100m: 1000ms
-  - 100-0m (and 0m to 100m departure): 500ms
-
-• Average Speed Control (Linear Cameras):
-  - Single control points operate as standard point cameras.
-  - Paired linear sections maintain steady alert (1.5s interval) throughout the section.
-
-• Trajectory & Speed Smoothing:
-  - Parametric 2D Time-Series OLS (X(t) and Y(t)) over a 10-point sliding window.
-  - Head (5 pts) & Tail (5 pts) spatial direction vectors evaluated in real compass degrees (0-360°).
-  - Adaptive buffer truncation to 3 points only upon sharp spatial turns (angle difference ≥ 30°).
-  - Straight motion and braking preserve full 10-point trajectory tail with smooth median projection.
-  - Smoothed vector speed is derived directly from spatial velocity components sqrt(vx^2 + vy^2).
-
-• Accumulative DB & Offline Mode:
-  - Cameras are saved permanently in local SQLite DB.
-  - Use "Load Country Cams" to pre-download full country databases for offline use.
+• База даних та Офлайн-режим:
+  - Дані про камери автоматично підтягуються під час руху за наявності інтернету та назавжди зберігаються або оновлюються у локальній базі.
+  - Скористайтеся кнопкою "Load Country Cams" для попереднього завантаження бази всієї країни перед поїздками без інтернету.
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {
