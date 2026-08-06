@@ -153,6 +153,7 @@ class RadarMapActivity : Activity() {
 
         val beepStatusStr = when {
             metrics.isAccuracyWeak -> "PAUSED (Weak GPS)"
+            metrics.isStationary -> "PAUSED (Stationary Stop)"
             speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
             closestAlertCam != null -> {
                 val delayMs = RadarMath.calculateBeepDelay(minAlertDist)
@@ -162,8 +163,9 @@ class RadarMapActivity : Activity() {
             else -> "OFF (Idle)"
         }
 
+        val displayGpsStatusStr = if (metrics.isStationary) "$gpsStatusStr [STATIONARY]" else gpsStatusStr
         val totalDb = dbHelper.getCameraCount()
-        tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $gpsStatusStr | Interval: $pollingIntervalStr"
+        tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $displayGpsStatusStr | Interval: $pollingIntervalStr"
         tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
 
         mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing, metrics.trajectoryPoints)

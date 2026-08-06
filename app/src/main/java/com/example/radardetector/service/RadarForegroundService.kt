@@ -372,7 +372,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             dbHelper,
             getRamCachedLoadResult(),
             trajResult.trajectoryBearing,
-            trajResult.points
+            trajResult.points,
+            trajResult.isStationary
         )
         lastMetrics = metrics
         metricsListener?.invoke(metrics)

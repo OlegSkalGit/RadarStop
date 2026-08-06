@@ -84,7 +84,8 @@ object RadarMath {
         dbHelper: com.example.radardetector.db.DatabaseHelper,
         ramCacheOverride: CameraLoadResult? = null,
         trajectoryBearing: Float = location.bearing,
-        trajectoryPoints: List<Location> = emptyList()
+        trajectoryPoints: List<Location> = emptyList(),
+        isStationary: Boolean = false
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
 
@@ -129,7 +130,8 @@ object RadarMath {
             minDistanceToAlert = minAlertDist,
             continuousThreshold = continuousThresh,
             trajectoryBearing = trajectoryBearing,
-            trajectoryPoints = trajectoryPoints
+            trajectoryPoints = trajectoryPoints,
+            isStationary = isStationary
         )
     }
 }
@@ -398,5 +400,6 @@ data class ProcessedLocationMetrics(
     val minDistanceToAlert: Float,
     val continuousThreshold: Float,
     val trajectoryBearing: Float = 0f,
-    val trajectoryPoints: List<Location> = emptyList()
+    val trajectoryPoints: List<Location> = emptyList(),
+    val isStationary: Boolean = false
 )
