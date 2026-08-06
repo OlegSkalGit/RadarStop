@@ -325,28 +325,25 @@ class TrajectoryFilter(
 
     private fun computeMnkSpeed(points: List<Location>): Float {
         if (points.isEmpty()) return 0f
-        if (points.size < 2) {
-            return if (points.last().hasSpeed() && points.last().speed > 0f) points.last().speed * 3.6f else 0f
+        val validPoints = points.filter { it.hasSpeed() }
+        if (validPoints.isEmpty()) {
+            return points.lastOrNull()?.let { if (it.hasSpeed()) it.speed * 3.6f else 0f } ?: 0f
+        }
+        if (validPoints.size < 3) {
+            val speedSum = validPoints.sumOf { (it.speed * 3.6f).toDouble() }
+            return (speedSum / validPoints.size).toFloat().coerceAtLeast(0f)
         }
 
-        val n = points.size
-        val xs = DoubleArray(n)
-        val ys = DoubleArray(n)
-        val firstTime = points.first().time
+        val firstTime = validPoints.first().time
+        val xs = DoubleArray(validPoints.size)
+        val ys = DoubleArray(validPoints.size)
 
-        for (i in 0 until n) {
-            xs[i] = (points[i].time - firstTime) / 1000.0
-            if (points[i].hasSpeed() && points[i].speed > 0f) {
-                ys[i] = (points[i].speed * 3.6f).toDouble()
-            } else if (i > 0 && points[i].time > points[i - 1].time) {
-                val dt = (points[i].time - points[i - 1].time) / 1000.0
-                val dist = points[i].distanceTo(points[i - 1]).toDouble()
-                ys[i] = if (dt > 0) (dist / dt) * 3.6 else 0.0
-            } else {
-                ys[i] = 0.0
-            }
+        for (i in validPoints.indices) {
+            xs[i] = (validPoints[i].time - firstTime) / 1000.0
+            ys[i] = (validPoints[i].speed * 3.6f).toDouble()
         }
 
+        val n = validPoints.size
         val meanX = xs.average()
         val meanY = ys.average()
 
