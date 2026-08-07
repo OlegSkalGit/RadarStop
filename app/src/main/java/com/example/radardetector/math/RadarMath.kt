@@ -179,6 +179,31 @@ class TrajectoryFilter(
             )
         }
 
+        val hasHighAccAndHighSpeed = location.hasAccuracy() && location.accuracy < 10f &&
+                (location.hasSpeed() && location.speed * 3.6f > 30f)
+
+        if (hasHighAccAndHighSpeed) {
+            rawMotionBuffer.clear()
+            rawMotionBuffer.addLast(location)
+
+            if (buffer.size >= maxBufferSize) {
+                buffer.removeFirst()
+            }
+            buffer.addLast(location)
+
+            val instantSpeed = location.speed * 3.6f
+            return TrajectoryResult(
+                isValid = true,
+                isAccuracyWeak = false,
+                points = buffer.toList(),
+                averageSpeedKmh = instantSpeed,
+                trajectoryBearing = location.bearing,
+                projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
+                isStationary = false,
+                projectedLocation = location
+            )
+        }
+
         if (rawMotionBuffer.size >= rawMotionBufferSize) {
             rawMotionBuffer.removeFirst()
         }
@@ -210,23 +235,6 @@ class TrajectoryFilter(
             buffer.removeFirst()
         }
         buffer.addLast(location)
-
-        val hasHighAccAndHighSpeed = location.hasAccuracy() && location.accuracy < 10f &&
-                (location.hasSpeed() && location.speed * 3.6f > 30f)
-
-        if (hasHighAccAndHighSpeed) {
-            val instantSpeed = location.speed * 3.6f
-            return TrajectoryResult(
-                isValid = true,
-                isAccuracyWeak = false,
-                points = buffer.toList(),
-                averageSpeedKmh = instantSpeed,
-                trajectoryBearing = location.bearing,
-                projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
-                isStationary = false,
-                projectedLocation = location
-            )
-        }
 
         val lm = computeLineMetrics()
         return TrajectoryResult(
