@@ -149,7 +149,7 @@ class TrajectoryFilter(
     private val buffer = java.util.ArrayDeque<Location>()
     private val rawMotionBuffer = java.util.ArrayDeque<Location>()
 
-    private val rawMotionBufferSize: Int = 100
+    private val rawMotionBufferSize: Int = 20
 
     @Synchronized
     fun reset() {
