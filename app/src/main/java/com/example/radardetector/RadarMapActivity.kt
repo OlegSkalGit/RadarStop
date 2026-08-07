@@ -36,6 +36,8 @@ class RadarMapActivity : Activity() {
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var tvStatusLine1: TextView
     private lateinit var tvStatusLine2: TextView
+    private lateinit var tvSpeedDisplay: TextView
+    private lateinit var tvGpsBadSub: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,17 +60,44 @@ class RadarMapActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
-        // Overlay status panel (Top)
-        val topPanel = LinearLayout(this).apply {
+        // Top-Left Speed Overlay Container
+        val topLeftContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#E614181F"))
-            setPadding(24, 24, 24, 16)
+            setBackgroundColor(Color.parseColor("#B3000000"))
+            setPadding(24, 16, 24, 16)
         }
 
-        val headerLayout = LinearLayout(this).apply {
+        tvSpeedDisplay = TextView(this).apply {
+            text = "0 km/h"
+            textSize = 36f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#FF1744"))
+        }
+
+        tvGpsBadSub = TextView(this).apply {
+            text = "GPS bad"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+        }
+
+        topLeftContainer.addView(tvSpeedDisplay)
+        topLeftContainer.addView(tvGpsBadSub)
+
+        val topLeftParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            setMargins(24, 24, 0, 0)
+        }
+        rootLayout.addView(topLeftContainer, topLeftParams)
+
+        // Top-Right Header Bar (Back button)
+        val topRightContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 16)
         }
 
         val btnBack = Button(this).apply {
@@ -84,28 +113,45 @@ class RadarMapActivity : Activity() {
                 finish()
             }
         }
+        topRightContainer.addView(btnBack)
 
-        val headerTitle = TextView(this).apply {
-            text = "RadarStop Map"
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        val topRightParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            setMargins(0, 24, 24, 0)
         }
+        rootLayout.addView(topRightContainer, topRightParams)
 
-        val btnSpacer = Button(this).apply {
-            text = "Menu"
-            textSize = 14f
-            visibility = View.INVISIBLE
-        }
-
-        headerLayout.addView(btnBack)
-        headerLayout.addView(headerTitle)
-        headerLayout.addView(btnSpacer)
-
-        val statusContainer = LinearLayout(this).apply {
+        // Bottom Status Spoiler Panel
+        val bottomStatusPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#E614181F"))
+            setPadding(24, 12, 24, 16)
+        }
+
+        val btnSpoilerToggle = Button(this).apply {
+            text = "Status ▲"
+            setTextColor(Color.parseColor("#00E5FF"))
+            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            textSize = 13f
+        }
+
+        val statusSpoilerContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, 8, 0, 0)
+        }
+
+        btnSpoilerToggle.setOnClickListener {
+            if (statusSpoilerContent.visibility == View.VISIBLE) {
+                statusSpoilerContent.visibility = View.GONE
+                btnSpoilerToggle.text = "Status ▲"
+            } else {
+                statusSpoilerContent.visibility = View.VISIBLE
+                btnSpoilerToggle.text = "Status ▼"
+            }
         }
 
         tvStatusLine1 = TextView(this).apply {
@@ -121,16 +167,19 @@ class RadarMapActivity : Activity() {
             setPadding(0, 4, 0, 0)
         }
 
-        statusContainer.addView(tvStatusLine1)
-        statusContainer.addView(tvStatusLine2)
+        statusSpoilerContent.addView(tvStatusLine1)
+        statusSpoilerContent.addView(tvStatusLine2)
 
-        topPanel.addView(headerLayout)
-        topPanel.addView(statusContainer)
+        bottomStatusPanel.addView(btnSpoilerToggle)
+        bottomStatusPanel.addView(statusSpoilerContent)
 
-        rootLayout.addView(topPanel, FrameLayout.LayoutParams(
+        val bottomParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
+        ).apply {
+            gravity = Gravity.BOTTOM
+        }
+        rootLayout.addView(bottomStatusPanel, bottomParams)
 
         setContentView(rootLayout)
     }
@@ -140,6 +189,20 @@ class RadarMapActivity : Activity() {
         val gpsStatusStr = metrics.gpsStatusStr
         val closestAlertCam = metrics.closestAlertCamera
         val minAlertDist = metrics.minDistanceToAlert
+
+        // Update Top-Left Speed Overlay & Color Rules
+        tvSpeedDisplay.text = "${speedKmh.toInt()} km/h"
+        if (metrics.isAccuracyWeak) {
+            tvSpeedDisplay.setTextColor(Color.WHITE)
+            tvGpsBadSub.visibility = View.VISIBLE
+        } else {
+            tvGpsBadSub.visibility = View.GONE
+            if (speedKmh < 30f) {
+                tvSpeedDisplay.setTextColor(Color.parseColor("#FF1744"))
+            } else {
+                tvSpeedDisplay.setTextColor(Color.parseColor("#00E676"))
+            }
+        }
 
         val activeIntervalMs = RadarForegroundService.currentGpsIntervalMs
         val activeSec = if (activeIntervalMs > 0) activeIntervalMs / 1000L else 1L

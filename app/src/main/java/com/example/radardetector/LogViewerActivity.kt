@@ -109,49 +109,13 @@ class LogViewerActivity : Activity() {
         headerLayout.addView(btnMenu)
         rootLayout.addView(headerLayout)
 
-        val topBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 8)
-        }
-
-        val checkBoxLogging = CheckBox(this).apply {
-            text = "Logging"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            isChecked = AppLogger.isLoggingEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                AppLogger.setLoggingEnabled(this@LogViewerActivity, isChecked)
-                if (isChecked) {
-                    AppLogger.log("LogViewerActivity", "onCheckedChanged", true, "ADB file logging enabled by user.")
-                    updateSpinnerFiles(selectToday = true)
-                } else {
-                    refreshLog()
-                }
-            }
-        }
-
-        spinnerLogFiles = Spinner(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f
-            ).apply {
-                setMargins(16, 0, 0, 0)
-            }
-        }
-
-        topBar.addView(checkBoxLogging)
-        topBar.addView(spinnerLogFiles)
-        rootLayout.addView(topBar)
-
         val scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 0,
                 1f
             ).apply {
-                setMargins(0, 4, 0, 8)
+                setMargins(0, 4, 0, 4)
             }
         }
 
@@ -166,10 +130,56 @@ class LogViewerActivity : Activity() {
         scrollView.addView(textViewLog)
         rootLayout.addView(scrollView)
 
-        val bottomBar = LinearLayout(this).apply {
+        // Collapsible Bottom Spoiler Container
+        val spoilerContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            setPadding(12, 8, 12, 8)
+        }
+
+        val btnSpoilerToggle = Button(this).apply {
+            text = "Log Options ▲"
+            setTextColor(Color.parseColor("#00E5FF"))
+            setBackgroundColor(Color.parseColor("#2A2A2A"))
+            textSize = 13f
+        }
+
+        val spoilerContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, 8, 0, 0)
+        }
+
+        btnSpoilerToggle.setOnClickListener {
+            if (spoilerContent.visibility == View.VISIBLE) {
+                spoilerContent.visibility = View.GONE
+                btnSpoilerToggle.text = "Log Options ▲"
+            } else {
+                spoilerContent.visibility = View.VISIBLE
+                btnSpoilerToggle.text = "Log Options ▼"
+            }
+        }
+
+        val checkBoxLogging = CheckBox(this).apply {
+            text = "Logging Enabled"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            isChecked = AppLogger.isLoggingEnabled
+            setOnCheckedChangeListener { _, isChecked ->
+                AppLogger.setLoggingEnabled(this@LogViewerActivity, isChecked)
+                if (isChecked) {
+                    AppLogger.log("LogViewerActivity", "onCheckedChanged", true, "ADB file logging enabled by user.")
+                    updateSpinnerFiles(selectToday = true)
+                } else {
+                    refreshLog()
+                }
+            }
+        }
+
+        val buttonsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 8, 0, 0)
+            setPadding(0, 4, 0, 4)
         }
 
         val btnParams = LinearLayout.LayoutParams(
@@ -218,10 +228,27 @@ class LogViewerActivity : Activity() {
             }
         }
 
-        bottomBar.addView(btnRefresh)
-        bottomBar.addView(btnShare)
-        bottomBar.addView(btnClear)
-        rootLayout.addView(bottomBar)
+        buttonsRow.addView(btnRefresh)
+        buttonsRow.addView(btnShare)
+        buttonsRow.addView(btnClear)
+
+        spinnerLogFiles = Spinner(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(4, 8, 4, 4)
+            }
+        }
+
+        spoilerContent.addView(checkBoxLogging)
+        spoilerContent.addView(buttonsRow)
+        spoilerContent.addView(spinnerLogFiles)
+
+        spoilerContainer.addView(btnSpoilerToggle)
+        spoilerContainer.addView(spoilerContent)
+
+        rootLayout.addView(spoilerContainer)
 
         setContentView(rootLayout)
 

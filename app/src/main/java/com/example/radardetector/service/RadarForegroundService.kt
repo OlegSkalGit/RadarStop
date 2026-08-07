@@ -340,23 +340,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         val speedKmh = if (trajResult.isStationary) {
             0f
-        } else if (instantSpeed > 30f && olsSpeed > 30f) {
-            maxOf(instantSpeed, olsSpeed)
-        } else if (instantSpeed > 30f) {
-            instantSpeed
-        } else if (olsSpeed > 30f) {
-            olsSpeed
-        } else if (instantSpeed > 0f) {
-            instantSpeed
-        } else if (olsSpeed > 0f) {
-            olsSpeed
         } else {
-            val prevLoc = lastLocation
-            if (prevLoc != null && location.time > prevLoc.time) {
-                val distM = location.distanceTo(prevLoc)
-                val timeS = (location.time - prevLoc.time) / 1000f
-                if (timeS > 0f) (distM / timeS) * 3.6f else 0f
-            } else 0f
+            maxOf(instantSpeed, olsSpeed)
         }
         effectiveSpeedKmh = speedKmh
 
@@ -623,11 +608,20 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            val contentIntent = Intent(this, com.example.radardetector.HelpActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val pContentIntent = PendingIntent.getActivity(
+                this, 2, contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
             cachedNotificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("RadarStop Active")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setContentIntent(pContentIntent)
                 .addAction(android.R.drawable.ic_menu_help, "Help", pHelpIntent)
                 .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn Off", pStopIntent)
         }
