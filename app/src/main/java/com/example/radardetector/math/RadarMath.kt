@@ -85,7 +85,9 @@ object RadarMath {
         ramCacheOverride: CameraLoadResult? = null,
         trajectoryBearing: Float = location.bearing,
         trajectoryPoints: List<Location> = emptyList(),
-        isStationary: Boolean = false
+        isStationary: Boolean = false,
+        instantSpeedKmh: Float = 0f,
+        olsSpeedKmh: Float = 0f
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
 
@@ -131,7 +133,9 @@ object RadarMath {
             continuousThreshold = continuousThresh,
             trajectoryBearing = trajectoryBearing,
             trajectoryPoints = trajectoryPoints,
-            isStationary = isStationary
+            isStationary = isStationary,
+            instantSpeedKmh = instantSpeedKmh,
+            olsSpeedKmh = olsSpeedKmh
         )
     }
 }
@@ -206,6 +210,23 @@ class TrajectoryFilter(
             buffer.removeFirst()
         }
         buffer.addLast(location)
+
+        val hasHighAccAndHighSpeed = location.hasAccuracy() && location.accuracy < 10f &&
+                (location.hasSpeed() && location.speed * 3.6f > 30f)
+
+        if (hasHighAccAndHighSpeed) {
+            val instantSpeed = location.speed * 3.6f
+            return TrajectoryResult(
+                isValid = true,
+                isAccuracyWeak = false,
+                points = buffer.toList(),
+                averageSpeedKmh = instantSpeed,
+                trajectoryBearing = location.bearing,
+                projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
+                isStationary = false,
+                projectedLocation = location
+            )
+        }
 
         val lm = computeLineMetrics()
         return TrajectoryResult(
@@ -410,5 +431,7 @@ data class ProcessedLocationMetrics(
     val continuousThreshold: Float,
     val trajectoryBearing: Float = 0f,
     val trajectoryPoints: List<Location> = emptyList(),
-    val isStationary: Boolean = false
+    val isStationary: Boolean = false,
+    val instantSpeedKmh: Float = 0f,
+    val olsSpeedKmh: Float = 0f
 )

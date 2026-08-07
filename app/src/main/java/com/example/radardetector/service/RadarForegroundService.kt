@@ -335,12 +335,21 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         val trajResult = trajectoryFilter.processLocation(location)
 
+        val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
+        val olsSpeed = trajResult.averageSpeedKmh
+
         val speedKmh = if (trajResult.isStationary) {
             0f
-        } else if (location.hasSpeed() && location.speed > 0f) {
-            location.speed * 3.6f
-        } else if (trajResult.averageSpeedKmh > 0f) {
-            trajResult.averageSpeedKmh
+        } else if (instantSpeed > 30f && olsSpeed > 30f) {
+            maxOf(instantSpeed, olsSpeed)
+        } else if (instantSpeed > 30f) {
+            instantSpeed
+        } else if (olsSpeed > 30f) {
+            olsSpeed
+        } else if (instantSpeed > 0f) {
+            instantSpeed
+        } else if (olsSpeed > 0f) {
+            olsSpeed
         } else {
             val prevLoc = lastLocation
             if (prevLoc != null && location.time > prevLoc.time) {
@@ -373,7 +382,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             getRamCachedLoadResult(),
             trajResult.trajectoryBearing,
             trajResult.points,
-            trajResult.isStationary
+            trajResult.isStationary,
+            instantSpeed,
+            olsSpeed
         )
         lastMetrics = metrics
         metricsListener?.invoke(metrics)

@@ -165,7 +165,9 @@ class RadarMapActivity : Activity() {
 
         val displayGpsStatusStr = if (metrics.isStationary) "$gpsStatusStr [STATIONARY]" else gpsStatusStr
         val totalDb = dbHelper.getCameraCount()
-        tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h | $displayGpsStatusStr | Interval: $pollingIntervalStr"
+        val instInt = metrics.instantSpeedKmh.toInt()
+        val olsInt = metrics.olsSpeedKmh.toInt()
+        tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h (Inst: $instInt | OLS: $olsInt) | $displayGpsStatusStr | Interval: $pollingIntervalStr"
         tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
 
         mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing, metrics.trajectoryPoints)
