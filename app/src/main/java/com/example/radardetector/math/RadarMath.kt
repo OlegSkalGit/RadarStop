@@ -183,9 +183,7 @@ class TrajectoryFilter(
                 (location.hasSpeed() && location.speed * 3.6f > 30f)
 
         if (hasHighAccAndHighSpeed) {
-            if (rawMotionBuffer.size >= rawMotionBufferSize) {
-                rawMotionBuffer.removeFirst()
-            }
+            rawMotionBuffer.clear()
             rawMotionBuffer.addLast(location)
 
             if (buffer.size >= maxBufferSize) {
@@ -215,9 +213,8 @@ class TrajectoryFilter(
             val firstPt = rawMotionBuffer.first
             val lastPt = rawMotionBuffer.last
             val distMeters = firstPt.distanceTo(lastPt)
-            val firstAcc = if (firstPt.hasAccuracy()) firstPt.accuracy else 10f
             val lastAcc = if (lastPt.hasAccuracy()) lastPt.accuracy else 10f
-            val doubleAccuracyThreshold = 2f * maxOf(firstAcc, lastAcc)
+            val doubleAccuracyThreshold = 2f * lastAcc
 
             if (distMeters <= doubleAccuracyThreshold) {
                 return TrajectoryResult(
