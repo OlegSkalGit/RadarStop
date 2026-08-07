@@ -39,6 +39,7 @@ class RadarMapActivity : Activity() {
     private lateinit var tvSpeedValue: TextView
     private lateinit var tvSpeedUnit: TextView
     private lateinit var tvSubLabel: TextView
+    private lateinit var tvCamNearWarning: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -111,10 +112,10 @@ class RadarMapActivity : Activity() {
         }
         rootLayout.addView(topLeftContainer, topLeftParams)
 
-        // Top-Right Header Bar (Back button)
+        // Top-Right Header & Warning Container
         val topRightContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
         }
 
         val btnBack = Button(this).apply {
@@ -130,7 +131,18 @@ class RadarMapActivity : Activity() {
                 finish()
             }
         }
+
+        tvCamNearWarning = TextView(this).apply {
+            text = "cam near"
+            textSize = 44f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#FF1744"))
+            visibility = View.GONE
+            setPadding(0, 8, 0, 0)
+        }
+
         topRightContainer.addView(btnBack)
+        topRightContainer.addView(tvCamNearWarning)
 
         val topRightParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -206,6 +218,10 @@ class RadarMapActivity : Activity() {
         val gpsStatusStr = metrics.gpsStatusStr
         val closestAlertCam = metrics.closestAlertCamera
         val minAlertDist = metrics.minDistanceToAlert
+
+        // Update Top-Right Camera Warning
+        val isCamNear = closestAlertCam != null && minAlertDist <= 300f
+        tvCamNearWarning.visibility = if (isCamNear) View.VISIBLE else View.GONE
 
         // Update Top-Left Speed Overlay & Dynamic Styling
         val speedInt = speedKmh.toInt()
