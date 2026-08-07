@@ -179,10 +179,9 @@ class TrajectoryFilter(
             )
         }
 
-        val hasHighAccAndHighSpeed = location.hasAccuracy() && location.accuracy < 10f &&
-                (location.hasSpeed() && location.speed * 3.6f > 30f)
+        val hasHighAcc = location.hasAccuracy() && location.accuracy < 10f
 
-        if (hasHighAccAndHighSpeed) {
+        if (hasHighAcc) {
             rawMotionBuffer.clear()
             rawMotionBuffer.addLast(location)
 
@@ -191,7 +190,7 @@ class TrajectoryFilter(
             }
             buffer.addLast(location)
 
-            val instantSpeed = location.speed * 3.6f
+            val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
             return TrajectoryResult(
                 isValid = true,
                 isAccuracyWeak = false,
