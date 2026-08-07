@@ -62,7 +62,42 @@ class RadarMapActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
-        // Top-Left Speed Overlay Container
+        // Top Overlay Panel (Back button on top-left, speed and cam near labels underneath on same level)
+        val topOverlayPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 0)
+        }
+
+        // Top Row: Back Button on the LEFT
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        }
+
+        val btnBack = Button(this).apply {
+            text = "Back"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
+            setOnClickListener {
+                val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                startActivity(intent)
+                finish()
+            }
+        }
+        topRow.addView(btnBack)
+        topOverlayPanel.addView(topRow)
+
+        // Labels Row: Left (Speed) and Right (Cam Near) on the SAME horizontal level underneath Back button
+        val labelsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+            setPadding(0, 12, 0, 0)
+        }
+
+        // Left Container (Speed Display)
         val topLeftContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#B3000000"))
@@ -103,33 +138,15 @@ class RadarMapActivity : Activity() {
         topLeftContainer.addView(speedRow)
         topLeftContainer.addView(tvSubLabel)
 
-        val topLeftParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            setMargins(24, 24, 0, 0)
-        }
-        rootLayout.addView(topLeftContainer, topLeftParams)
-
-        // Top-Right Header & Warning Container
+        // Right Container ("cam near" Warning)
         val topRightContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.END
-        }
-
-        val btnBack = Button(this).apply {
-            text = "Back"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            setOnClickListener {
-                val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-                startActivity(intent)
-                finish()
-            }
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
         }
 
         tvCamNearWarning = TextView(this).apply {
@@ -137,21 +154,25 @@ class RadarMapActivity : Activity() {
             textSize = 44f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#FF1744"))
+            setBackgroundColor(Color.parseColor("#B3000000"))
+            setPadding(24, 16, 24, 16)
             visibility = View.GONE
-            setPadding(0, 8, 0, 0)
         }
 
-        topRightContainer.addView(btnBack)
         topRightContainer.addView(tvCamNearWarning)
 
-        val topRightParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
+        labelsRow.addView(topLeftContainer)
+        labelsRow.addView(topRightContainer)
+
+        topOverlayPanel.addView(labelsRow)
+
+        val topOverlayParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            setMargins(0, 24, 24, 0)
+            gravity = Gravity.TOP
         }
-        rootLayout.addView(topRightContainer, topRightParams)
+        rootLayout.addView(topOverlayPanel, topOverlayParams)
 
         // Bottom Status Spoiler Panel
         val bottomStatusPanel = LinearLayout(this).apply {
