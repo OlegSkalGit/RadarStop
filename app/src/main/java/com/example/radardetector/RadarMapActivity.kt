@@ -36,8 +36,9 @@ class RadarMapActivity : Activity() {
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var tvStatusLine1: TextView
     private lateinit var tvStatusLine2: TextView
-    private lateinit var tvSpeedDisplay: TextView
-    private lateinit var tvGpsBadSub: TextView
+    private lateinit var tvSpeedValue: TextView
+    private lateinit var tvSpeedUnit: TextView
+    private lateinit var tvSubLabel: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,23 +68,39 @@ class RadarMapActivity : Activity() {
             setPadding(24, 16, 24, 16)
         }
 
-        tvSpeedDisplay = TextView(this).apply {
-            text = "0 km/h"
-            textSize = 36f
+        val speedRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+        }
+
+        tvSpeedValue = TextView(this).apply {
+            text = "0"
+            textSize = 44f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#FF1744"))
         }
 
-        tvGpsBadSub = TextView(this).apply {
-            text = "GPS bad"
-            textSize = 14f
+        tvSpeedUnit = TextView(this).apply {
+            text = " km/h"
+            textSize = 16f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            visibility = View.GONE
+            setTextColor(Color.parseColor("#FF1744"))
+            setPadding(0, 0, 0, 8)
         }
 
-        topLeftContainer.addView(tvSpeedDisplay)
-        topLeftContainer.addView(tvGpsBadSub)
+        speedRow.addView(tvSpeedValue)
+        speedRow.addView(tvSpeedUnit)
+
+        tvSubLabel = TextView(this).apply {
+            text = "LOW speed"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#FF1744"))
+            visibility = View.VISIBLE
+        }
+
+        topLeftContainer.addView(speedRow)
+        topLeftContainer.addView(tvSubLabel)
 
         val topLeftParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -190,17 +207,30 @@ class RadarMapActivity : Activity() {
         val closestAlertCam = metrics.closestAlertCamera
         val minAlertDist = metrics.minDistanceToAlert
 
-        // Update Top-Left Speed Overlay & Color Rules
-        tvSpeedDisplay.text = "${speedKmh.toInt()} km/h"
+        // Update Top-Left Speed Overlay & Dynamic Styling
+        val speedInt = speedKmh.toInt()
+        tvSpeedValue.text = "$speedInt"
+
         if (metrics.isAccuracyWeak) {
-            tvSpeedDisplay.setTextColor(Color.WHITE)
-            tvGpsBadSub.visibility = View.VISIBLE
+            tvSpeedValue.setTextColor(Color.WHITE)
+            tvSpeedUnit.setTextColor(Color.WHITE)
+            tvSubLabel.text = "GPS bad"
+            tvSubLabel.setTextColor(Color.WHITE)
+            tvSubLabel.visibility = View.VISIBLE
         } else {
-            tvGpsBadSub.visibility = View.GONE
             if (speedKmh < 30f) {
-                tvSpeedDisplay.setTextColor(Color.parseColor("#FF1744"))
+                val redColor = Color.parseColor("#FF1744")
+                tvSpeedValue.setTextColor(redColor)
+                tvSpeedUnit.setTextColor(redColor)
+                tvSubLabel.text = "LOW speed"
+                tvSubLabel.setTextColor(redColor)
+                tvSubLabel.visibility = View.VISIBLE
             } else {
-                tvSpeedDisplay.setTextColor(Color.parseColor("#00E676"))
+                val greenColor = Color.parseColor("#00E676")
+                tvSpeedValue.setTextColor(greenColor)
+                tvSpeedUnit.setTextColor(greenColor)
+                tvSubLabel.text = ""
+                tvSubLabel.visibility = View.GONE
             }
         }
 
