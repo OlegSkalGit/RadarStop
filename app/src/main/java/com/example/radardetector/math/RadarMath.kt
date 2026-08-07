@@ -183,9 +183,7 @@ class TrajectoryFilter(
                 (location.hasSpeed() && location.speed * 3.6f > 30f)
 
         if (hasHighAccAndHighSpeed) {
-            if (rawMotionBuffer.size >= rawMotionBufferSize) {
-                rawMotionBuffer.removeFirst()
-            }
+            rawMotionBuffer.clear()
             rawMotionBuffer.addLast(location)
 
             if (buffer.size >= maxBufferSize) {
