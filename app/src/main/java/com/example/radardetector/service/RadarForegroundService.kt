@@ -248,7 +248,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         lastGpsRegisterTimeMs = now
         try {
             locationManager.removeUpdates(this)
-            val minDistance = if (intervalMs >= 15000L) 10f else 0f
+            val minDistance = if (intervalMs >= 15000L) 10f else 1f
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
                 intervalMs,

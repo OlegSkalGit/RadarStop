@@ -276,13 +276,18 @@ class TrajectoryFilter(
         val avgSpeedKmh: Float
         val trajectoryBearing: Float
 
+        val PROJECTION_LOOKAHEAD_SEC = 2.0
+
         if (points.size < 6) {
             val (slopeX, interceptX) = fitLinearSeries(seriesX)
             val (slopeY, interceptY) = fitLinearSeries(seriesY)
 
-            projX = slopeX * targetT + interceptX
-            projY = slopeY * targetT + interceptY
             avgSpeedKmh = (Math.hypot(slopeX, slopeY) * 3.6).toFloat().coerceAtLeast(0f)
+            val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
+            val futureT = targetT + lookaheadSec
+
+            projX = slopeX * futureT + interceptX
+            projY = slopeY * futureT + interceptY
 
             var az = (90.0 - Math.toDegrees(Math.atan2(slopeY, slopeX))).toFloat()
             if (az < 0f) az += 360f
@@ -311,17 +316,20 @@ class TrajectoryFilter(
             val diffAngle = Math.abs(RadarMath.angleDifference(az1, az2))
 
             if (diffAngle < 30f) {
-                val px1 = slopeX1 * targetT + interceptX1
-                val px2 = slopeX2 * targetT + interceptX2
-                val py1 = slopeY1 * targetT + interceptY1
-                val py2 = slopeY2 * targetT + interceptY2
-
-                projX = 0.5 * (px1 + px2)
-                projY = 0.5 * (py1 + py2)
-
                 val speed1 = Math.hypot(slopeX1, slopeY1)
                 val speed2 = Math.hypot(slopeX2, slopeY2)
                 avgSpeedKmh = (0.5 * (speed1 + speed2) * 3.6).toFloat().coerceAtLeast(0f)
+
+                val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
+                val futureT = targetT + lookaheadSec
+
+                val px1 = slopeX1 * futureT + interceptX1
+                val px2 = slopeX2 * futureT + interceptX2
+                val py1 = slopeY1 * futureT + interceptY1
+                val py2 = slopeY2 * futureT + interceptY2
+
+                projX = 0.5 * (px1 + px2)
+                projY = 0.5 * (py1 + py2)
 
                 var medianAz = az1 + 0.5f * RadarMath.angleDifference(az2, az1)
                 if (medianAz < 0f) medianAz += 360f
@@ -331,9 +339,13 @@ class TrajectoryFilter(
                 while (buffer.size > 3) {
                     buffer.removeFirst()
                 }
-                projX = slopeX2 * targetT + interceptX2
-                projY = slopeY2 * targetT + interceptY2
                 avgSpeedKmh = (Math.hypot(slopeX2, slopeY2) * 3.6).toFloat().coerceAtLeast(0f)
+
+                val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
+                val futureT = targetT + lookaheadSec
+
+                projX = slopeX2 * futureT + interceptX2
+                projY = slopeY2 * futureT + interceptY2
                 trajectoryBearing = az2
             }
         }
