@@ -165,7 +165,7 @@ class TrajectoryFilter(
     fun getPoints(): List<Location> = buffer.toList()
 
     @Synchronized
-    fun processLocation(location: Location): TrajectoryResult {
+    fun processLocation(location: Location, isAccelStationary: Boolean = true): TrajectoryResult {
         val isWeak = location.hasAccuracy() && location.accuracy > 100f
         if (isWeak) {
             val lm = computeLineMetrics()
@@ -217,8 +217,9 @@ class TrajectoryFilter(
             val distMeters = firstPt.distanceTo(lastPt)
             val lastAcc = if (lastPt.hasAccuracy()) lastPt.accuracy else 10f
             val doubleAccuracyThreshold = 2f * lastAcc
+            val isGpsStationary = (distMeters <= doubleAccuracyThreshold)
 
-            if (distMeters <= doubleAccuracyThreshold) {
+            if (isGpsStationary && isAccelStationary) {
                 return TrajectoryResult(
                     isValid = true,
                     isAccuracyWeak = false,

@@ -108,6 +108,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     private var lastMotionCheckTimeMs: Long = 0L
+    @Volatile
+    private var lastAccelMotionTimeMs: Long = 0L
     private var wakeLock: PowerManager.WakeLock? = null
 
     private val watchdogHandler = Handler(Looper.getMainLooper())
@@ -333,7 +335,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         audioEngine.notifyLocationUpdate()
         lastLocation = location
 
-        val trajResult = trajectoryFilter.processLocation(location)
+        val nowMs = System.currentTimeMillis()
+        val isAccelStationary = (nowMs - lastAccelMotionTimeMs >= 3000L)
+        val trajResult = trajectoryFilter.processLocation(location, isAccelStationary)
 
         val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
         val olsSpeed = trajResult.averageSpeedKmh
@@ -704,6 +708,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val z = event.values[2]
             val g = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
             val delta = Math.abs(g - SensorManager.GRAVITY_EARTH)
+
+            if (delta > 0.4f) {
+                lastAccelMotionTimeMs = now
+            }
 
             if (delta > 1.5f && (now - lastLocationTimeMs >= 60000L)) {
                 AppLogger.log(
