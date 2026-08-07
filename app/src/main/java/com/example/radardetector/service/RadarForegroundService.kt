@@ -700,8 +700,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (!isRunning || event == null) return
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
             val now = System.currentTimeMillis()
-            if (now - lastMotionCheckTimeMs < 60000L) return
-            lastMotionCheckTimeMs = now
 
             val x = event.values[0]
             val y = event.values[1]
@@ -713,7 +711,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 lastAccelMotionTimeMs = now
             }
 
-            if (delta > 1.5f && (now - lastLocationTimeMs >= 60000L)) {
+            if (delta > 1.5f && (now - lastLocationTimeMs >= 60000L) && (now - lastMotionCheckTimeMs >= 60000L)) {
+                lastMotionCheckTimeMs = now
                 AppLogger.log(
                     "RadarForegroundService",
                     "onSensorChanged",
