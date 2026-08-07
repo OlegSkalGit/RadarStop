@@ -109,6 +109,31 @@ class LogViewerActivity : Activity() {
         headerLayout.addView(btnMenu)
         rootLayout.addView(headerLayout)
 
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 4)
+        }
+
+        val checkBoxLogging = CheckBox(this).apply {
+            text = "Logging Enabled"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            isChecked = AppLogger.isLoggingEnabled
+            setOnCheckedChangeListener { _, isChecked ->
+                AppLogger.setLoggingEnabled(this@LogViewerActivity, isChecked)
+                if (isChecked) {
+                    AppLogger.log("LogViewerActivity", "onCheckedChanged", true, "ADB file logging enabled by user.")
+                    updateSpinnerFiles(selectToday = true)
+                } else {
+                    refreshLog()
+                }
+            }
+        }
+
+        topBar.addView(checkBoxLogging)
+        rootLayout.addView(topBar)
+
         val scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -157,22 +182,6 @@ class LogViewerActivity : Activity() {
             } else {
                 spoilerContent.visibility = View.VISIBLE
                 btnSpoilerToggle.text = "Log Options ▼"
-            }
-        }
-
-        val checkBoxLogging = CheckBox(this).apply {
-            text = "Logging Enabled"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            isChecked = AppLogger.isLoggingEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                AppLogger.setLoggingEnabled(this@LogViewerActivity, isChecked)
-                if (isChecked) {
-                    AppLogger.log("LogViewerActivity", "onCheckedChanged", true, "ADB file logging enabled by user.")
-                    updateSpinnerFiles(selectToday = true)
-                } else {
-                    refreshLog()
-                }
             }
         }
 
@@ -241,7 +250,6 @@ class LogViewerActivity : Activity() {
             }
         }
 
-        spoilerContent.addView(checkBoxLogging)
         spoilerContent.addView(buttonsRow)
         spoilerContent.addView(spinnerLogFiles)
 
