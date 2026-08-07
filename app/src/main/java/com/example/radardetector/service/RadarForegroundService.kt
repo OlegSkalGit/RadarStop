@@ -108,8 +108,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     private var lastMotionCheckTimeMs: Long = 0L
-    @Volatile
-    private var lastAccelMotionTimeMs: Long = 0L
     private var wakeLock: PowerManager.WakeLock? = null
 
     private val watchdogHandler = Handler(Looper.getMainLooper())
@@ -335,9 +333,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         audioEngine.notifyLocationUpdate()
         lastLocation = location
 
-        val nowMs = System.currentTimeMillis()
-        val isAccelStationary = (nowMs - lastAccelMotionTimeMs >= 3000L)
-        val trajResult = trajectoryFilter.processLocation(location, isAccelStationary)
+        val trajResult = trajectoryFilter.processLocation(location)
 
         val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
         val olsSpeed = trajResult.averageSpeedKmh
@@ -700,6 +696,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (!isRunning || event == null) return
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
             val now = System.currentTimeMillis()
+            if (now - lastMotionCheckTimeMs < 60000L) return
+            lastMotionCheckTimeMs = now
 
             val x = event.values[0]
             val y = event.values[1]
@@ -707,12 +705,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val g = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
             val delta = Math.abs(g - SensorManager.GRAVITY_EARTH)
 
-            if (delta > 0.4f) {
-                lastAccelMotionTimeMs = now
-            }
-
-            if (delta > 1.5f && (now - lastLocationTimeMs >= 60000L) && (now - lastMotionCheckTimeMs >= 60000L)) {
-                lastMotionCheckTimeMs = now
+            if (delta > 1.5f && (now - lastLocationTimeMs >= 60000L)) {
                 AppLogger.log(
                     "RadarForegroundService",
                     "onSensorChanged",
