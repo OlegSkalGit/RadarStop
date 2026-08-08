@@ -221,11 +221,8 @@ class TrajectoryFilter(
                 distSumNeighboring += pts[i].distanceTo(pts[i + 1])
             }
 
-            val lastAcc = if (lastPt.hasAccuracy()) lastPt.accuracy else 10f
-            val doubleAccuracyThreshold = 2f * lastAcc
             val ratio = if (distSumNeighboring > 0f) distExtreme / distSumNeighboring else 0f
-
-            val isStationaryCheck = (distExtreme <= doubleAccuracyThreshold) || (ratio < 0.5f)
+            val isStationaryCheck = (ratio < 0.5f)
 
             if (isStationaryCheck) {
                 return TrajectoryResult(
