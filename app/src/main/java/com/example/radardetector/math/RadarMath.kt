@@ -179,7 +179,7 @@ class TrajectoryFilter(
             )
         }
 
-        val hasHighAcc = location.hasAccuracy() && location.accuracy < 10f
+        val hasHighAcc = location.hasAccuracy() && location.accuracy < 15f
 
         if (hasHighAcc) {
             if (rawMotionBuffer.size >= rawMotionBufferSize) {
