@@ -151,14 +151,10 @@ class TrajectoryFilter(
     private val maxBufferSize: Int = 10
 ) {
     private val buffer = java.util.ArrayDeque<Location>()
-    private val rawMotionBuffer = java.util.ArrayDeque<Location>()
-
-    private val rawMotionBufferSize: Int = 10
 
     @Synchronized
     fun reset() {
         buffer.clear()
-        rawMotionBuffer.clear()
     }
 
     @Synchronized
@@ -179,18 +175,19 @@ class TrajectoryFilter(
             )
         }
 
+        // 1. Кожна точка ЗАВЖДИ додається до єдиного 10-точкового буфера
+        if (buffer.size >= maxBufferSize) {
+            buffer.removeFirst()
+        }
+        buffer.addLast(location)
+
         val hasHighAcc = location.hasAccuracy() && location.accuracy < 15f
 
         if (hasHighAcc) {
-            if (rawMotionBuffer.size >= rawMotionBufferSize) {
-                rawMotionBuffer.removeFirst()
-            }
-            rawMotionBuffer.addLast(location)
-
-            if (buffer.size >= maxBufferSize) {
+            // Замість повного clear() — усікаємо до 3 останніх точок
+            while (buffer.size > 3) {
                 buffer.removeFirst()
             }
-            buffer.addLast(location)
 
             val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
             return TrajectoryResult(
@@ -205,13 +202,9 @@ class TrajectoryFilter(
             )
         }
 
-        if (rawMotionBuffer.size >= rawMotionBufferSize) {
-            rawMotionBuffer.removeFirst()
-        }
-        rawMotionBuffer.addLast(location)
-
-        if (rawMotionBuffer.size >= 3) {
-            val pts = rawMotionBuffer.toList()
+        // 2. Якщо точність >= 15м — перевіряємо зупинку по єдиному буферу
+        if (buffer.size >= 3) {
+            val pts = buffer.toList()
             val firstPt = pts.first()
             val lastPt = pts.last()
             val distExtreme = firstPt.distanceTo(lastPt)
@@ -237,11 +230,6 @@ class TrajectoryFilter(
                 )
             }
         }
-
-        if (buffer.size >= maxBufferSize) {
-            buffer.removeFirst()
-        }
-        buffer.addLast(location)
 
         val lm = computeLineMetrics()
         return TrajectoryResult(
