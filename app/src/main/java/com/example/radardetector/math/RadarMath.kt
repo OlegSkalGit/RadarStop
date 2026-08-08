@@ -211,13 +211,23 @@ class TrajectoryFilter(
         rawMotionBuffer.addLast(location)
 
         if (rawMotionBuffer.size >= 3) {
-            val firstPt = rawMotionBuffer.first
-            val lastPt = rawMotionBuffer.last
-            val distMeters = firstPt.distanceTo(lastPt)
+            val pts = rawMotionBuffer.toList()
+            val firstPt = pts.first()
+            val lastPt = pts.last()
+            val distExtreme = firstPt.distanceTo(lastPt)
+
+            var distSumNeighboring = 0f
+            for (i in 0 until pts.size - 1) {
+                distSumNeighboring += pts[i].distanceTo(pts[i + 1])
+            }
+
             val lastAcc = if (lastPt.hasAccuracy()) lastPt.accuracy else 10f
             val doubleAccuracyThreshold = 2f * lastAcc
+            val ratio = if (distSumNeighboring > 0f) distExtreme / distSumNeighboring else 0f
 
-            if (distMeters <= doubleAccuracyThreshold) {
+            val isStationaryCheck = (distExtreme <= doubleAccuracyThreshold) || (ratio < 0.5f)
+
+            if (isStationaryCheck) {
                 return TrajectoryResult(
                     isValid = true,
                     isAccuracyWeak = false,
