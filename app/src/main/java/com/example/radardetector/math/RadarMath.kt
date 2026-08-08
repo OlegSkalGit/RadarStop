@@ -151,10 +151,12 @@ class TrajectoryFilter(
     private val maxBufferSize: Int = 10
 ) {
     private val buffer = java.util.ArrayDeque<Location>()
+    private var lastBufferPushTimeMs: Long = 0L
 
     @Synchronized
     fun reset() {
         buffer.clear()
+        lastBufferPushTimeMs = 0L
     }
 
     @Synchronized
@@ -175,13 +177,17 @@ class TrajectoryFilter(
             )
         }
 
-        // 1. Кожна точка ЗАВЖДИ додається до єдиного 10-точкового буфера
-        if (buffer.size >= maxBufferSize) {
-            buffer.removeFirst()
+        // Додаємо до буфера не частіше ніж раз на 1 секунду
+        val locTime = location.time
+        if (locTime - lastBufferPushTimeMs >= 1000L || buffer.isEmpty()) {
+            if (buffer.size >= maxBufferSize) {
+                buffer.removeFirst()
+            }
+            buffer.addLast(location)
+            lastBufferPushTimeMs = locTime
         }
-        buffer.addLast(location)
 
-        val hasHighAcc = location.hasAccuracy() && location.accuracy < 15f
+        val hasHighAcc = location.hasAccuracy() && location.accuracy <= 15f
 
         if (hasHighAcc) {
             // Замість повного clear() — усікаємо до 3 останніх точок
@@ -202,7 +208,7 @@ class TrajectoryFilter(
             )
         }
 
-        // 2. Якщо точність >= 15м — перевіряємо зупинку по єдиному буферу
+        // 2. Якщо точність 15м - 100м — перевіряємо зигзаги по єдиному буферу
         if (buffer.size >= 3) {
             val pts = buffer.toList()
             val firstPt = pts.first()
