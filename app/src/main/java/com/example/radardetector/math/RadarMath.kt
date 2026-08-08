@@ -153,7 +153,7 @@ class TrajectoryFilter(
     private val buffer = java.util.ArrayDeque<Location>()
     private val rawMotionBuffer = java.util.ArrayDeque<Location>()
 
-    private val rawMotionBufferSize: Int = 100
+    private val rawMotionBufferSize: Int = 10
 
     @Synchronized
     fun reset() {
@@ -182,7 +182,9 @@ class TrajectoryFilter(
         val hasHighAcc = location.hasAccuracy() && location.accuracy < 10f
 
         if (hasHighAcc) {
-            rawMotionBuffer.clear()
+            if (rawMotionBuffer.size >= rawMotionBufferSize) {
+                rawMotionBuffer.removeFirst()
+            }
             rawMotionBuffer.addLast(location)
 
             if (buffer.size >= maxBufferSize) {
