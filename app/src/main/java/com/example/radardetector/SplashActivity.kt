@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -34,6 +35,7 @@ class SplashActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         AppLogger.log("SplashActivity", "onCreate", true, "SplashActivity launched.")
 
         if (RadarForegroundService.isRunning) {

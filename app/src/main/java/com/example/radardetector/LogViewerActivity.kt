@@ -14,6 +14,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -42,6 +43,7 @@ class LogViewerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         title = "RadarStop Debug"
         AppLogger.initNewSession(this)
         audioEngine = AcousticRadarEngine(this)
