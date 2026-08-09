@@ -188,29 +188,10 @@ class TrajectoryFilter(
             lastBufferPushTimeMs = locTime
         }
 
-        val hasHighAcc = location.hasAccuracy() && location.accuracy <= 15f
+        val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
 
-        if (hasHighAcc) {
-            // Замість повного clear() — усікаємо до 3 останніх точок
-            while (buffer.size > 3) {
-                buffer.removeFirst()
-            }
-
-            val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
-            return TrajectoryResult(
-                isValid = true,
-                isAccuracyWeak = false,
-                points = buffer.toList(),
-                averageSpeedKmh = instantSpeed,
-                trajectoryBearing = location.bearing,
-                projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
-                isStationary = false,
-                projectedLocation = location
-            )
-        }
-
-        // 2. Якщо точність 15м - 100м — перевіряємо зигзаги по єдиному буферу
-        if (buffer.size >= 3) {
+        // Перевіряємо зигзаги (стоянку) ТІЛЬКИ якщо миттєва швидкість <= 5 км/год
+        if (instantSpeed <= 5f && buffer.size >= 3) {
             val pts = buffer.toList()
             val firstPt = pts.first()
             val lastPt = pts.last()
@@ -222,7 +203,8 @@ class TrajectoryFilter(
             }
 
             val ratio = if (distSumNeighboring > 0f) distExtreme / distSumNeighboring else 0f
-            val isStationaryCheck = (ratio < 0.5f)
+            // Стоянка ТІЛЬКИ якщо відстань між крайніми точками < 15м І відношення < 0.5
+            val isStationaryCheck = (ratio < 0.5f && distExtreme < 15f)
 
             if (isStationaryCheck) {
                 return TrajectoryResult(
@@ -239,12 +221,14 @@ class TrajectoryFilter(
         }
 
         val lm = computeLineMetrics()
+        val finalSpeed = maxOf(instantSpeed, lm.speedKmh)
+
         return TrajectoryResult(
             isValid = true,
             isAccuracyWeak = false,
             points = buffer.toList(),
-            averageSpeedKmh = lm.speedKmh,
-            trajectoryBearing = lm.trajectoryBearing,
+            averageSpeedKmh = finalSpeed,
+            trajectoryBearing = if (lm.trajectoryBearing != 0f) lm.trajectoryBearing else location.bearing,
             projectedDistanceMeters = lm.projectedDistanceMeters,
             projectedLocation = lm.projectedLocation ?: location
         )
