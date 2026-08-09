@@ -172,15 +172,28 @@ class RadarMapActivity : Activity() {
         topLeftContainer.addView(speedRow)
         topLeftContainer.addView(tvSubLabel)
 
-        // Right Container ("cam near" Warning)
-        val topRightContainer = LinearLayout(this).apply {
+        labelsRow.addView(topLeftContainer)
+        topOverlayPanel.addView(labelsRow)
+
+        val topOverlayParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP
+        }
+        rootLayout.addView(topOverlayPanel, topOverlayParams)
+
+        // Bottom Overlay Panel (Holds "cam near" warning at bottom-left and bottomStatusPanel)
+        val bottomOverlayPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f
-            )
+            gravity = Gravity.BOTTOM or Gravity.START
+        }
+
+        // Bottom Left Container ("cam near" Warning)
+        val bottomLeftContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START
+            setPadding(24, 0, 0, 16)
         }
 
         tvCamNearWarning = TextView(this).apply {
@@ -193,20 +206,8 @@ class RadarMapActivity : Activity() {
             visibility = View.GONE
         }
 
-        topRightContainer.addView(tvCamNearWarning)
-
-        labelsRow.addView(topLeftContainer)
-        labelsRow.addView(topRightContainer)
-
-        topOverlayPanel.addView(labelsRow)
-
-        val topOverlayParams = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.TOP
-        }
-        rootLayout.addView(topOverlayPanel, topOverlayParams)
+        bottomLeftContainer.addView(tvCamNearWarning)
+        bottomOverlayPanel.addView(bottomLeftContainer)
 
         // Bottom Status Spoiler Panel
         bottomStatusPanel = LinearLayout(this).apply {
@@ -257,13 +258,15 @@ class RadarMapActivity : Activity() {
         bottomStatusPanel.addView(btnSpoilerToggle)
         bottomStatusPanel.addView(statusSpoilerContent)
 
+        bottomOverlayPanel.addView(bottomStatusPanel)
+
         val bottomParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = Gravity.BOTTOM
         }
-        rootLayout.addView(bottomStatusPanel, bottomParams)
+        rootLayout.addView(bottomOverlayPanel, bottomParams)
 
         setContentView(rootLayout)
     }
@@ -489,7 +492,9 @@ class RadarMapActivity : Activity() {
                 isDebug = !isDebug
                 prefs.edit().putBoolean("debug_mode", isDebug).apply()
                 text = if (isDebug) "Debug On" else "Debug Off"
-                AppLogger.setLoggingEnabled(this@RadarMapActivity, isDebug)
+                if (!isDebug) {
+                    AppLogger.setLoggingEnabled(this@RadarMapActivity, false)
+                }
                 updateDebugVisibility()
                 populateDebugItems()
             }
