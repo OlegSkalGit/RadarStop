@@ -75,14 +75,44 @@ object AppUpdateManager {
         if (!force && lastCheckMs != 0L && (now - lastCheckMs < CHECK_THROTTLE_MS)) {
             val hoursLeft = (CHECK_THROTTLE_MS - (now - lastCheckMs)) / 3600000L
             val msg = "Update check skipped (24h throttle active, next check in ~${hoursLeft}h)."
-            AppLogger.log("AppUpdateManager", "checkAndDownloadUpdate", true, msg)
-            onResult?.let { mainHandler.post { it(msg) } }
             return
         }
 
         executor.execute {
             performUpdateCheck(context, prefs, force, onResult)
         }
+    }
+
+    private fun fetchReleasesFromUrl(urlStr: String): List<org.json.JSONObject> {
+        var conn: HttpURLConnection? = null
+        val result = mutableListOf<org.json.JSONObject>()
+        try {
+            val url = URL(urlStr)
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10000
+                readTimeout = 15000
+                setRequestProperty("User-Agent", "RadarStop-Updater/1.0")
+                setRequestProperty("Accept", "application/vnd.github.v3+json")
+            }
+
+            if (conn.responseCode == 200) {
+                val jsonText = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                if (jsonText.startsWith("{")) {
+                    result.add(org.json.JSONObject(jsonText))
+                } else if (jsonText.startsWith("[")) {
+                    val arr = org.json.JSONArray(jsonText)
+                    for (i in 0 until arr.length()) {
+                        result.add(arr.getJSONObject(i))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.log("AppUpdateManager", "fetchReleasesFromUrl", false, "Error fetching from $urlStr: ${e.message}")
+        } finally {
+            conn?.disconnect()
+        }
+        return result
     }
 
     private fun performUpdateCheck(
@@ -104,78 +134,41 @@ object AppUpdateManager {
             "Local installed version (versionName): $installedVersionName ($localInstalledVer)"
         )
 
-        var conn: HttpURLConnection? = null
-        try {
-            val apiUrlStr = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
-            val url = URL(apiUrlStr)
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 10000
-                readTimeout = 15000
-                setRequestProperty("User-Agent", "RadarStop-Updater/1.0")
-                setRequestProperty("Accept", "application/vnd.github.v3+json")
-            }
+        val latestReleaseList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest")
+        val allReleasesList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases")
 
-            var code = conn.responseCode
-            var jsonText = if (code == 200) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else ""
+        val combinedReleases = mutableListOf<org.json.JSONObject>()
+        combinedReleases.addAll(latestReleaseList)
+        combinedReleases.addAll(allReleasesList)
 
-            if (jsonText.isEmpty()) {
-                conn.disconnect()
-                val fallbackUrl = URL("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases")
-                conn = (fallbackUrl.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 10000
-                    readTimeout = 15000
-                    setRequestProperty("User-Agent", "RadarStop-Updater/1.0")
-                    setRequestProperty("Accept", "application/vnd.github.v3+json")
-                }
-                code = conn.responseCode
-                if (code == 200) {
-                    jsonText = conn.inputStream.bufferedReader().use { it.readText() }
-                }
-            }
+        if (combinedReleases.isEmpty()) {
+            val err = "Failed to fetch releases from GitHub API."
+            AppLogger.log("AppUpdateManager", "performUpdateCheck", false, err)
+            onResult?.let { mainHandler.post { it(err) } }
+            return
+        }
 
-            if (jsonText.isEmpty()) {
-                val err = "GitHub API returned HTTP status code $code"
-                AppLogger.log("AppUpdateManager", "performUpdateCheck", false, err)
-                onResult?.let { mainHandler.post { it(err) } }
-                return
-            }
+        var latestRemoteVer: List<Int> = emptyList()
+        var latestRemoteName = ""
+        var latestRemoteUrl = ""
 
-            val releasesList = mutableListOf<org.json.JSONObject>()
-            val trimmed = jsonText.trim()
-            if (trimmed.startsWith("{")) {
-                releasesList.add(org.json.JSONObject(trimmed))
-            } else if (trimmed.startsWith("[")) {
-                val arr = org.json.JSONArray(trimmed)
-                for (i in 0 until arr.length()) {
-                    releasesList.add(arr.getJSONObject(i))
-                }
-            }
+        for (release in combinedReleases) {
+            val assets = release.optJSONArray("assets") ?: continue
+            for (j in 0 until assets.length()) {
+                val asset = assets.getJSONObject(j)
+                val assetName = asset.optString("name", "")
+                val downloadUrl = asset.optString("browser_download_url", "")
 
-            var latestRemoteVer: List<Int> = emptyList()
-            var latestRemoteName = ""
-            var latestRemoteUrl = ""
-
-            for (release in releasesList) {
-                val assets = release.optJSONArray("assets") ?: continue
-                for (j in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(j)
-                    val assetName = asset.optString("name", "")
-                    val downloadUrl = asset.optString("browser_download_url", "")
-
-                    if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotEmpty()) {
-                        val ver = extractVersionNumbers(assetName)
-                        if (isVersionNewer(ver, latestRemoteVer)) {
-                            latestRemoteVer = ver
-                            latestRemoteName = assetName
-                            latestRemoteUrl = downloadUrl
-                        }
+                if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotEmpty()) {
+                    val ver = extractVersionNumbers(assetName)
+                    if (isVersionNewer(ver, latestRemoteVer)) {
+                        latestRemoteVer = ver
+                        latestRemoteName = assetName
+                        latestRemoteUrl = downloadUrl
                     }
                 }
             }
+        }
 
             if (latestRemoteVer.isEmpty() || latestRemoteUrl.isEmpty()) {
                 val msg = "No valid APK release assets found on GitHub."
@@ -216,15 +209,7 @@ object AppUpdateManager {
                 )
                 onResult?.let { mainHandler.post { it(upToDateMsg) } }
             }
-
-        } catch (e: Exception) {
-            val errMsg = "Update check error: ${e.message}"
-            AppLogger.log("AppUpdateManager", "performUpdateCheck", false, errMsg)
-            onResult?.let { mainHandler.post { it(errMsg) } }
-        } finally {
-            conn?.disconnect()
         }
-    }
 
     private fun promptUserForUpdate(
         context: Context,
