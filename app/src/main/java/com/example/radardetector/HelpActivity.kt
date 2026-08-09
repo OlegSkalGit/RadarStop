@@ -65,8 +65,8 @@ class HelpActivity : Activity() {
             setPadding(0, 0, 0, 16)
         }
 
-        val btnClose = Button(this).apply {
-            text = "Close"
+        val btnBack = Button(this).apply {
+            text = "Back"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#3A3A3A"))
             textSize = 14f
@@ -82,19 +82,8 @@ class HelpActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val btnMenu = Button(this).apply {
-            text = "Menu"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            setOnClickListener {
-                showHelpMenuDialog()
-            }
-        }
-
-        headerLayout.addView(btnClose)
+        headerLayout.addView(btnBack)
         headerLayout.addView(headerTitle)
-        headerLayout.addView(btnMenu)
         rootLayout.addView(headerLayout)
 
         val scrollView = ScrollView(this).apply {

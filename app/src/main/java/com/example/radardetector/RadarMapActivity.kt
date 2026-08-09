@@ -20,9 +20,19 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.app.Dialog
+import android.os.Build
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.EditText
+import android.widget.ScrollView
+import android.widget.Toast
+import com.example.radardetector.audio.AcousticRadarEngine
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.math.*
+import com.example.radardetector.network.AppUpdateManager
+import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
 import java.util.Locale
@@ -40,6 +50,9 @@ class RadarMapActivity : Activity() {
     private lateinit var tvSpeedUnit: TextView
     private lateinit var tvSubLabel: TextView
     private lateinit var tvCamNearWarning: TextView
+    private lateinit var bottomStatusPanel: LinearLayout
+    private var activeSyncManager: OverpassSyncManager? = null
+    private data class CountryItem(val name: String, val code: String)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,20 +87,35 @@ class RadarMapActivity : Activity() {
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
         }
 
-        val btnBack = Button(this).apply {
-            text = "Back"
+        val btnClose = Button(this).apply {
+            text = "Close"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#3A3A3A"))
             textSize = 14f
             setOnClickListener {
-                val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-                startActivity(intent)
                 finish()
             }
         }
-        topRow.addView(btnBack)
+
+        val btnMenu = Button(this).apply {
+            text = "Menu"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(16, 0, 0, 0)
+            }
+            layoutParams = params
+            setOnClickListener {
+                showMainMenuDialog()
+            }
+        }
+
+        topRow.addView(btnClose)
+        topRow.addView(btnMenu)
         topOverlayPanel.addView(topRow)
 
         // Labels Row: Left (Speed) and Right (Cam Near) on the SAME horizontal level underneath Back button
@@ -175,7 +203,7 @@ class RadarMapActivity : Activity() {
         rootLayout.addView(topOverlayPanel, topOverlayParams)
 
         // Bottom Status Spoiler Panel
-        val bottomStatusPanel = LinearLayout(this).apply {
+        bottomStatusPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#E614181F"))
             setPadding(24, 12, 24, 16)
@@ -307,12 +335,325 @@ class RadarMapActivity : Activity() {
         }
     }
 
+    private fun updateDebugVisibility() {
+        val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+        val isDebug = prefs.getBoolean("debug_mode", false)
+        bottomStatusPanel.visibility = if (isDebug) View.VISIBLE else View.GONE
+    }
+
+    private fun showMainMenuDialog() {
+        val dialog = Dialog(this)
+        dialog.setTitle("Menu")
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
+            setBackgroundColor(Color.parseColor("#252525"))
+        }
+
+        val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+
+        fun createDivider(): View {
+            return View(this@RadarMapActivity).apply {
+                setBackgroundColor(Color.parseColor("#44FFFFFF"))
+                val params = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    2
+                ).apply {
+                    setMargins(0, 10, 0, 10)
+                }
+                layoutParams = params
+            }
+        }
+
+        val itemStyleParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            setMargins(0, 4, 0, 4)
+        }
+
+        // 1. Autostart On / Off
+        var isAutostart = prefs.getBoolean("autostart", false)
+        val btnAutostart = Button(this).apply {
+            text = if (isAutostart) "Autostart On" else "Autostart Off"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                isAutostart = !isAutostart
+                prefs.edit().putBoolean("autostart", isAutostart).apply()
+                text = if (isAutostart) "Autostart On" else "Autostart Off"
+                val statusMsg = if (isAutostart) "Start with system - Enable" else "Start with system - Disable"
+                Toast.makeText(this@RadarMapActivity, statusMsg, Toast.LENGTH_SHORT).show()
+                AppLogger.log("RadarMapActivity", "AutostartToggle", true, statusMsg)
+            }
+        }
+        container.addView(btnAutostart)
+        container.addView(createDivider())
+
+        // 2. Load country cameras & Check updates
+        val btnLoadCountryCams = Button(this).apply {
+            text = "Load country cameras"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                dialog.dismiss()
+                showCountrySelectionDialog()
+            }
+        }
+
+        val btnCheckUpdates = Button(this).apply {
+            text = "Check updates"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                dialog.dismiss()
+                Toast.makeText(this@RadarMapActivity, "Checking for updates...", Toast.LENGTH_SHORT).show()
+                AppUpdateManager.checkAndDownloadUpdate(this@RadarMapActivity, force = true) { result ->
+                    Toast.makeText(this@RadarMapActivity, result, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        container.addView(btnLoadCountryCams)
+        container.addView(btnCheckUpdates)
+        container.addView(createDivider())
+
+        // 3. Help
+        val btnHelp = Button(this).apply {
+            text = "Help"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                dialog.dismiss()
+                val intent = Intent(this@RadarMapActivity, HelpActivity::class.java)
+                startActivity(intent)
+            }
+        }
+        container.addView(btnHelp)
+        container.addView(createDivider())
+
+        // 4. Debug On / Off + Logs & Test Beep
+        var isDebug = prefs.getBoolean("debug_mode", false)
+
+        val debugSubContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        fun populateDebugItems() {
+            debugSubContainer.removeAllViews()
+            if (isDebug) {
+                val btnLogs = Button(this@RadarMapActivity).apply {
+                    text = "Logs"
+                    setTextColor(Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#3A3A3A"))
+                    layoutParams = itemStyleParams
+                    setOnClickListener {
+                        dialog.dismiss()
+                        val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java)
+                        startActivity(intent)
+                    }
+                }
+
+                val btnTestBeep = Button(this@RadarMapActivity).apply {
+                    text = "Test Beep"
+                    setTextColor(Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#3A3A3A"))
+                    layoutParams = itemStyleParams
+                    setOnClickListener {
+                        AcousticRadarEngine(this@RadarMapActivity).playSingleBeep()
+                    }
+                }
+
+                debugSubContainer.addView(btnLogs)
+                debugSubContainer.addView(btnTestBeep)
+            }
+        }
+
+        val btnDebug = Button(this).apply {
+            text = if (isDebug) "Debug On" else "Debug Off"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                isDebug = !isDebug
+                prefs.edit().putBoolean("debug_mode", isDebug).apply()
+                text = if (isDebug) "Debug On" else "Debug Off"
+                if (!isDebug) {
+                    AppLogger.setLoggingEnabled(this@RadarMapActivity, false)
+                }
+                updateDebugVisibility()
+                populateDebugItems()
+            }
+        }
+
+        container.addView(btnDebug)
+        container.addView(debugSubContainer)
+        populateDebugItems()
+        container.addView(createDivider())
+
+        // 5. Turn Off
+        val btnTurnOff = Button(this).apply {
+            text = "Turn Off"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#B30000"))
+            layoutParams = itemStyleParams
+            setOnClickListener {
+                dialog.dismiss()
+                val stopIntent = Intent(this@RadarMapActivity, RadarForegroundService::class.java).apply {
+                    action = RadarForegroundService.ACTION_STOP_SERVICE
+                }
+                startService(stopIntent)
+                finishAffinity()
+            }
+        }
+        container.addView(btnTurnOff)
+
+        dialog.setContentView(container)
+        dialog.show()
+    }
+
+    private fun showCountrySelectionDialog() {
+        val syncManager = OverpassSyncManager(applicationContext, dbHelper)
+        activeSyncManager = syncManager
+
+        val dialog = Dialog(this)
+        dialog.setTitle("Select Country")
+        dialog.setOnDismissListener {
+            syncManager.shutdown()
+            if (activeSyncManager == syncManager) {
+                activeSyncManager = null
+            }
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
+            setBackgroundColor(Color.parseColor("#252525"))
+        }
+
+        val searchInput = EditText(this).apply {
+            hint = "Search country..."
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#333333"))
+            setPadding(16, 16, 16, 16)
+        }
+
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        }
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val loadingLabel = TextView(this).apply {
+            text = "Loading countries..."
+            setTextColor(Color.GRAY)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(0, 32, 0, 32)
+        }
+        listContainer.addView(loadingLabel)
+
+        var activeCountriesList = emptyList<CountryItem>()
+
+        fun populateList(query: String) {
+            listContainer.removeAllViews()
+            val filtered = activeCountriesList.filter {
+                it.name.contains(query, ignoreCase = true) || it.code.contains(query, ignoreCase = true)
+            }
+            for (item in filtered) {
+                val btn = Button(this@RadarMapActivity).apply {
+                    text = "${item.name} (${item.code})"
+                    setTextColor(Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#3A3A3A"))
+                    val params = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 4, 0, 4)
+                    }
+                    layoutParams = params
+                    setOnClickListener {
+                        dialog.dismiss()
+                        startCountrySync(item.code, item.name)
+                    }
+                }
+                listContainer.addView(btn)
+            }
+        }
+
+        syncManager.fetchOrGetCachedCountries { fetched ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (fetched.isNotEmpty()) {
+                    activeCountriesList = fetched.map { CountryItem(it.first, it.second) }
+                    populateList(searchInput.text?.toString() ?: "")
+                } else {
+                    listContainer.removeAllViews()
+                    val errorLabel = TextView(this@RadarMapActivity).apply {
+                        text = "No countries available. Check internet."
+                        setTextColor(Color.RED)
+                        textSize = 14f
+                        gravity = Gravity.CENTER
+                        setPadding(0, 32, 0, 32)
+                    }
+                    listContainer.addView(errorLabel)
+                }
+            }
+        }
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                populateList(s?.toString() ?: "")
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        container.addView(searchInput)
+        scrollView.addView(listContainer)
+        container.addView(scrollView)
+
+        dialog.setContentView(container)
+        dialog.show()
+    }
+
+    private fun startCountrySync(countryCode: String, countryName: String) {
+        val serviceIntent = Intent(this, RadarForegroundService::class.java).apply {
+            action = RadarForegroundService.ACTION_LOAD_COUNTRY_CAMS
+            putExtra(RadarForegroundService.EXTRA_COUNTRY_CODE, countryCode)
+            putExtra(RadarForegroundService.EXTRA_COUNTRY_NAME, countryName)
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            Toast.makeText(this, "Downloading speed cameras for $countryName...", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            AppLogger.log("RadarMapActivity", "startCountrySync", false, "Failed to start service for country sync: ${e.message}")
+            Toast.makeText(this, "Failed to start camera download: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         if (!RadarForegroundService.isRunning) {
             finish()
             return
         }
+        updateDebugVisibility()
 
         RadarForegroundService.serviceStateListener = { isRunning ->
             if (!isRunning) {
@@ -336,6 +677,8 @@ class RadarMapActivity : Activity() {
     }
 
     override fun onDestroy() {
+        activeSyncManager?.shutdown()
+        activeSyncManager = null
         super.onDestroy()
     }
 

@@ -596,23 +596,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
     private fun initNotificationBuilder() {
         if (cachedNotificationBuilder == null) {
-            val stopIntent = Intent(this, RadarForegroundService::class.java).apply {
-                action = ACTION_STOP_SERVICE
-            }
-            val pStopIntent = PendingIntent.getService(
-                this, 0, stopIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val helpIntent = Intent(this, HelpActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            val pHelpIntent = PendingIntent.getActivity(
-                this, 1, helpIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val contentIntent = Intent(this, com.example.radardetector.HelpActivity::class.java).apply {
+            val contentIntent = Intent(this, com.example.radardetector.RadarMapActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
             val pContentIntent = PendingIntent.getActivity(
@@ -626,8 +610,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setContentIntent(pContentIntent)
-                .addAction(android.R.drawable.ic_menu_help, "Help", pHelpIntent)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn Off", pStopIntent)
         }
     }
 

@@ -77,10 +77,6 @@ class LogViewerActivity : Activity() {
             setBackgroundColor(Color.parseColor("#3A3A3A"))
             textSize = 14f
             setOnClickListener {
-                val intent = Intent(this@LogViewerActivity, HelpActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-                startActivity(intent)
                 finish()
             }
         }
@@ -94,19 +90,8 @@ class LogViewerActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val btnMenu = Button(this).apply {
-            text = "Menu"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            setOnClickListener {
-                showDebugMenuDialog()
-            }
-        }
-
         headerLayout.addView(btnBack)
         headerLayout.addView(headerTitle)
-        headerLayout.addView(btnMenu)
         rootLayout.addView(headerLayout)
 
         val topBar = LinearLayout(this).apply {

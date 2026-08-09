@@ -37,9 +37,10 @@ class SplashActivity : Activity() {
         AppLogger.log("SplashActivity", "onCreate", true, "SplashActivity launched.")
 
         if (RadarForegroundService.isRunning) {
-            AppLogger.log("SplashActivity", "onCreate", true, "RadarForegroundService is already running. Toast shown.")
-            Toast.makeText(applicationContext, "RadarStop Active", Toast.LENGTH_SHORT).show()
-            finishAndRemoveTask()
+            AppLogger.log("SplashActivity", "onCreate", true, "RadarForegroundService is already running. Launching RadarMapActivity...")
+            val intent = Intent(this, com.example.radardetector.RadarMapActivity::class.java)
+            startActivity(intent)
+            finish()
             return
         }
 
@@ -150,6 +151,8 @@ class SplashActivity : Activity() {
             AppLogger.log("SplashActivity", "startRadarServiceAndFinish", false, "Failed to start service: ${e.message}")
             Toast.makeText(applicationContext, "Failed to start RadarStop service: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        finishAndRemoveTask()
+        val mapIntent = Intent(this, com.example.radardetector.RadarMapActivity::class.java)
+        startActivity(mapIntent)
+        finish()
     }
 }
