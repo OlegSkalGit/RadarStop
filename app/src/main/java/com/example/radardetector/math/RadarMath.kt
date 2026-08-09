@@ -188,15 +188,16 @@ class TrajectoryFilter(
             lastBufferPushTimeMs = locTime
         }
 
+        val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
+        val isHighSpeedOver300 = instantSpeed > 300f
         val hasHighAcc = location.hasAccuracy() && location.accuracy <= 15f
 
-        if (hasHighAcc) {
-            // Замість повного clear() — усікаємо до 3 останніх точок
+        if (hasHighAcc || isHighSpeedOver300) {
+            // Усікаємо до 3 останніх точок для високої точності або швидкості > 300 км/год
             while (buffer.size > 3) {
                 buffer.removeFirst()
             }
 
-            val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
             return TrajectoryResult(
                 isValid = true,
                 isAccuracyWeak = false,
@@ -222,9 +223,8 @@ class TrajectoryFilter(
             }
 
             val ratio = if (distSumNeighboring > 0f) distExtreme / distSumNeighboring else 0f
-            // Стоянка фіксується ТІЛЬКИ якщо чисте переміщення менше 5м І відношення менше 0.35,
-            // або якщо відношення вкрай мале (<0.2) при переміщенні до 10м
-            val isStationaryCheck = (distExtreme < 5f && ratio < 0.35f) || (distExtreme < 10f && ratio < 0.20f)
+            val maxStationaryDistThreshold = if (lastPt.hasAccuracy() && lastPt.accuracy > 0f) 2f * lastPt.accuracy else 30f
+            val isStationaryCheck = (ratio <= 0.5f) && (distExtreme < maxStationaryDistThreshold)
 
             if (isStationaryCheck) {
                 return TrajectoryResult(
@@ -232,7 +232,7 @@ class TrajectoryFilter(
                     isAccuracyWeak = false,
                     points = buffer.toList(),
                     averageSpeedKmh = 0f,
-                    trajectoryBearing = location.bearing,
+                    trajectoryBearing = 0f,
                     projectedDistanceMeters = 0f,
                     isStationary = true,
                     projectedLocation = location
@@ -286,17 +286,10 @@ class TrajectoryFilter(
         val ref = points.first()
         val last = points.last()
         if (points.size < 3) {
-            val speed = if (last.hasSpeed() && last.speed > 0f) {
-                last.speed * 3.6f
-            } else {
-                val dtSec = (last.time - ref.time) / 1000.0
-                val dist = ref.distanceTo(last)
-                if (dtSec > 0.1 && dist > 0.5f) ((dist / dtSec) * 3.6).toFloat() else 0f
-            }
-            val bearing = if (ref.distanceTo(last) > 1f) ref.bearingTo(last) else last.bearing
+            val speed = if (last.hasSpeed()) last.speed * 3.6f else 0f
             return LineMetrics(
                 speedKmh = speed,
-                trajectoryBearing = bearing,
+                trajectoryBearing = last.bearing,
                 projectedDistanceMeters = ref.distanceTo(last),
                 projectedLocation = last
             )
@@ -400,6 +393,12 @@ class TrajectoryFilter(
         }
 
         val projDistMeters = ref.distanceTo(last)
+
+        if (avgSpeedKmh > 300f) {
+            while (buffer.size > 3) {
+                buffer.removeFirst()
+            }
+        }
 
         return LineMetrics(
             speedKmh = avgSpeedKmh,
