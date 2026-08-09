@@ -418,7 +418,7 @@ class RadarMapActivity : Activity() {
         ) {
             this.currentLocation = location
             this.cameras = newCameras
-            this.trajectoryBearing = if (bearing != null && bearing != 0f) bearing else null
+            this.trajectoryBearing = bearing
             this.rawTrajectoryPoints = points
             postInvalidate()
         }
@@ -489,7 +489,7 @@ class RadarMapActivity : Activity() {
             }
 
             // 2.5 Draw Raw Trajectory Tail (Gray Points & Lines) during movement
-            if (trajectoryBearing != null && rawTrajectoryPoints.size >= 2) {
+            if (rawTrajectoryPoints.size >= 2) {
                 var prevSx = -1f
                 var prevSy = -1f
                 for (rawLoc in rawTrajectoryPoints) {

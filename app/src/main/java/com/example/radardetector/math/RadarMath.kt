@@ -188,10 +188,29 @@ class TrajectoryFilter(
             lastBufferPushTimeMs = locTime
         }
 
-        val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
+        val hasHighAcc = location.hasAccuracy() && location.accuracy <= 15f
 
-        // Перевіряємо зигзаги (стоянку) ТІЛЬКИ якщо миттєва швидкість <= 5 км/год
-        if (instantSpeed <= 5f && buffer.size >= 3) {
+        if (hasHighAcc) {
+            // Замість повного clear() — усікаємо до 3 останніх точок
+            while (buffer.size > 3) {
+                buffer.removeFirst()
+            }
+
+            val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
+            return TrajectoryResult(
+                isValid = true,
+                isAccuracyWeak = false,
+                points = buffer.toList(),
+                averageSpeedKmh = instantSpeed,
+                trajectoryBearing = location.bearing,
+                projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
+                isStationary = false,
+                projectedLocation = location
+            )
+        }
+
+        // 2. Якщо точність 15м - 100м — перевіряємо зигзаги по єдиному буферу
+        if (buffer.size >= 3) {
             val pts = buffer.toList()
             val firstPt = pts.first()
             val lastPt = pts.last()
@@ -203,8 +222,9 @@ class TrajectoryFilter(
             }
 
             val ratio = if (distSumNeighboring > 0f) distExtreme / distSumNeighboring else 0f
-            // Стоянка ТІЛЬКИ якщо відстань між крайніми точками < 15м І відношення < 0.5
-            val isStationaryCheck = (ratio < 0.5f && distExtreme < 15f)
+            // Стоянка фіксується ТІЛЬКИ якщо чисте переміщення менше 5м І відношення менше 0.35,
+            // або якщо відношення вкрай мале (<0.2) при переміщенні до 10м
+            val isStationaryCheck = (distExtreme < 5f && ratio < 0.35f) || (distExtreme < 10f && ratio < 0.20f)
 
             if (isStationaryCheck) {
                 return TrajectoryResult(
@@ -212,7 +232,7 @@ class TrajectoryFilter(
                     isAccuracyWeak = false,
                     points = buffer.toList(),
                     averageSpeedKmh = 0f,
-                    trajectoryBearing = 0f,
+                    trajectoryBearing = location.bearing,
                     projectedDistanceMeters = 0f,
                     isStationary = true,
                     projectedLocation = location
@@ -221,14 +241,12 @@ class TrajectoryFilter(
         }
 
         val lm = computeLineMetrics()
-        val finalSpeed = maxOf(instantSpeed, lm.speedKmh)
-
         return TrajectoryResult(
             isValid = true,
             isAccuracyWeak = false,
             points = buffer.toList(),
-            averageSpeedKmh = finalSpeed,
-            trajectoryBearing = if (lm.trajectoryBearing != 0f) lm.trajectoryBearing else location.bearing,
+            averageSpeedKmh = lm.speedKmh,
+            trajectoryBearing = lm.trajectoryBearing,
             projectedDistanceMeters = lm.projectedDistanceMeters,
             projectedLocation = lm.projectedLocation ?: location
         )
@@ -268,10 +286,17 @@ class TrajectoryFilter(
         val ref = points.first()
         val last = points.last()
         if (points.size < 3) {
-            val speed = if (last.hasSpeed()) last.speed * 3.6f else 0f
+            val speed = if (last.hasSpeed() && last.speed > 0f) {
+                last.speed * 3.6f
+            } else {
+                val dtSec = (last.time - ref.time) / 1000.0
+                val dist = ref.distanceTo(last)
+                if (dtSec > 0.1 && dist > 0.5f) ((dist / dtSec) * 3.6).toFloat() else 0f
+            }
+            val bearing = if (ref.distanceTo(last) > 1f) ref.bearingTo(last) else last.bearing
             return LineMetrics(
                 speedKmh = speed,
-                trajectoryBearing = last.bearing,
+                trajectoryBearing = bearing,
                 projectedDistanceMeters = ref.distanceTo(last),
                 projectedLocation = last
             )
