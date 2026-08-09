@@ -235,72 +235,76 @@ class RadarMapActivity : Activity() {
     }
 
     private fun updateUi(metrics: com.example.radardetector.math.ProcessedLocationMetrics) {
-        val speedKmh = metrics.speedKmh
-        val gpsStatusStr = metrics.gpsStatusStr
-        val closestAlertCam = metrics.closestAlertCamera
-        val minAlertDist = metrics.minDistanceToAlert
+        try {
+            val speedKmh = metrics.speedKmh
+            val gpsStatusStr = metrics.gpsStatusStr
+            val closestAlertCam = metrics.closestAlertCamera
+            val minAlertDist = metrics.minDistanceToAlert
 
-        // Update Top-Right Camera Warning
-        val isCamNear = closestAlertCam != null && minAlertDist <= 300f
-        tvCamNearWarning.visibility = if (isCamNear) View.VISIBLE else View.GONE
+            // Update Top-Right Camera Warning
+            val isCamNear = closestAlertCam != null && minAlertDist <= 300f
+            tvCamNearWarning.visibility = if (isCamNear) View.VISIBLE else View.GONE
 
-        // Update Top-Left Speed Overlay & Dynamic Styling
-        val speedInt = speedKmh.toInt()
-        tvSpeedValue.text = "$speedInt"
+            // Update Top-Left Speed Overlay & Dynamic Styling
+            val speedInt = speedKmh.toInt()
+            tvSpeedValue.text = "$speedInt"
 
-        if (metrics.isAccuracyWeak) {
-            tvSpeedValue.setTextColor(Color.WHITE)
-            tvSpeedUnit.setTextColor(Color.WHITE)
-            tvSubLabel.text = "GPS bad"
-            tvSubLabel.setTextColor(Color.WHITE)
-            tvSubLabel.visibility = View.VISIBLE
-        } else {
-            if (speedKmh < 30f) {
-                val redColor = Color.parseColor("#FF1744")
-                tvSpeedValue.setTextColor(redColor)
-                tvSpeedUnit.setTextColor(redColor)
-                tvSubLabel.text = "LOW speed"
-                tvSubLabel.setTextColor(redColor)
+            if (metrics.isAccuracyWeak) {
+                tvSpeedValue.setTextColor(Color.WHITE)
+                tvSpeedUnit.setTextColor(Color.WHITE)
+                tvSubLabel.text = "GPS bad"
+                tvSubLabel.setTextColor(Color.WHITE)
                 tvSubLabel.visibility = View.VISIBLE
             } else {
-                val greenColor = Color.parseColor("#00E676")
-                tvSpeedValue.setTextColor(greenColor)
-                tvSpeedUnit.setTextColor(greenColor)
-                tvSubLabel.text = ""
-                tvSubLabel.visibility = View.GONE
+                if (speedKmh < 30f) {
+                    val redColor = Color.parseColor("#FF1744")
+                    tvSpeedValue.setTextColor(redColor)
+                    tvSpeedUnit.setTextColor(redColor)
+                    tvSubLabel.text = "LOW speed"
+                    tvSubLabel.setTextColor(redColor)
+                    tvSubLabel.visibility = View.VISIBLE
+                } else {
+                    val greenColor = Color.parseColor("#00E676")
+                    tvSpeedValue.setTextColor(greenColor)
+                    tvSpeedUnit.setTextColor(greenColor)
+                    tvSubLabel.text = ""
+                    tvSubLabel.visibility = View.GONE
+                }
             }
-        }
 
-        val activeIntervalMs = RadarForegroundService.currentGpsIntervalMs
-        val activeSec = if (activeIntervalMs > 0) activeIntervalMs / 1000L else 1L
-        val pollingIntervalStr = when (activeIntervalMs) {
-            1000L -> "1s (Camera Nearby)"
-            3000L -> if (speedKmh <= 30f) "3s (Grace Period)" else "3s (Normal)"
-            15000L -> "15s (Smart Sleep)"
-            30000L -> "30s (Sleep Mode)"
-            else -> "${activeSec}s"
-        }
-
-        val beepStatusStr = when {
-            metrics.isAccuracyWeak -> "PAUSED (Weak GPS)"
-            metrics.isStationary -> "PAUSED (Stationary Stop)"
-            speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
-            closestAlertCam != null -> {
-                val delayMs = RadarMath.calculateBeepDelay(minAlertDist)
-                val distInt = minAlertDist.toInt()
-                "ALERT ${distInt}m (${delayMs}ms)"
+            val activeIntervalMs = RadarForegroundService.currentGpsIntervalMs
+            val activeSec = if (activeIntervalMs > 0) activeIntervalMs / 1000L else 1L
+            val pollingIntervalStr = when (activeIntervalMs) {
+                1000L -> "1s (Camera Nearby)"
+                3000L -> if (speedKmh <= 30f) "3s (Grace Period)" else "3s (Normal)"
+                15000L -> "15s (Smart Sleep)"
+                30000L -> "30s (Sleep Mode)"
+                else -> "${activeSec}s"
             }
-            else -> "OFF (Idle)"
+
+            val beepStatusStr = when {
+                metrics.isAccuracyWeak -> "PAUSED (Weak GPS)"
+                metrics.isStationary -> "PAUSED (Stationary Stop)"
+                speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
+                closestAlertCam != null -> {
+                    val delayMs = RadarMath.calculateBeepDelay(minAlertDist)
+                    val distInt = minAlertDist.toInt()
+                    "ALERT ${distInt}m (${delayMs}ms)"
+                }
+                else -> "OFF (Idle)"
+            }
+
+            val displayGpsStatusStr = if (metrics.isStationary) "$gpsStatusStr [STATIONARY]" else gpsStatusStr
+            val totalDb = metrics.cameraLoadResult.totalInDb
+            val instInt = metrics.instantSpeedKmh.toInt()
+            val olsInt = metrics.olsSpeedKmh.toInt()
+            tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h (Inst: $instInt | OLS: $olsInt) | $displayGpsStatusStr | Interval: $pollingIntervalStr"
+            tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
+
+            mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing, metrics.trajectoryPoints)
+        } catch (e: Exception) {
+            AppLogger.log("RadarMapActivity", "updateUi", false, "Error updating UI: ${e.message}")
         }
-
-        val displayGpsStatusStr = if (metrics.isStationary) "$gpsStatusStr [STATIONARY]" else gpsStatusStr
-        val totalDb = dbHelper.getCameraCount()
-        val instInt = metrics.instantSpeedKmh.toInt()
-        val olsInt = metrics.olsSpeedKmh.toInt()
-        tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h (Inst: $instInt | OLS: $olsInt) | $displayGpsStatusStr | Interval: $pollingIntervalStr"
-        tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
-
-        mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing, metrics.trajectoryPoints)
     }
 
     override fun onResume() {

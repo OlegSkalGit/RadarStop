@@ -177,9 +177,10 @@ class TrajectoryFilter(
             )
         }
 
-        // Додаємо до буфера не частіше ніж раз на 1 секунду
-        val locTime = location.time
-        if (locTime - lastBufferPushTimeMs >= 1000L || buffer.isEmpty()) {
+        // Додаємо до буфера не частіше ніж раз на 1 секунду, із захистом від часових стрибків
+        val locTime = if (location.time > 0L) location.time else System.currentTimeMillis()
+        val timeDiff = locTime - lastBufferPushTimeMs
+        if (timeDiff >= 1000L || timeDiff <= 0L || buffer.isEmpty()) {
             if (buffer.size >= maxBufferSize) {
                 buffer.removeFirst()
             }
@@ -273,6 +274,7 @@ class TrajectoryFilter(
         return Pair(slope, intercept)
     }
 
+    @Synchronized
     fun computeLineMetrics(): LineMetrics {
         val points = buffer.toList()
         if (points.isEmpty()) {

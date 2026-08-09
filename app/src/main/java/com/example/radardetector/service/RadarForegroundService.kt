@@ -329,7 +329,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
-        lastLocationTimeMs = System.currentTimeMillis()
+        try {
+            lastLocationTimeMs = System.currentTimeMillis()
         audioEngine.notifyLocationUpdate()
         lastLocation = location
 
@@ -570,6 +571,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
             audioEngine.stopAlert()
             updateNotificationText(defaultStatusText)
+        }
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "onLocationChanged", false, "Unhandled exception during location processing: ${e.message}")
         }
     }
 
