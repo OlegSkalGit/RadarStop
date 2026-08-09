@@ -97,23 +97,28 @@ class HelpActivity : Activity() {
         val helpContentText = """
 RadarStop (v$appVersionName)
 
-Ультралегкий фоновий асистент водія, який попереджає про камери фіксації швидкості поблизу.
+Ultra-lightweight background driver assistant alerting you of speed cameras ahead.
 
-Не потребує додаткових налаштувань і працює у шторці сповіщень.
+Key Features & Operations:
 
-Звукові сповіщення та відстеження:
+• Background Service:
+  Runs automatically in the background with minimal battery usage. Tap the notification drawer item anytime to open the Map.
 
-• Поріг швидкості:
-  Сповіщення активні лише при швидкості авто > 30 км/год.
+• Speed Threshold & Smart Alerts:
+  - Audio warnings activate only at vehicle speeds > 30 km/h.
+  - Advance detection begins at 500m (speed ≤ 70 km/h) or 1000m (speed > 70 km/h).
+  - Beep frequency gradually accelerates from 2.0s to 0.5s as you get closer to a camera within 300m.
 
-• Дистанції та частота сповіщень:
-  - При наближенні до камери частота звукових сигналів поступово збільшується (від 2.0 с до 0.5 с на дистанції від 300 м до камери).
-  - Попереднє виявлення починається за 500 м (при швидкості ≤ 70 км/год) або за 1000 м (при швидкості > 70 км/год).
-  - Для лінійних камер (контроль середньої швидкості) постійний сигнал супроводжує протягом усього відрізка контролю.
+• Linear Camera Zones:
+  Steady audio alerts accompany you throughout average speed control sections.
 
-• База даних та Офлайн-режим:
-  - Дані про камери автоматично підтягуються під час руху за наявності інтернету та назавжди зберігаються або оновлюються у локальній базі.
-  - Скористайтеся кнопкою "Load Country Cams" для попереднього завантаження бази всієї країни перед поїздками без інтернету.
+• Map & Navigation:
+  - Displays real-time speed, direction, trajectory tail, and nearby speed cameras.
+  - Includes full camera details within 3km and 10x10km range.
+
+• Database & Offline Usage:
+  - Camera locations are saved permanently in a local database during driving.
+  - Pre-download complete country databases via "Load country cameras" for offline travel without internet access.
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {

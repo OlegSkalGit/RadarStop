@@ -84,7 +84,11 @@ class RadarMapActivity : Activity() {
         // Top Row: Back Button on the LEFT
         val topRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
         }
 
         val btnClose = Button(this).apply {
@@ -97,24 +101,26 @@ class RadarMapActivity : Activity() {
             }
         }
 
+        val topSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                0,
+                1f
+            )
+        }
+
         val btnMenu = Button(this).apply {
             text = "Menu"
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#3A3A3A"))
             textSize = 14f
-            val params = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(16, 0, 0, 0)
-            }
-            layoutParams = params
             setOnClickListener {
                 showMainMenuDialog()
             }
         }
 
         topRow.addView(btnClose)
+        topRow.addView(topSpacer)
         topRow.addView(btnMenu)
         topOverlayPanel.addView(topRow)
 
@@ -128,7 +134,7 @@ class RadarMapActivity : Activity() {
         // Left Container (Speed Display)
         val topLeftContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#B3000000"))
+            setBackgroundColor(Color.parseColor("#121212"))
             setPadding(24, 16, 24, 16)
         }
 
@@ -182,7 +188,7 @@ class RadarMapActivity : Activity() {
             textSize = 44f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#FF1744"))
-            setBackgroundColor(Color.parseColor("#B3000000"))
+            setBackgroundColor(Color.parseColor("#121212"))
             setPadding(24, 16, 24, 16)
             visibility = View.GONE
         }
@@ -342,8 +348,9 @@ class RadarMapActivity : Activity() {
     }
 
     private fun showMainMenuDialog() {
-        val dialog = Dialog(this)
-        dialog.setTitle("Menu")
+        val dialog = Dialog(this).apply {
+            requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        }
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -482,9 +489,7 @@ class RadarMapActivity : Activity() {
                 isDebug = !isDebug
                 prefs.edit().putBoolean("debug_mode", isDebug).apply()
                 text = if (isDebug) "Debug On" else "Debug Off"
-                if (!isDebug) {
-                    AppLogger.setLoggingEnabled(this@RadarMapActivity, false)
-                }
+                AppLogger.setLoggingEnabled(this@RadarMapActivity, isDebug)
                 updateDebugVisibility()
                 populateDebugItems()
             }
@@ -499,7 +504,7 @@ class RadarMapActivity : Activity() {
         val btnTurnOff = Button(this).apply {
             text = "Turn Off"
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#B30000"))
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
             layoutParams = itemStyleParams
             setOnClickListener {
                 dialog.dismiss()
