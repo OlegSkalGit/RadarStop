@@ -60,8 +60,7 @@ class RadarMapActivity : Activity() {
             finish()
             return
         }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        AppLogger.log("RadarMapActivity", "onCreate", true, "RadarMapActivity launched. Keep-awake set.")
+        AppLogger.log("RadarMapActivity", "onCreate", true, "RadarMapActivity launched.")
 
         dbHelper = DatabaseHelper(this)
 
@@ -663,6 +662,7 @@ class RadarMapActivity : Activity() {
             finish()
             return
         }
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         updateDebugVisibility()
 
         RadarForegroundService.serviceStateListener = { isRunning ->
@@ -682,6 +682,7 @@ class RadarMapActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         RadarForegroundService.metricsListener = null
         RadarForegroundService.serviceStateListener = null
     }
