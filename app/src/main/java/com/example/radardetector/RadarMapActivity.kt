@@ -303,8 +303,15 @@ class RadarMapActivity : Activity() {
                     val greenColor = Color.parseColor("#00E676")
                     tvSpeedValue.setTextColor(greenColor)
                     tvSpeedUnit.setTextColor(greenColor)
-                    tvSubLabel.text = ""
-                    tvSubLabel.visibility = View.GONE
+                    val isAccGood = metrics.location.hasAccuracy() && metrics.location.accuracy <= 15f
+                    if (isAccGood) {
+                        tvSubLabel.text = "GPS good"
+                        tvSubLabel.setTextColor(greenColor)
+                        tvSubLabel.visibility = View.VISIBLE
+                    } else {
+                        tvSubLabel.text = ""
+                        tvSubLabel.visibility = View.GONE
+                    }
                 }
             }
 
