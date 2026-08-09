@@ -106,7 +106,8 @@ object AppUpdateManager {
 
         var conn: HttpURLConnection? = null
         try {
-            val url = URL(API_URL)
+            val apiUrlStr = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
+            val url = URL(apiUrlStr)
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 10000
@@ -115,23 +116,50 @@ object AppUpdateManager {
                 setRequestProperty("Accept", "application/vnd.github.v3+json")
             }
 
-            val code = conn.responseCode
-            if (code != 200) {
+            var code = conn.responseCode
+            var jsonText = if (code == 200) {
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } else ""
+
+            if (jsonText.isEmpty()) {
+                conn.disconnect()
+                val fallbackUrl = URL("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases")
+                conn = (fallbackUrl.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10000
+                    readTimeout = 15000
+                    setRequestProperty("User-Agent", "RadarStop-Updater/1.0")
+                    setRequestProperty("Accept", "application/vnd.github.v3+json")
+                }
+                code = conn.responseCode
+                if (code == 200) {
+                    jsonText = conn.inputStream.bufferedReader().use { it.readText() }
+                }
+            }
+
+            if (jsonText.isEmpty()) {
                 val err = "GitHub API returned HTTP status code $code"
                 AppLogger.log("AppUpdateManager", "performUpdateCheck", false, err)
                 onResult?.let { mainHandler.post { it(err) } }
                 return
             }
 
-            val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
-            val releases = JSONArray(jsonText)
+            val releasesList = mutableListOf<org.json.JSONObject>()
+            val trimmed = jsonText.trim()
+            if (trimmed.startsWith("{")) {
+                releasesList.add(org.json.JSONObject(trimmed))
+            } else if (trimmed.startsWith("[")) {
+                val arr = org.json.JSONArray(trimmed)
+                for (i in 0 until arr.length()) {
+                    releasesList.add(arr.getJSONObject(i))
+                }
+            }
 
             var latestRemoteVer: List<Int> = emptyList()
             var latestRemoteName = ""
             var latestRemoteUrl = ""
 
-            for (i in 0 until releases.length()) {
-                val release = releases.getJSONObject(i)
+            for (release in releasesList) {
                 val assets = release.optJSONArray("assets") ?: continue
                 for (j in 0 until assets.length()) {
                     val asset = assets.getJSONObject(j)
