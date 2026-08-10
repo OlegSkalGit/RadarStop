@@ -135,6 +135,7 @@ class RadarMapActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#121212"))
             setPadding(24, 16, 24, 16)
+            minimumWidth = (130 * resources.displayMetrics.density).toInt()
         }
 
         val speedRow = LinearLayout(this).apply {
@@ -161,10 +162,11 @@ class RadarMapActivity : Activity() {
         speedRow.addView(tvSpeedUnit)
 
         tvSubLabel = TextView(this).apply {
-            text = "LOW speed"
+            text = "Stopped"
             textSize = 13f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
+            isSingleLine = true
             visibility = View.VISIBLE
         }
 
@@ -309,17 +311,26 @@ class RadarMapActivity : Activity() {
                 tvSpeedValue.textSize = 44f
                 tvSpeedUnit.visibility = View.VISIBLE
 
-                val speedInt = speedKmh.toInt()
-                tvSpeedValue.text = "$speedInt"
-
-                if (speedKmh < 30f) {
+                if (metrics.isStationary || speedKmh <= 3.0f) {
                     val whiteColor = Color.WHITE
+                    tvSpeedValue.text = "0"
+                    tvSpeedValue.setTextColor(whiteColor)
+                    tvSpeedUnit.setTextColor(whiteColor)
+                    tvSubLabel.text = "Stopped"
+                    tvSubLabel.setTextColor(whiteColor)
+                    tvSubLabel.visibility = View.VISIBLE
+                } else if (speedKmh < 30f) {
+                    val whiteColor = Color.WHITE
+                    val speedInt = speedKmh.toInt()
+                    tvSpeedValue.text = "$speedInt"
                     tvSpeedValue.setTextColor(whiteColor)
                     tvSpeedUnit.setTextColor(whiteColor)
                     tvSubLabel.text = "LOW speed"
                     tvSubLabel.setTextColor(whiteColor)
                     tvSubLabel.visibility = View.VISIBLE
                 } else {
+                    val speedInt = speedKmh.toInt()
+                    tvSpeedValue.text = "$speedInt"
                     val isAccGood = metrics.location.hasAccuracy() && metrics.location.accuracy <= 15f
                     if (isAccGood) {
                         val cyanColor = Color.parseColor("#00E5FF")

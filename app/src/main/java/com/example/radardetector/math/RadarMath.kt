@@ -199,10 +199,10 @@ class TrajectoryFilter(
             if (dtSec > 0.2) (first.distanceTo(last) / dtSec * 3.6).toFloat() else 0f
         } else 0f
 
-        val effectiveSpeed = maxOf(instantSpeed, derivedSpeed)
+        val effectiveSpeed = if (maxOf(instantSpeed, derivedSpeed) <= 3.0f) 0f else maxOf(instantSpeed, derivedSpeed)
 
-        if (hasHighAcc || isHighSpeedOver300) {
-            // Усікаємо до 3 останніх точок для високої точності або швидкості > 300 км/год
+        // 1. Для точного GPS (<=15м) і швидкості > 3.0 км/год — відразу обчислюємо без зайвих затримок
+        if ((hasHighAcc && instantSpeed > 3.0f) || isHighSpeedOver300) {
             while (buffer.size > 3) {
                 buffer.removeFirst()
             }
@@ -219,8 +219,8 @@ class TrajectoryFilter(
             )
         }
 
-        // 2. Якщо точність 15м - 100м — перевіряємо зигзаги по єдиному буферу
-        if (buffer.size >= 3) {
+        // 2. Перевірка на зупинку та зигзаги (при швидкості <= 3.0 км/год або звичайному GPS)
+        if (buffer.size >= 2) {
             val pts = buffer.toList()
             val firstPt = pts.first()
             val lastPt = pts.last()
@@ -232,8 +232,9 @@ class TrajectoryFilter(
             }
 
             val ratio = if (distSumNeighboring > 0f) distExtreme / distSumNeighboring else 0f
-            val maxStationaryDistThreshold = if (lastPt.hasAccuracy() && lastPt.accuracy > 0f) 2f * lastPt.accuracy else 30f
-            val isStationaryCheck = (ratio <= 0.5f) && (distExtreme < maxStationaryDistThreshold)
+            val maxStationaryDistThreshold = if (lastPt.hasAccuracy() && lastPt.accuracy > 0f) maxOf(2f * lastPt.accuracy, 15f) else 15f
+            val isLowInstant = instantSpeed <= 3.0f
+            val isStationaryCheck = (isLowInstant && (distExtreme < maxStationaryDistThreshold || derivedSpeed <= 3.0f)) || (ratio <= 0.5f)
 
             if (isStationaryCheck) {
                 return TrajectoryResult(
