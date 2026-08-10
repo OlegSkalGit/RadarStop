@@ -756,49 +756,39 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onProviderEnabled(provider: String) {
-        AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system.")
-        if (!isDeepSleepState) {
+        AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system ($provider).")
+        if (provider == LocationManager.GPS_PROVIDER) {
             registerGpsUpdates(1000L, force = true)
-        }
-        try {
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            val bestKnown = lastLocation ?: lastGps ?: lastNet
-            if (bestKnown != null) {
-                reloadCameraCacheForLocation(bestKnown)
-                val metrics = RadarMath.evaluateLocationData(bestKnown, effectiveSpeedKmh, dbHelper, getRamCachedLoadResult())
-                lastMetrics = metrics
-                metricsListener?.invoke(metrics)
-            }
-        } catch (e: Exception) {
-            AppLogger.log("RadarForegroundService", "onProviderEnabled", false, "Error processing provider enabled: ${e.message}")
+            notifyStateChange()
         }
     }
 
     override fun onProviderDisabled(provider: String) {
-        AppLogger.log("RadarForegroundService", "onProviderDisabled", false, "GPS provider disabled by user/system.")
-        updateNotificationText("GPS is Disabled in System Settings")
-        audioEngine.stopAlert()
-        val currentMetrics = lastMetrics
-        if (currentMetrics != null) {
-            metricsListener?.invoke(currentMetrics)
-        } else {
-            val fallbackLoc = Location("dummy").apply { latitude = 0.0; longitude = 0.0 }
-            val fallbackRes = getRamCachedLoadResult() ?: com.example.radardetector.math.CameraLoadResult(emptyList(), 0, 0, 0.0, 0.0, 0.0, 0.0)
-            val fallbackMetrics = com.example.radardetector.math.ProcessedLocationMetrics(
-                location = fallbackLoc,
-                speedKmh = 0f,
-                isAccuracyWeak = true,
-                gpsStatusStr = "GPS Disabled",
-                cameraLoadResult = fallbackRes,
-                inRange3kmCount = 0,
-                minDistToAnyCamera = Float.MAX_VALUE,
-                closestAlertCamera = null,
-                minDistanceToAlert = Float.MAX_VALUE,
-                continuousThreshold = 0f
+        AppLogger.log("RadarForegroundService", "onProviderDisabled", false, "GPS provider disabled by user/system ($provider).")
+        if (provider == LocationManager.GPS_PROVIDER) {
+            audioEngine.stopAlert()
+            updateNotificationText("GPS is Disabled in System Settings")
+            notifyStateChange()
+        }
+    }
+
+    private fun notifyStateChange() {
+        val loc = lastLocation ?: try {
+            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        } catch (e: Exception) { null }
+
+        if (loc != null) {
+            val metrics = RadarMath.evaluateLocationData(
+                loc,
+                effectiveSpeedKmh,
+                dbHelper,
+                getRamCachedLoadResult()
             )
-            lastMetrics = fallbackMetrics
-            metricsListener?.invoke(fallbackMetrics)
+            lastMetrics = metrics
+            metricsListener?.invoke(metrics)
+        } else {
+            lastMetrics?.let { metricsListener?.invoke(it) }
         }
     }
 

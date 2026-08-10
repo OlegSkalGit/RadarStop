@@ -55,20 +55,20 @@ class RadarMapActivity : Activity() {
     private lateinit var bottomStatusPanel: LinearLayout
     private var activeSyncManager: OverpassSyncManager? = null
     private var isDebugMode: Boolean = false
-    private data class CountryItem(val name: String, val code: String)
+    private var lastMapUpdateTimeMs: Long = System.currentTimeMillis()
+    private val mapRefreshHandler = Handler(Looper.getMainLooper())
+    private val MAP_REFRESH_INTERVAL_MS = 5000L
 
-    private var lastMapUiUpdateTimeMs: Long = System.currentTimeMillis()
-    private val mapTickerHandler = Handler(Looper.getMainLooper())
-    private val MAP_STALE_TIMEOUT_MS = 4800L // 5s interval accounting for system clock inaccuracy/jitter tolerance
-
-    private val mapTickerRunnable = object : Runnable {
+    private val mapRefreshRunnable = object : Runnable {
         override fun run() {
-            if (!isFinishing && !isDestroyed) {
-                checkAndRefreshStaleMap()
-                mapTickerHandler.postDelayed(this, 1000L)
+            val now = System.currentTimeMillis()
+            if (now - lastMapUpdateTimeMs >= MAP_REFRESH_INTERVAL_MS) {
+                refreshMapState()
             }
+            mapRefreshHandler.postDelayed(this, 1000L)
         }
     }
+    private data class CountryItem(val name: String, val code: String)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -289,7 +289,6 @@ class RadarMapActivity : Activity() {
     }
 
     private fun updateUi(metrics: com.example.radardetector.math.ProcessedLocationMetrics) {
-        lastMapUiUpdateTimeMs = System.currentTimeMillis()
         try {
             val speedKmh = metrics.speedKmh
             val gpsStatusStr = metrics.gpsStatusStr
@@ -397,50 +396,6 @@ class RadarMapActivity : Activity() {
             mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing, metrics.trajectoryPoints)
         } catch (e: Exception) {
             AppLogger.log("RadarMapActivity", "updateUi", false, "Error updating UI: ${e.message}")
-        }
-    }
-
-    private fun checkAndRefreshStaleMap() {
-        val now = System.currentTimeMillis()
-        val timeSinceLastUpdate = now - lastMapUiUpdateTimeMs
-
-        if (timeSinceLastUpdate >= MAP_STALE_TIMEOUT_MS) {
-            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
-            val metrics = RadarForegroundService.lastMetrics
-
-            if (isGpsDisabled) {
-                if (metrics != null) {
-                    updateUi(metrics)
-                } else {
-                    val redColor = Color.parseColor("#FF1744")
-                    tvSpeedValue.text = "GPS OFF"
-                    tvSpeedValue.textSize = 32f
-                    tvSpeedValue.setTextColor(redColor)
-                    tvSpeedUnit.visibility = View.GONE
-                    tvSubLabel.text = "Please enable GPS"
-                    tvSubLabel.setTextColor(redColor)
-                    tvSubLabel.visibility = View.VISIBLE
-                }
-            } else if (metrics != null) {
-                val updatedMetrics = metrics.copy(
-                    speedKmh = 0f,
-                    instantSpeedKmh = 0f,
-                    olsSpeedKmh = 0f,
-                    isStationary = true
-                )
-                updateUi(updatedMetrics)
-            } else {
-                val redColor = Color.parseColor("#FF1744")
-                tvSpeedValue.text = "Waiting GPS"
-                tvSpeedValue.textSize = 32f
-                tvSpeedValue.setTextColor(redColor)
-                tvSpeedUnit.visibility = View.GONE
-                tvSubLabel.text = "Searching satellites..."
-                tvSubLabel.setTextColor(redColor)
-                tvSubLabel.visibility = View.VISIBLE
-            }
-            lastMapUiUpdateTimeMs = now
         }
     }
 
@@ -760,6 +715,41 @@ class RadarMapActivity : Activity() {
         }
     }
 
+    private fun refreshMapState(metricsParam: com.example.radardetector.math.ProcessedLocationMetrics? = null) {
+        lastMapUpdateTimeMs = System.currentTimeMillis()
+        val metrics = metricsParam ?: RadarForegroundService.lastMetrics
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+
+        if (isGpsDisabled) {
+            val redColor = Color.parseColor("#FF1744")
+            tvSpeedValue.text = "GPS OFF"
+            tvSpeedValue.textSize = 32f
+            tvSpeedValue.setTextColor(redColor)
+            tvSpeedUnit.visibility = View.GONE
+            tvSubLabel.text = "Please enable GPS"
+            tvSubLabel.setTextColor(redColor)
+            tvSubLabel.visibility = View.VISIBLE
+            tvCamNearWarning.visibility = View.GONE
+            tvStatusLine1.text = "Speed: 0 km/h | GPS Disabled in Settings | Interval: --"
+            tvStatusLine2.text = "Beep Status: OFF (GPS Disabled) | Cams: --"
+            return
+        }
+
+        if (metrics != null) {
+            updateUi(metrics)
+        } else {
+            val redColor = Color.parseColor("#FF1744")
+            tvSpeedValue.text = "Waiting GPS"
+            tvSpeedValue.textSize = 32f
+            tvSpeedValue.setTextColor(redColor)
+            tvSpeedUnit.visibility = View.GONE
+            tvSubLabel.text = "Searching satellites..."
+            tvSubLabel.setTextColor(redColor)
+            tvSubLabel.visibility = View.VISIBLE
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         if (!RadarForegroundService.isRunning) {
@@ -769,6 +759,11 @@ class RadarMapActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         updateDebugVisibility()
 
+        val s = RadarForegroundService.instance
+        if (s?.isDeepSleepState == true) {
+            s.wakeUpFromDeepSleep("RadarMapActivity Opened")
+        }
+
         RadarForegroundService.serviceStateListener = { isRunning ->
             if (!isRunning) {
                 runOnUiThread { finish() }
@@ -776,48 +771,19 @@ class RadarMapActivity : Activity() {
         }
 
         RadarForegroundService.metricsListener = { metrics ->
-            runOnUiThread { updateUi(metrics) }
+            runOnUiThread { refreshMapState(metrics) }
         }
 
-        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-            val redColor = Color.parseColor("#FF1744")
-            tvSpeedValue.text = "GPS OFF"
-            tvSpeedValue.textSize = 32f
-            tvSpeedValue.setTextColor(redColor)
-            tvSpeedUnit.visibility = View.GONE
-            tvSubLabel.text = "Please enable GPS"
-            tvSubLabel.setTextColor(redColor)
-            tvSubLabel.visibility = View.VISIBLE
-        } else {
-            val s = RadarForegroundService.instance
-            if (s?.isDeepSleepState == true) {
-                s.wakeUpFromDeepSleep("RadarMapActivity Opened")
-            }
-            val metrics = RadarForegroundService.lastMetrics
-            if (metrics != null) {
-                updateUi(metrics)
-            } else {
-                val redColor = Color.parseColor("#FF1744")
-                tvSpeedValue.text = "Waiting GPS"
-                tvSpeedValue.textSize = 32f
-                tvSpeedValue.setTextColor(redColor)
-                tvSpeedUnit.visibility = View.GONE
-                tvSubLabel.text = "Searching satellites..."
-                tvSubLabel.setTextColor(redColor)
-                tvSubLabel.visibility = View.VISIBLE
-            }
-        }
+        mapRefreshHandler.removeCallbacks(mapRefreshRunnable)
+        mapRefreshHandler.post(mapRefreshRunnable)
 
-        lastMapUiUpdateTimeMs = System.currentTimeMillis()
-        mapTickerHandler.removeCallbacks(mapTickerRunnable)
-        mapTickerHandler.postDelayed(mapTickerRunnable, 1000L)
+        refreshMapState()
     }
 
     override fun onPause() {
         super.onPause()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        mapTickerHandler.removeCallbacks(mapTickerRunnable)
+        mapRefreshHandler.removeCallbacks(mapRefreshRunnable)
         RadarForegroundService.metricsListener = null
         RadarForegroundService.serviceStateListener = null
     }
