@@ -12,6 +12,8 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -52,7 +54,21 @@ class RadarMapActivity : Activity() {
     private lateinit var tvCamNearWarning: TextView
     private lateinit var bottomStatusPanel: LinearLayout
     private var activeSyncManager: OverpassSyncManager? = null
+    private var isDebugMode: Boolean = false
     private data class CountryItem(val name: String, val code: String)
+
+    private var lastMapUiUpdateTimeMs: Long = System.currentTimeMillis()
+    private val mapTickerHandler = Handler(Looper.getMainLooper())
+    private val MAP_STALE_TIMEOUT_MS = 4800L // 5s interval accounting for system clock inaccuracy/jitter tolerance
+
+    private val mapTickerRunnable = object : Runnable {
+        override fun run() {
+            if (!isFinishing && !isDestroyed) {
+                checkAndRefreshStaleMap()
+                mapTickerHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -273,6 +289,7 @@ class RadarMapActivity : Activity() {
     }
 
     private fun updateUi(metrics: com.example.radardetector.math.ProcessedLocationMetrics) {
+        lastMapUiUpdateTimeMs = System.currentTimeMillis()
         try {
             val speedKmh = metrics.speedKmh
             val gpsStatusStr = metrics.gpsStatusStr
@@ -383,10 +400,57 @@ class RadarMapActivity : Activity() {
         }
     }
 
+    private fun checkAndRefreshStaleMap() {
+        val now = System.currentTimeMillis()
+        val timeSinceLastUpdate = now - lastMapUiUpdateTimeMs
+
+        if (timeSinceLastUpdate >= MAP_STALE_TIMEOUT_MS) {
+            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            val metrics = RadarForegroundService.lastMetrics
+
+            if (isGpsDisabled) {
+                if (metrics != null) {
+                    updateUi(metrics)
+                } else {
+                    val redColor = Color.parseColor("#FF1744")
+                    tvSpeedValue.text = "GPS OFF"
+                    tvSpeedValue.textSize = 32f
+                    tvSpeedValue.setTextColor(redColor)
+                    tvSpeedUnit.visibility = View.GONE
+                    tvSubLabel.text = "Please enable GPS"
+                    tvSubLabel.setTextColor(redColor)
+                    tvSubLabel.visibility = View.VISIBLE
+                }
+            } else if (metrics != null) {
+                val updatedMetrics = metrics.copy(
+                    speedKmh = 0f,
+                    instantSpeedKmh = 0f,
+                    olsSpeedKmh = 0f,
+                    isStationary = true
+                )
+                updateUi(updatedMetrics)
+            } else {
+                val redColor = Color.parseColor("#FF1744")
+                tvSpeedValue.text = "Waiting GPS"
+                tvSpeedValue.textSize = 32f
+                tvSpeedValue.setTextColor(redColor)
+                tvSpeedUnit.visibility = View.GONE
+                tvSubLabel.text = "Searching satellites..."
+                tvSubLabel.setTextColor(redColor)
+                tvSubLabel.visibility = View.VISIBLE
+            }
+            lastMapUiUpdateTimeMs = now
+        }
+    }
+
     private fun updateDebugVisibility() {
         val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
-        val isDebug = prefs.getBoolean("debug_mode", false)
-        bottomStatusPanel.visibility = if (isDebug) View.VISIBLE else View.GONE
+        isDebugMode = prefs.getBoolean("debug_mode", false)
+        bottomStatusPanel.visibility = if (isDebugMode) View.VISIBLE else View.GONE
+        if (::mapView.isInitialized) {
+            mapView.postInvalidate()
+        }
     }
 
     private fun showMainMenuDialog() {
@@ -744,11 +808,16 @@ class RadarMapActivity : Activity() {
                 tvSubLabel.visibility = View.VISIBLE
             }
         }
+
+        lastMapUiUpdateTimeMs = System.currentTimeMillis()
+        mapTickerHandler.removeCallbacks(mapTickerRunnable)
+        mapTickerHandler.postDelayed(mapTickerRunnable, 1000L)
     }
 
     override fun onPause() {
         super.onPause()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        mapTickerHandler.removeCallbacks(mapTickerRunnable)
         RadarForegroundService.metricsListener = null
         RadarForegroundService.serviceStateListener = null
     }
@@ -908,8 +977,8 @@ class RadarMapActivity : Activity() {
                 }
             }
 
-            // 2.5 Draw Raw Trajectory Tail (Gray Points & Lines) ALWAYS when buffer has >= 2 points
-            if (rawTrajectoryPoints.size >= 2) {
+            // 2.5 Draw Raw Trajectory Tail (Gray Points & Lines) ONLY when Debug Mode is ON and buffer has >= 2 points
+            if (isDebugMode && rawTrajectoryPoints.size >= 2) {
                 var prevSx = -1f
                 var prevSy = -1f
                 for (rawLoc in rawTrajectoryPoints) {
