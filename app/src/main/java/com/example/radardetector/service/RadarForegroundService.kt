@@ -409,20 +409,16 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         val trajResult = trajectoryFilter.processLocation(location)
 
         val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
-        val effectiveInstant = if (instantSpeed <= 3.0f) 0f else instantSpeed
-        val olsSpeed = if (trajResult.averageSpeedKmh <= 3.0f) 0f else trajResult.averageSpeedKmh
+        val olsSpeed = trajResult.averageSpeedKmh
         val directDistSpeed = if (prevLoc != null) {
             val dtSec = (location.time - prevLoc.time) / 1000.0
-            val dist = prevLoc.distanceTo(location)
-            val rawDirect = if (dtSec in 0.2..60.0) (dist / dtSec * 3.6).toFloat() else 0f
-            if (rawDirect <= 3.0f || (effectiveInstant == 0f && dist < 5f)) 0f else rawDirect
+            if (dtSec in 0.2..60.0) (prevLoc.distanceTo(location) / dtSec * 3.6).toFloat() else 0f
         } else 0f
 
-        val rawMaxSpeed = maxOf(effectiveInstant, olsSpeed, directDistSpeed)
-        val speedKmh = if (trajResult.isStationary || rawMaxSpeed <= 3.0f) {
+        val speedKmh = if (trajResult.isStationary) {
             0f
         } else {
-            rawMaxSpeed
+            maxOf(instantSpeed, olsSpeed, directDistSpeed)
         }
         effectiveSpeedKmh = speedKmh
 
