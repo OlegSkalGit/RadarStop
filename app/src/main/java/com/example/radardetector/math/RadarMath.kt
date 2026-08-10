@@ -90,7 +90,8 @@ object RadarMath {
         trajectoryPoints: List<Location> = emptyList(),
         isStationary: Boolean = false,
         instantSpeedKmh: Float = 0f,
-        olsSpeedKmh: Float = 0f
+        olsSpeedKmh: Float = 0f,
+        isHighSpeedMode: Boolean = false
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
 
@@ -103,7 +104,7 @@ object RadarMath {
         }
 
         val loadResult = ramCacheOverride ?: load10x10Cameras(dbHelper, location.latitude, location.longitude)
-        val continuousThresh = if (speedKmh <= 60f) 50f else 100f
+        val continuousThresh = if (isHighSpeedMode || speedKmh > 70f) 100f else 50f
 
         var minDistToAnyCam = Float.MAX_VALUE
         var closestAlertCam: com.example.radardetector.db.Camera? = null

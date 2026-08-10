@@ -98,6 +98,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
     private var effectiveSpeedKmh: Float = 0f
+    private var isHighSpeedGpsMode: Boolean = false
 
     private var activeLinearEntryCam: Camera? = null
     private var activeLinearExitCam: Camera? = null
@@ -464,6 +465,14 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             reloadCameraCacheForLocation(location)
         }
 
+        // Hysteresis / Floating threshold (60 +/- 10 km/h: 50..70 km/h buffer zone)
+        // Prevents rapid switching between 500m (5s/3s) and 1000m (1s) modes when cruising around 60 km/h in city traffic.
+        if (effectiveSpeedKmh > 70f) {
+            isHighSpeedGpsMode = true
+        } else if (effectiveSpeedKmh < 50f) {
+            isHighSpeedGpsMode = false
+        }
+
         val effectiveLoc = trajResult.projectedLocation ?: location
         val metrics = RadarMath.evaluateLocationData(
             effectiveLoc,
@@ -474,7 +483,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             trajResult.points,
             trajResult.isStationary,
             instantSpeed,
-            olsSpeed
+            olsSpeed,
+            isHighSpeedGpsMode
         )
         lastMetrics = metrics
         metricsListener?.invoke(metrics)
@@ -541,7 +551,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
 
-        val maxGpsReadDistance = if (speedKmh <= 60f) 500f else 1000f
+        val maxGpsReadDistance = if (isHighSpeedGpsMode) 1000f else 500f
         val isInActiveLinearZone = (activeLinearEntryCam != null)
         val isWithinGps1sDistance = (minDistToAnyCamera <= maxGpsReadDistance)
         val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
