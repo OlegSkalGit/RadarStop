@@ -232,7 +232,7 @@ class TrajectoryFilter(
             }
 
             val ratio = if (distSumNeighboring > 0f) distExtreme / distSumNeighboring else 0f
-            val maxStationaryDistThreshold = if (lastPt.hasAccuracy() && lastPt.accuracy > 0f) 2f * lastPt.accuracy else 30f
+            val maxStationaryDistThreshold = if (lastPt.hasAccuracy() && lastPt.accuracy > 0f) maxOf(2f * lastPt.accuracy, 15f) else 15f
             val isStationaryCheck = (ratio <= 0.5f) && (distExtreme < maxStationaryDistThreshold)
 
             if (isStationaryCheck) {
