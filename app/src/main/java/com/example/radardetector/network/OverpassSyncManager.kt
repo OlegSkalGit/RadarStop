@@ -179,7 +179,12 @@ class OverpassSyncManager(
         }
     }
 
-    private fun executePostAndParseStream(urlStr: String, body: String, readTimeoutMs: Int = 30000): List<Camera>? {
+    private fun <T> executePostRequest(
+        urlStr: String,
+        body: String,
+        readTimeoutMs: Int = 30000,
+        parseBlock: (InputStream) -> T
+    ): T? {
         var conn: HttpURLConnection? = null
         return try {
             val url = URL(urlStr)
@@ -192,24 +197,28 @@ class OverpassSyncManager(
                 setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             }
             OutputStreamWriter(conn.outputStream).use { writer ->
-                writer.write("data=" + java.net.URLEncoder.encode(body, "UTF-8"))
+                writer.write("data=" + URLEncoder.encode(body, "UTF-8"))
                 writer.flush()
             }
             val code = conn.responseCode
             if (code == 200) {
                 conn.inputStream.use { inputStream ->
-                    parseOverpassStream(inputStream)
+                    parseBlock(inputStream)
                 }
             } else {
-                AppLogger.log("OverpassSyncManager", "executePostAndParseStream", false, "HTTP Error code $code from $urlStr")
+                AppLogger.log("OverpassSyncManager", "executePostRequest", false, "HTTP Error code $code from $urlStr")
                 null
             }
         } catch (e: Exception) {
-            AppLogger.log("OverpassSyncManager", "executePostAndParseStream", false, "Network error on $urlStr: ${e.message}")
+            AppLogger.log("OverpassSyncManager", "executePostRequest", false, "Network error on $urlStr: ${e.message}")
             null
         } finally {
             conn?.disconnect()
         }
+    }
+
+    private fun executePostAndParseStream(urlStr: String, body: String, readTimeoutMs: Int = 30000): List<Camera>? {
+        return executePostRequest(urlStr, body, readTimeoutMs) { parseOverpassStream(it) }
     }
 
     private fun parseOverpassStream(inputStream: java.io.InputStream): List<Camera>? {
@@ -382,34 +391,7 @@ class OverpassSyncManager(
     }
 
     private fun executePostAndParseCountriesStream(urlStr: String, query: String): List<Pair<String, String>>? {
-        var conn: HttpURLConnection? = null
-        return try {
-            val url = URL(urlStr)
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                connectTimeout = 10000
-                readTimeout = 30000
-                setRequestProperty("User-Agent", "RadarStop/1.0")
-            }
-
-            val postData = "data=" + URLEncoder.encode(query, "UTF-8")
-            conn.outputStream.use { os ->
-                os.write(postData.toByteArray(Charsets.UTF_8))
-            }
-
-            val code = conn.responseCode
-            if (code == 200) {
-                parseCountriesStream(conn.inputStream)
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            AppLogger.log("OverpassSyncManager", "executePostAndParseCountriesStream", false, "Error fetching countries from $urlStr: ${e.message}")
-            null
-        } finally {
-            conn?.disconnect()
-        }
+        return executePostRequest(urlStr, query, 30000) { parseCountriesStream(it) }
     }
 
     private fun parseCountriesStream(inputStream: InputStream): List<Pair<String, String>> {

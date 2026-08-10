@@ -44,7 +44,10 @@ object RadarMath {
      * corresponding to +-0.045 degrees around lat/lon.
      */
     fun get10x10BoxCoordinates(lat: Double, lon: Double): DoubleArray {
-        return doubleArrayOf(lat - 0.045, lat + 0.045, lon - 0.045, lon + 0.045)
+        val deltaLat = 0.045
+        val cosLat = kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2)
+        val deltaLon = (0.045 / cosLat).coerceIn(0.045, 0.5)
+        return doubleArrayOf(lat - deltaLat, lat + deltaLat, lon - deltaLon, lon + deltaLon)
     }
 
     /**

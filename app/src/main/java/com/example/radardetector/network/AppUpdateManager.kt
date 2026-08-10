@@ -19,6 +19,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.radardetector.receiver.UpdateActionReceiver
 import com.example.radardetector.util.AppLogger
@@ -75,6 +76,7 @@ object AppUpdateManager {
         if (!force && lastCheckMs != 0L && (now - lastCheckMs < CHECK_THROTTLE_MS)) {
             val hoursLeft = (CHECK_THROTTLE_MS - (now - lastCheckMs)) / 3600000L
             val msg = "Update check skipped (24h throttle active, next check in ~${hoursLeft}h)."
+            AppLogger.log("AppUpdateManager", "checkAndDownloadUpdate", true, msg)
             return
         }
 
@@ -313,6 +315,13 @@ object AppUpdateManager {
         return null
     }
 
+    fun performManualUpdateCheck(context: Context) {
+        Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
+        checkAndDownloadUpdate(context, force = true) { result ->
+            Toast.makeText(context, result, Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun showUpdateNotification(
         context: Context,
         title: String,
@@ -342,7 +351,7 @@ object AppUpdateManager {
                 context,
                 1,
                 downloadIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                com.example.radardetector.util.ServiceUtils.PENDING_INTENT_IMMUTABLE_FLAGS
             )
 
             val laterIntent = Intent(context, UpdateActionReceiver::class.java).apply {
@@ -352,7 +361,7 @@ object AppUpdateManager {
                 context,
                 2,
                 laterIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                com.example.radardetector.util.ServiceUtils.PENDING_INTENT_IMMUTABLE_FLAGS
             )
 
             val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

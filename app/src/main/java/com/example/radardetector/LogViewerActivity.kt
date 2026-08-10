@@ -5,6 +5,7 @@ import android.app.Dialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
 import android.text.Spannable
 import android.text.SpannableStringBuilder
@@ -23,10 +24,10 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
-import android.net.Uri
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.radardetector.audio.AcousticRadarEngine
+import com.example.radardetector.ui.UiUtils
 import com.example.radardetector.util.AppLogger
 import java.io.File
 
@@ -48,15 +49,6 @@ class LogViewerActivity : Activity() {
         AppLogger.initNewSession(this)
         audioEngine = AcousticRadarEngine(this)
 
-        scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val factor = detector.scaleFactor
-                currentTextSizeSp = (currentTextSizeSp * factor).coerceIn(8f, 32f)
-                textViewLog.textSize = currentTextSizeSp
-                return true
-            }
-        })
-
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#121212"))
@@ -67,33 +59,7 @@ class LogViewerActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
 
-        val headerLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 16)
-        }
-
-        val btnBack = Button(this).apply {
-            text = "Back"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            setOnClickListener {
-                finish()
-            }
-        }
-
-        val headerTitle = TextView(this).apply {
-            text = "RadarStop Debug"
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        headerLayout.addView(btnBack)
-        headerLayout.addView(headerTitle)
+        val headerLayout = UiUtils.createHeaderLayout(this, "RadarStop Debug")
         rootLayout.addView(headerLayout)
 
         val topBar = LinearLayout(this).apply {
@@ -137,6 +103,10 @@ class LogViewerActivity : Activity() {
             setTypeface(Typeface.MONOSPACE)
             setPadding(12, 12, 12, 12)
             setBackgroundColor(Color.parseColor("#1E1E1E"))
+        }
+
+        scaleGestureDetector = UiUtils.setupTextPinchZoom(this, textViewLog, currentTextSizeSp, 8f, 32f) { newSp ->
+            currentTextSizeSp = newSp
         }
 
         scrollView.addView(textViewLog)
@@ -186,41 +156,22 @@ class LogViewerActivity : Activity() {
             setMargins(4, 0, 4, 0)
         }
 
-        val btnRefresh = Button(this).apply {
-            text = "Refresh"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            layoutParams = btnParams
-            setOnClickListener {
-                val todayFile = AppLogger.getTodayFileName()
-                if (selectedLogFileName == todayFile) {
-                    refreshLog()
-                }
+        val btnRefresh = UiUtils.createStyledButton(this, "Refresh", btnParams) {
+            val todayFile = AppLogger.getTodayFileName()
+            if (selectedLogFileName == todayFile) {
+                refreshLog()
             }
         }
 
-        val btnShare = Button(this).apply {
-            text = "Share"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            layoutParams = btnParams
-            setOnClickListener { shareLog() }
+        val btnShare = UiUtils.createStyledButton(this, "Share", btnParams) {
+            shareLog()
         }
 
-        val btnClear = Button(this).apply {
-            text = "Clear"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            layoutParams = btnParams
-            setOnClickListener {
-                val fileToDelete = selectedLogFileName
-                if (!fileToDelete.isNullOrEmpty()) {
-                    AppLogger.deleteLogFile(fileToDelete)
-                    updateSpinnerFiles(selectToday = true)
-                }
+        val btnClear = UiUtils.createStyledButton(this, "Clear", btnParams) {
+            val fileToDelete = selectedLogFileName
+            if (!fileToDelete.isNullOrEmpty()) {
+                AppLogger.deleteLogFile(fileToDelete)
+                updateSpinnerFiles(selectToday = true)
             }
         }
 
@@ -248,53 +199,6 @@ class LogViewerActivity : Activity() {
         setContentView(rootLayout)
 
         updateSpinnerFiles(selectToday = true)
-    }
-
-    private fun showDebugMenuDialog() {
-        val dialog = Dialog(this)
-        dialog.setTitle("Menu")
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
-            setBackgroundColor(Color.parseColor("#252525"))
-        }
-
-        val itemStyleParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            setMargins(0, 4, 0, 4)
-        }
-
-        val btnBeep = Button(this).apply {
-            text = "Beep"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                audioEngine.playSingleBeep()
-            }
-        }
-
-        val btnMap = Button(this).apply {
-            text = "Map"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                val intent = Intent(this@LogViewerActivity, RadarMapActivity::class.java)
-                startActivity(intent)
-            }
-        }
-
-        container.addView(btnBeep)
-        container.addView(btnMap)
-
-        dialog.setContentView(container)
-        dialog.show()
     }
 
     private fun updateSpinnerFiles(selectToday: Boolean = false) {
@@ -367,6 +271,16 @@ class LogViewerActivity : Activity() {
         return super.dispatchTouchEvent(ev)
     }
 
+    private fun getLogLineColor(line: String): Int {
+        return when {
+            line.contains("FAILURE") -> Color.parseColor("#FF3366") // Red for errors
+            line.contains("SPEED THRESHOLD") || line.contains("Radar!") || line.contains("Linear Zone Alert") -> Color.parseColor("#FFD700") // Gold for speed/radar alerts
+            line.contains("Weak GPS") -> Color.parseColor("#FF9100") // Orange for weak GPS
+            line.contains("SUCCESS") -> Color.parseColor("#00FF66") // Green for success
+            else -> Color.parseColor("#00E5FF") // Cyan for general info
+        }
+    }
+
     private fun formatLogSpannable(logText: String): CharSequence {
         if (logText.startsWith("Log file") || logText.startsWith("No log file") || logText.startsWith("Error")) {
             return logText
@@ -381,24 +295,16 @@ class LogViewerActivity : Activity() {
             val lineStart = builder.length
             builder.append(line).append('\n')
 
-            val color = when {
-                line.contains("FAILURE") -> Color.parseColor("#FF3366") // Red for errors
-                line.contains("SPEED THRESHOLD") || line.contains("Radar!") || line.contains("Linear Zone Alert") -> Color.parseColor("#FFD700") // Gold for speed/radar alerts
-                line.contains("Weak GPS") -> Color.parseColor("#FF9100") // Orange for weak GPS
-                line.contains("SUCCESS") -> Color.parseColor("#00FF66") // Green for success
-                else -> Color.parseColor("#00E5FF") // Cyan for general info
-            }
+            val color = getLogLineColor(line)
 
             val endBracket = line.indexOf(']')
             if (line.startsWith('[') && endBracket > 0) {
-                // Color ONLY the date timestamp tag [yyyy-MM-dd HH:mm:ss]
                 builder.setSpan(
                     ForegroundColorSpan(color),
                     lineStart,
                     lineStart + endBracket + 1,
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
-                // Rest of line in clean light gray/white
                 builder.setSpan(
                     ForegroundColorSpan(Color.parseColor("#E0E0E0")),
                     lineStart + endBracket + 1,

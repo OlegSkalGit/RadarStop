@@ -16,6 +16,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.createSingleTopIntent
 
 class SplashActivity : Activity() {
 
@@ -40,10 +41,7 @@ class SplashActivity : Activity() {
 
         if (RadarForegroundService.isRunning) {
             AppLogger.log("SplashActivity", "onCreate", true, "RadarForegroundService is already running. Launching RadarMapActivity...")
-            val intent = Intent(this, RadarMapActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            startActivity(intent)
+            startActivity(createSingleTopIntent<RadarMapActivity>())
             finish()
             return
         }
@@ -145,20 +143,8 @@ class SplashActivity : Activity() {
     private fun startRadarServiceAndFinish() {
         AppLogger.log("SplashActivity", "startRadarServiceAndFinish", true, "Starting RadarForegroundService...")
         val serviceIntent = Intent(this, RadarForegroundService::class.java)
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-        } catch (e: Exception) {
-            AppLogger.log("SplashActivity", "startRadarServiceAndFinish", false, "Failed to start service: ${e.message}")
-            Toast.makeText(applicationContext, "Failed to start RadarStop service: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-        val mapIntent = Intent(this, RadarMapActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        startActivity(mapIntent)
+        com.example.radardetector.util.ServiceUtils.startRadarForegroundService(this, serviceIntent)
+        startActivity(createSingleTopIntent<RadarMapActivity>())
         finish()
     }
 }

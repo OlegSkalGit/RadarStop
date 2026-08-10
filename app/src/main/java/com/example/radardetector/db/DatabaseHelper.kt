@@ -5,6 +5,8 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.bindCamera
+import com.example.radardetector.util.runInTransaction
 
 class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
@@ -83,57 +85,29 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
 
     fun replaceCamerasInBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, cameras: List<Camera>) {
         cachedCameraCount = -1
-        val startMs = System.currentTimeMillis()
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
+        writableDatabase.runInTransaction("DatabaseHelper", "replaceCamerasInBox") { db ->
             db.execSQL(
                 "DELETE FROM $TABLE_CAMERAS WHERE $COLUMN_LAT BETWEEN ? AND ? AND $COLUMN_LON BETWEEN ? AND ?",
                 arrayOf(minLat, maxLat, minLon, maxLon)
             )
             db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?)").use { stmt ->
                 for (cam in cameras) {
-                    stmt.clearBindings()
-                    stmt.bindLong(1, cam.id)
-                    stmt.bindDouble(2, cam.lat)
-                    stmt.bindDouble(3, cam.lon)
-                    stmt.bindLong(4, if (cam.isLinear) 1L else 0L)
+                    stmt.bindCamera(cam)
                     stmt.executeInsert()
                 }
             }
-            db.setTransactionSuccessful()
-            val duration = System.currentTimeMillis() - startMs
-            AppLogger.log("DatabaseHelper", "replaceCamerasInBox", true, "Atomic replace of ${cameras.size} cameras in box [$minLat, $maxLat, $minLon, $maxLon] in ${duration}ms.")
-        } catch (e: Exception) {
-            AppLogger.log("DatabaseHelper", "replaceCamerasInBox", false, "Error during atomic replace: ${e.message}")
-        } finally {
-            db.endTransaction()
         }
     }
 
     fun insertCameras(cameras: List<Camera>) {
         cachedCameraCount = -1
-        val startMs = System.currentTimeMillis()
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
+        writableDatabase.runInTransaction("DatabaseHelper", "insertCameras") { db ->
             db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?)").use { stmt ->
                 for (cam in cameras) {
-                    stmt.clearBindings()
-                    stmt.bindLong(1, cam.id)
-                    stmt.bindDouble(2, cam.lat)
-                    stmt.bindDouble(3, cam.lon)
-                    stmt.bindLong(4, if (cam.isLinear) 1L else 0L)
+                    stmt.bindCamera(cam)
                     stmt.executeInsert()
                 }
             }
-            db.setTransactionSuccessful()
-            val duration = System.currentTimeMillis() - startMs
-            AppLogger.log("DatabaseHelper", "insertCameras", true, "Batch inserted ${cameras.size} cameras into SQLite DB in ${duration}ms.")
-        } catch (e: Exception) {
-            AppLogger.log("DatabaseHelper", "insertCameras", false, "Error inserting cameras: ${e.message}")
-        } finally {
-            db.endTransaction()
         }
     }
 
@@ -203,9 +177,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     fun insertCountries(countries: List<Pair<String, String>>) {
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
+        writableDatabase.runInTransaction("DatabaseHelper", "insertCountries") { db ->
             db.compileStatement("INSERT OR REPLACE INTO $TABLE_COUNTRIES ($COLUMN_COUNTRY_CODE, $COLUMN_COUNTRY_NAME) VALUES (?, ?)").use { stmt ->
                 for ((name, code) in countries) {
                     stmt.clearBindings()
@@ -214,12 +186,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
                     stmt.executeInsert()
                 }
             }
-            db.setTransactionSuccessful()
-            AppLogger.log("DatabaseHelper", "insertCountries", true, "Inserted ${countries.size} countries into SQLite DB.")
-        } catch (e: Exception) {
-            AppLogger.log("DatabaseHelper", "insertCountries", false, "Error inserting countries: ${e.message}")
-        } finally {
-            db.endTransaction()
         }
     }
 

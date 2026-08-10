@@ -1,15 +1,14 @@
 package com.example.radardetector
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.Typeface
 import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
@@ -22,12 +21,6 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.app.Dialog
-import android.os.Build
-import android.text.Editable
-import android.text.TextWatcher
-import android.widget.EditText
-import android.widget.ScrollView
 import android.widget.Toast
 import com.example.radardetector.audio.AcousticRadarEngine
 import com.example.radardetector.db.Camera
@@ -36,8 +29,9 @@ import com.example.radardetector.math.*
 import com.example.radardetector.network.AppUpdateManager
 import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.service.RadarForegroundService
+import com.example.radardetector.ui.CountrySelectionDialog
+import com.example.radardetector.ui.UiUtils
 import com.example.radardetector.util.AppLogger
-import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -53,7 +47,6 @@ class RadarMapActivity : Activity() {
     private lateinit var tvSubLabel: TextView
     private lateinit var tvCamNearWarning: TextView
     private lateinit var bottomStatusPanel: LinearLayout
-    private var activeSyncManager: OverpassSyncManager? = null
     private var isDebugMode: Boolean = false
     private var lastMapUpdateTimeMs: Long = System.currentTimeMillis()
     private val mapRefreshHandler = Handler(Looper.getMainLooper())
@@ -68,7 +61,6 @@ class RadarMapActivity : Activity() {
             mapRefreshHandler.postDelayed(this, 1000L)
         }
     }
-    private data class CountryItem(val name: String, val code: String)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,13 +82,12 @@ class RadarMapActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
-        // Top Overlay Panel (Back button on top-left, speed and cam near labels underneath on same level)
+        // Top Overlay Panel
         val topOverlayPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 0)
         }
 
-        // Top Row: Back Button on the LEFT
         val topRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -106,32 +97,16 @@ class RadarMapActivity : Activity() {
             )
         }
 
-        val btnClose = Button(this).apply {
-            text = "Close"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            setOnClickListener {
-                finish()
-            }
+        val btnClose = UiUtils.createStyledButton(this, "Close") {
+            finish()
         }
 
         val topSpacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                0,
-                1f
-            )
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
         }
 
-        val btnMenu = Button(this).apply {
-            text = "Menu"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            textSize = 14f
-            setOnClickListener {
-                showMainMenuDialog()
-            }
+        val btnMenu = UiUtils.createStyledButton(this, "Menu") {
+            showMainMenuDialog()
         }
 
         topRow.addView(btnClose)
@@ -139,14 +114,12 @@ class RadarMapActivity : Activity() {
         topRow.addView(btnMenu)
         topOverlayPanel.addView(topRow)
 
-        // Labels Row: Left (Speed) and Right (Cam Near) on the SAME horizontal level underneath Back button
         val labelsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.TOP
             setPadding(0, 12, 0, 0)
         }
 
-        // Left Container (Speed Display)
         val topLeftContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#121212"))
@@ -200,13 +173,12 @@ class RadarMapActivity : Activity() {
         }
         rootLayout.addView(topOverlayPanel, topOverlayParams)
 
-        // Bottom Overlay Panel (Holds "cam near" warning at bottom-left and bottomStatusPanel)
+        // Bottom Overlay Panel
         val bottomOverlayPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.BOTTOM or Gravity.START
         }
 
-        // Bottom Left Container ("cam near" Warning)
         val bottomLeftContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.START
@@ -226,7 +198,6 @@ class RadarMapActivity : Activity() {
         bottomLeftContainer.addView(tvCamNearWarning)
         bottomOverlayPanel.addView(bottomLeftContainer)
 
-        // Bottom Status Spoiler Panel
         bottomStatusPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#E614181F"))
@@ -288,6 +259,84 @@ class RadarMapActivity : Activity() {
         setContentView(rootLayout)
     }
 
+    private fun updateGpsSpeedDisplay(
+        isGpsDisabled: Boolean,
+        metrics: com.example.radardetector.math.ProcessedLocationMetrics?
+    ) {
+        if (isGpsDisabled) {
+            val redColor = Color.parseColor("#FF1744")
+            tvSpeedValue.text = "GPS OFF"
+            tvSpeedValue.textSize = 32f
+            tvSpeedValue.setTextColor(redColor)
+            tvSpeedUnit.visibility = View.GONE
+            tvSubLabel.text = "Please enable GPS"
+            tvSubLabel.setTextColor(redColor)
+            tvSubLabel.visibility = View.VISIBLE
+            tvCamNearWarning.visibility = View.GONE
+        } else if (metrics == null) {
+            val redColor = Color.parseColor("#FF1744")
+            tvSpeedValue.text = "Waiting GPS"
+            tvSpeedValue.textSize = 32f
+            tvSpeedValue.setTextColor(redColor)
+            tvSpeedUnit.visibility = View.GONE
+            tvSubLabel.text = "Searching satellites..."
+            tvSubLabel.setTextColor(redColor)
+            tvSubLabel.visibility = View.VISIBLE
+        } else if (metrics.isAccuracyWeak) {
+            val orangeColor = Color.parseColor("#FF9100")
+            val speedInt = metrics.speedKmh.toInt()
+            tvSpeedValue.text = "$speedInt"
+            tvSpeedValue.textSize = 44f
+            tvSpeedValue.setTextColor(orangeColor)
+            tvSpeedUnit.setTextColor(orangeColor)
+            tvSpeedUnit.visibility = View.VISIBLE
+            tvSubLabel.text = "GPS bad"
+            tvSubLabel.setTextColor(orangeColor)
+            tvSubLabel.visibility = View.VISIBLE
+        } else {
+            tvSpeedValue.textSize = 44f
+            tvSpeedUnit.visibility = View.VISIBLE
+            val speedKmh = metrics.speedKmh
+
+            if (metrics.isStationary || speedKmh <= 3.0f) {
+                val whiteColor = Color.WHITE
+                tvSpeedValue.text = "0"
+                tvSpeedValue.setTextColor(whiteColor)
+                tvSpeedUnit.setTextColor(whiteColor)
+                tvSubLabel.text = "Stopped"
+                tvSubLabel.setTextColor(whiteColor)
+                tvSubLabel.visibility = View.VISIBLE
+            } else if (speedKmh < 30f) {
+                val whiteColor = Color.WHITE
+                val speedInt = speedKmh.toInt()
+                tvSpeedValue.text = "$speedInt"
+                tvSpeedValue.setTextColor(whiteColor)
+                tvSpeedUnit.setTextColor(whiteColor)
+                tvSubLabel.text = "LOW speed"
+                tvSubLabel.setTextColor(whiteColor)
+                tvSubLabel.visibility = View.VISIBLE
+            } else {
+                val speedInt = speedKmh.toInt()
+                tvSpeedValue.text = "$speedInt"
+                val isAccGood = metrics.location.hasAccuracy() && metrics.location.accuracy <= 15f
+                if (isAccGood) {
+                    val cyanColor = Color.parseColor("#00E5FF")
+                    tvSpeedValue.setTextColor(cyanColor)
+                    tvSpeedUnit.setTextColor(cyanColor)
+                    tvSubLabel.text = "GPS good"
+                    tvSubLabel.setTextColor(cyanColor)
+                    tvSubLabel.visibility = View.VISIBLE
+                } else {
+                    val greenColor = Color.parseColor("#00E676")
+                    tvSpeedValue.setTextColor(greenColor)
+                    tvSpeedUnit.setTextColor(greenColor)
+                    tvSubLabel.text = ""
+                    tvSubLabel.visibility = View.GONE
+                }
+            }
+        }
+    }
+
     private fun updateUi(metrics: com.example.radardetector.math.ProcessedLocationMetrics) {
         try {
             val speedKmh = metrics.speedKmh
@@ -299,71 +348,9 @@ class RadarMapActivity : Activity() {
             val isCamNear = closestAlertCam != null && minAlertDist <= 300f
             tvCamNearWarning.visibility = if (isCamNear) View.VISIBLE else View.GONE
 
-            // Update Top-Left Speed Overlay & Dynamic Styling
             val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
             val isGpsDisabled = !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-
-            if (isGpsDisabled) {
-                val redColor = Color.parseColor("#FF1744")
-                tvSpeedValue.text = "GPS OFF"
-                tvSpeedValue.textSize = 32f
-                tvSpeedValue.setTextColor(redColor)
-                tvSpeedUnit.visibility = View.GONE
-                tvSubLabel.text = "Please enable GPS"
-                tvSubLabel.setTextColor(redColor)
-                tvSubLabel.visibility = View.VISIBLE
-            } else if (metrics.isAccuracyWeak) {
-                val orangeColor = Color.parseColor("#FF9100")
-                val speedInt = speedKmh.toInt()
-                tvSpeedValue.text = "$speedInt"
-                tvSpeedValue.textSize = 44f
-                tvSpeedValue.setTextColor(orangeColor)
-                tvSpeedUnit.setTextColor(orangeColor)
-                tvSpeedUnit.visibility = View.VISIBLE
-                tvSubLabel.text = "GPS bad"
-                tvSubLabel.setTextColor(orangeColor)
-                tvSubLabel.visibility = View.VISIBLE
-            } else {
-                tvSpeedValue.textSize = 44f
-                tvSpeedUnit.visibility = View.VISIBLE
-
-                if (metrics.isStationary || speedKmh <= 3.0f) {
-                    val whiteColor = Color.WHITE
-                    tvSpeedValue.text = "0"
-                    tvSpeedValue.setTextColor(whiteColor)
-                    tvSpeedUnit.setTextColor(whiteColor)
-                    tvSubLabel.text = "Stopped"
-                    tvSubLabel.setTextColor(whiteColor)
-                    tvSubLabel.visibility = View.VISIBLE
-                } else if (speedKmh < 30f) {
-                    val whiteColor = Color.WHITE
-                    val speedInt = speedKmh.toInt()
-                    tvSpeedValue.text = "$speedInt"
-                    tvSpeedValue.setTextColor(whiteColor)
-                    tvSpeedUnit.setTextColor(whiteColor)
-                    tvSubLabel.text = "LOW speed"
-                    tvSubLabel.setTextColor(whiteColor)
-                    tvSubLabel.visibility = View.VISIBLE
-                } else {
-                    val speedInt = speedKmh.toInt()
-                    tvSpeedValue.text = "$speedInt"
-                    val isAccGood = metrics.location.hasAccuracy() && metrics.location.accuracy <= 15f
-                    if (isAccGood) {
-                        val cyanColor = Color.parseColor("#00E5FF")
-                        tvSpeedValue.setTextColor(cyanColor)
-                        tvSpeedUnit.setTextColor(cyanColor)
-                        tvSubLabel.text = "GPS good"
-                        tvSubLabel.setTextColor(cyanColor)
-                        tvSubLabel.visibility = View.VISIBLE
-                    } else {
-                        val greenColor = Color.parseColor("#00E676")
-                        tvSpeedValue.setTextColor(greenColor)
-                        tvSpeedUnit.setTextColor(greenColor)
-                        tvSubLabel.text = ""
-                        tvSubLabel.visibility = View.GONE
-                    }
-                }
-            }
+            updateGpsSpeedDisplay(isGpsDisabled, metrics)
 
             val activeIntervalMs = RadarForegroundService.currentGpsIntervalMs
             val activeSec = if (activeIntervalMs > 0) activeIntervalMs / 1000L else 1L
@@ -413,96 +400,45 @@ class RadarMapActivity : Activity() {
             requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         }
 
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
-            setBackgroundColor(Color.parseColor("#252525"))
-        }
-
+        val container = UiUtils.createDarkDialogContainer(this)
         val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
-
-        fun createDivider(): View {
-            return View(this@RadarMapActivity).apply {
-                setBackgroundColor(Color.parseColor("#44FFFFFF"))
-                val params = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    2
-                ).apply {
-                    setMargins(0, 10, 0, 10)
-                }
-                layoutParams = params
-            }
-        }
-
-        val itemStyleParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            setMargins(0, 4, 0, 4)
-        }
+        val itemStyleParams = UiUtils.createStandardItemParams()
 
         // 1. Autostart On / Off
         var isAutostart = prefs.getBoolean("autostart", false)
-        val btnAutostart = Button(this).apply {
-            text = if (isAutostart) "Autostart On" else "Autostart Off"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                isAutostart = !isAutostart
-                prefs.edit().putBoolean("autostart", isAutostart).apply()
-                text = if (isAutostart) "Autostart On" else "Autostart Off"
-                val statusMsg = if (isAutostart) "Start with system - Enable" else "Start with system - Disable"
-                Toast.makeText(this@RadarMapActivity, statusMsg, Toast.LENGTH_SHORT).show()
-                AppLogger.log("RadarMapActivity", "AutostartToggle", true, statusMsg)
-            }
+        lateinit var btnAutostart: Button
+        btnAutostart = UiUtils.createStyledButton(this, if (isAutostart) "Autostart On" else "Autostart Off", itemStyleParams) {
+            isAutostart = !isAutostart
+            prefs.edit().putBoolean("autostart", isAutostart).apply()
+            btnAutostart.text = if (isAutostart) "Autostart On" else "Autostart Off"
+            val statusMsg = if (isAutostart) "Start with system - Enable" else "Start with system - Disable"
+            Toast.makeText(this@RadarMapActivity, statusMsg, Toast.LENGTH_SHORT).show()
+            AppLogger.log("RadarMapActivity", "AutostartToggle", true, statusMsg)
         }
         container.addView(btnAutostart)
-        container.addView(createDivider())
+        container.addView(UiUtils.createDialogDivider(this))
 
         // 2. Load country cameras & Check updates
-        val btnLoadCountryCams = Button(this).apply {
-            text = "Load country cameras"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                showCountrySelectionDialog()
-            }
+        val btnLoadCountryCams = UiUtils.createStyledButton(this, "Load country cameras", itemStyleParams) {
+            dialog.dismiss()
+            CountrySelectionDialog.show(this@RadarMapActivity, dbHelper)
         }
 
-        val btnCheckUpdates = Button(this).apply {
-            text = "Check updates"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                Toast.makeText(this@RadarMapActivity, "Checking for updates...", Toast.LENGTH_SHORT).show()
-                AppUpdateManager.checkAndDownloadUpdate(this@RadarMapActivity, force = true) { result ->
-                    Toast.makeText(this@RadarMapActivity, result, Toast.LENGTH_LONG).show()
-                }
-            }
+        val btnCheckUpdates = UiUtils.createStyledButton(this, "Check updates", itemStyleParams) {
+            dialog.dismiss()
+            AppUpdateManager.performManualUpdateCheck(this@RadarMapActivity)
         }
         container.addView(btnLoadCountryCams)
         container.addView(btnCheckUpdates)
-        container.addView(createDivider())
+        container.addView(UiUtils.createDialogDivider(this))
 
         // 3. Help
-        val btnHelp = Button(this).apply {
-            text = "Help"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                val intent = Intent(this@RadarMapActivity, HelpActivity::class.java)
-                startActivity(intent)
-            }
+        val btnHelp = UiUtils.createStyledButton(this, "Help", itemStyleParams) {
+            dialog.dismiss()
+            startActivity(Intent(this@RadarMapActivity, HelpActivity::class.java))
         }
         container.addView(btnHelp)
-        container.addView(createDivider())
+        container.addView(UiUtils.createDialogDivider(this))
 
         // 4. Debug On / Off + Logs & Test Beep
         var isDebug = prefs.getBoolean("debug_mode", false)
@@ -514,26 +450,13 @@ class RadarMapActivity : Activity() {
         fun populateDebugItems() {
             debugSubContainer.removeAllViews()
             if (isDebug) {
-                val btnLogs = Button(this@RadarMapActivity).apply {
-                    text = "Logs"
-                    setTextColor(Color.WHITE)
-                    setBackgroundColor(Color.parseColor("#3A3A3A"))
-                    layoutParams = itemStyleParams
-                    setOnClickListener {
-                        dialog.dismiss()
-                        val intent = Intent(this@RadarMapActivity, LogViewerActivity::class.java)
-                        startActivity(intent)
-                    }
+                val btnLogs = UiUtils.createStyledButton(this@RadarMapActivity, "Logs", itemStyleParams) {
+                    dialog.dismiss()
+                    startActivity(Intent(this@RadarMapActivity, LogViewerActivity::class.java))
                 }
 
-                val btnTestBeep = Button(this@RadarMapActivity).apply {
-                    text = "Test Beep"
-                    setTextColor(Color.WHITE)
-                    setBackgroundColor(Color.parseColor("#3A3A3A"))
-                    layoutParams = itemStyleParams
-                    setOnClickListener {
-                        AcousticRadarEngine(this@RadarMapActivity).playSingleBeep()
-                    }
+                val btnTestBeep = UiUtils.createStyledButton(this@RadarMapActivity, "Test Beep", itemStyleParams) {
+                    AcousticRadarEngine(this@RadarMapActivity).playSingleBeep()
                 }
 
                 debugSubContainer.addView(btnLogs)
@@ -541,178 +464,36 @@ class RadarMapActivity : Activity() {
             }
         }
 
-        val btnDebug = Button(this).apply {
-            text = if (isDebug) "Debug On" else "Debug Off"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                isDebug = !isDebug
-                prefs.edit().putBoolean("debug_mode", isDebug).apply()
-                text = if (isDebug) "Debug On" else "Debug Off"
-                if (!isDebug) {
-                    AppLogger.setLoggingEnabled(this@RadarMapActivity, false)
-                }
-                updateDebugVisibility()
-                populateDebugItems()
+        lateinit var btnDebug: Button
+        btnDebug = UiUtils.createStyledButton(this, if (isDebug) "Debug On" else "Debug Off", itemStyleParams) {
+            isDebug = !isDebug
+            prefs.edit().putBoolean("debug_mode", isDebug).apply()
+            btnDebug.text = if (isDebug) "Debug On" else "Debug Off"
+            if (!isDebug) {
+                AppLogger.setLoggingEnabled(this@RadarMapActivity, false)
             }
+            updateDebugVisibility()
+            populateDebugItems()
         }
 
         container.addView(btnDebug)
         container.addView(debugSubContainer)
         populateDebugItems()
-        container.addView(createDivider())
+        container.addView(UiUtils.createDialogDivider(this))
 
         // 5. Turn Off
-        val btnTurnOff = Button(this).apply {
-            text = "Turn Off"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#3A3A3A"))
-            layoutParams = itemStyleParams
-            setOnClickListener {
-                dialog.dismiss()
-                val stopIntent = Intent(this@RadarMapActivity, RadarForegroundService::class.java).apply {
-                    action = RadarForegroundService.ACTION_STOP_SERVICE
-                }
-                startService(stopIntent)
-                finishAffinity()
+        val btnTurnOff = UiUtils.createStyledButton(this, "Turn Off", itemStyleParams) {
+            dialog.dismiss()
+            val stopIntent = Intent(this@RadarMapActivity, RadarForegroundService::class.java).apply {
+                action = RadarForegroundService.ACTION_STOP_SERVICE
             }
+            startService(stopIntent)
+            finishAffinity()
         }
         container.addView(btnTurnOff)
 
         dialog.setContentView(container)
         dialog.show()
-    }
-
-    private fun showCountrySelectionDialog() {
-        val syncManager = OverpassSyncManager(applicationContext, dbHelper)
-        activeSyncManager = syncManager
-
-        val dialog = Dialog(this)
-        dialog.setTitle("Select Country")
-        dialog.setOnDismissListener {
-            syncManager.shutdown()
-            if (activeSyncManager == syncManager) {
-                activeSyncManager = null
-            }
-        }
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
-            setBackgroundColor(Color.parseColor("#252525"))
-        }
-
-        val searchInput = EditText(this).apply {
-            hint = "Search country..."
-            setHintTextColor(Color.GRAY)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#333333"))
-            setPadding(16, 16, 16, 16)
-        }
-
-        val scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
-
-        val listContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        val loadingLabel = TextView(this).apply {
-            text = "Loading countries..."
-            setTextColor(Color.GRAY)
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setPadding(0, 32, 0, 32)
-        }
-        listContainer.addView(loadingLabel)
-
-        var activeCountriesList = emptyList<CountryItem>()
-
-        fun populateList(query: String) {
-            listContainer.removeAllViews()
-            val filtered = activeCountriesList.filter {
-                it.name.contains(query, ignoreCase = true) || it.code.contains(query, ignoreCase = true)
-            }
-            for (item in filtered) {
-                val btn = Button(this@RadarMapActivity).apply {
-                    text = "${item.name} (${item.code})"
-                    setTextColor(Color.WHITE)
-                    setBackgroundColor(Color.parseColor("#3A3A3A"))
-                    val params = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        setMargins(0, 4, 0, 4)
-                    }
-                    layoutParams = params
-                    setOnClickListener {
-                        dialog.dismiss()
-                        startCountrySync(item.code, item.name)
-                    }
-                }
-                listContainer.addView(btn)
-            }
-        }
-
-        syncManager.fetchOrGetCachedCountries { fetched ->
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                if (fetched.isNotEmpty()) {
-                    activeCountriesList = fetched.map { CountryItem(it.first, it.second) }
-                    populateList(searchInput.text?.toString() ?: "")
-                } else {
-                    listContainer.removeAllViews()
-                    val errorLabel = TextView(this@RadarMapActivity).apply {
-                        text = "No countries available. Check internet."
-                        setTextColor(Color.RED)
-                        textSize = 14f
-                        gravity = Gravity.CENTER
-                        setPadding(0, 32, 0, 32)
-                    }
-                    listContainer.addView(errorLabel)
-                }
-            }
-        }
-
-        searchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                populateList(s?.toString() ?: "")
-            }
-            override fun afterTextChanged(s: Editable?) {}
-        })
-
-        container.addView(searchInput)
-        scrollView.addView(listContainer)
-        container.addView(scrollView)
-
-        dialog.setContentView(container)
-        dialog.show()
-    }
-
-    private fun startCountrySync(countryCode: String, countryName: String) {
-        val serviceIntent = Intent(this, RadarForegroundService::class.java).apply {
-            action = RadarForegroundService.ACTION_LOAD_COUNTRY_CAMS
-            putExtra(RadarForegroundService.EXTRA_COUNTRY_CODE, countryCode)
-            putExtra(RadarForegroundService.EXTRA_COUNTRY_NAME, countryName)
-        }
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-            Toast.makeText(this, "Downloading speed cameras for $countryName...", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            AppLogger.log("RadarMapActivity", "startCountrySync", false, "Failed to start service for country sync: ${e.message}")
-            Toast.makeText(this, "Failed to start camera download: ${e.message}", Toast.LENGTH_LONG).show()
-        }
     }
 
     private fun refreshMapState(metricsParam: com.example.radardetector.math.ProcessedLocationMetrics? = null) {
@@ -722,33 +503,16 @@ class RadarMapActivity : Activity() {
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
 
-        if (isGpsDisabled) {
-            val redColor = Color.parseColor("#FF1744")
-            tvSpeedValue.text = "GPS OFF"
-            tvSpeedValue.textSize = 32f
-            tvSpeedValue.setTextColor(redColor)
-            tvSpeedUnit.visibility = View.GONE
-            tvSubLabel.text = "Please enable GPS"
-            tvSubLabel.setTextColor(redColor)
-            tvSubLabel.visibility = View.VISIBLE
-            tvCamNearWarning.visibility = View.GONE
-            tvStatusLine1.text = "Speed: 0 km/h | GPS Disabled in Settings | Interval: --"
-            tvStatusLine2.text = "Beep Status: OFF (GPS Disabled) | Cams: --"
+        if (isGpsDisabled || metrics == null) {
+            updateGpsSpeedDisplay(isGpsDisabled, metrics)
+            if (isGpsDisabled) {
+                tvStatusLine1.text = "Speed: 0 km/h | GPS Disabled in Settings | Interval: --"
+                tvStatusLine2.text = "Beep Status: OFF (GPS Disabled) | Cams: --"
+            }
             return
         }
 
-        if (metrics != null) {
-            updateUi(metrics)
-        } else {
-            val redColor = Color.parseColor("#FF1744")
-            tvSpeedValue.text = "Waiting GPS"
-            tvSpeedValue.textSize = 32f
-            tvSpeedValue.setTextColor(redColor)
-            tvSpeedUnit.visibility = View.GONE
-            tvSubLabel.text = "Searching satellites..."
-            tvSubLabel.setTextColor(redColor)
-            tvSubLabel.visibility = View.VISIBLE
-        }
+        updateUi(metrics)
     }
 
     override fun onResume() {
@@ -790,8 +554,6 @@ class RadarMapActivity : Activity() {
     }
 
     override fun onDestroy() {
-        activeSyncManager?.shutdown()
-        activeSyncManager = null
         super.onDestroy()
     }
 

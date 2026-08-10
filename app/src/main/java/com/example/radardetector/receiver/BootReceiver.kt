@@ -42,11 +42,7 @@ class BootReceiver : BroadcastReceiver() {
                     val serviceIntent = Intent(context, RadarForegroundService::class.java).apply {
                         putExtra(RadarForegroundService.EXTRA_START_IN_DEEP_SLEEP, true)
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(serviceIntent)
-                    } else {
-                        context.startService(serviceIntent)
-                    }
+                    com.example.radardetector.util.ServiceUtils.startRadarForegroundService(context, serviceIntent)
                     AppLogger.log("BootReceiver", "onReceive", true, "RadarForegroundService automatically launched in Deep Sleep mode on system boot.")
                 } catch (e: IllegalStateException) {
                     AppLogger.log("BootReceiver", "onReceive", false, "ForegroundServiceStartNotAllowedException / Background start restricted by Android OS: ${e.message}")
