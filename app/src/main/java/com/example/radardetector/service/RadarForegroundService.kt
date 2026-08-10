@@ -125,6 +125,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
         currentGpsIntervalMs = 0L
         watchdogHandler.removeCallbacks(watchdogRunnable)
+        watchdogHandler.removeCallbacks(staleGpsRunnable)
 
         if (!isAccelerometerRegistered) {
             accelerometer?.let {
@@ -153,6 +154,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         lastLocationTimeMs = System.currentTimeMillis()
         watchdogHandler.removeCallbacks(watchdogRunnable)
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
+        watchdogHandler.removeCallbacks(staleGpsRunnable)
+        watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
 
         // Instant metrics evaluation from last known location upon wakeup
         try {
@@ -182,12 +185,22 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     @Volatile
     private var lastLocationTimeMs: Long = System.currentTimeMillis()
     private val WATCHDOG_CHECK_INTERVAL_MS = 60000L
+    private val STALE_CHECK_INTERVAL_MS = 2000L
 
     private val watchdogRunnable = object : Runnable {
         override fun run() {
             if (!isRunning || isDeepSleepState) return
             checkWatchdogStall()
             watchdogHandler.postDelayed(this, WATCHDOG_CHECK_INTERVAL_MS)
+        }
+    }
+
+    private val staleGpsRunnable = object : Runnable {
+        override fun run() {
+            if (isRunning && !isDeepSleepState) {
+                checkStaleGpsAndResetSpeed()
+            }
+            watchdogHandler.postDelayed(this, STALE_CHECK_INTERVAL_MS)
         }
     }
 
@@ -258,6 +271,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
+        watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
 
         AppLogger.log("RadarForegroundService", "onCreate", true, "Searching for GPS satellites...")
 
@@ -362,6 +376,28 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 true,
                 "GPS WATCHDOG OK: Last location update received ${timeSinceLastLoc / 1000}s ago."
             )
+        }
+    }
+
+    fun checkStaleGpsAndResetSpeed() {
+        if (isDeepSleepState || !isRunning) return
+        val now = System.currentTimeMillis()
+        val timeSinceLastLoc = now - lastLocationTimeMs
+        if (timeSinceLastLoc >= 3500L) {
+            val currentMetrics = lastMetrics
+            if (currentMetrics != null && (currentMetrics.speedKmh > 0f || !currentMetrics.isStationary)) {
+                effectiveSpeedKmh = 0f
+                val staleMetrics = currentMetrics.copy(
+                    speedKmh = 0f,
+                    isStationary = true,
+                    closestAlertCamera = null,
+                    minDistanceToAlert = Float.MAX_VALUE
+                )
+                lastMetrics = staleMetrics
+                metricsListener?.invoke(staleMetrics)
+                audioEngine.stopAlert()
+                AppLogger.log("RadarForegroundService", "checkStaleGpsAndResetSpeed", true, "GPS paused for ${timeSinceLastLoc / 1000}s. Speed reset to 0 km/h [Stationary].")
+            }
         }
     }
 
@@ -721,6 +757,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         AlarmWatchdogReceiver.cancelAlarm(this)
         AppLogger.log("RadarForegroundService", "stopSelfAndCleanup", true, "Cancelled background AlarmManager timer.")
         watchdogHandler.removeCallbacks(watchdogRunnable)
+        watchdogHandler.removeCallbacks(staleGpsRunnable)
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()

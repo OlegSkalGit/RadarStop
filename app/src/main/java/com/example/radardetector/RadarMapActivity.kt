@@ -717,6 +717,7 @@ class RadarMapActivity : Activity() {
 
     private fun refreshMapState(metricsParam: com.example.radardetector.math.ProcessedLocationMetrics? = null) {
         lastMapUpdateTimeMs = System.currentTimeMillis()
+        RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
