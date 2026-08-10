@@ -153,6 +153,28 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         lastLocationTimeMs = System.currentTimeMillis()
         watchdogHandler.removeCallbacks(watchdogRunnable)
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
+
+        // Instant metrics evaluation from last known location upon wakeup
+        try {
+            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            val bestKnown = lastLocation ?: lastGps ?: lastNet
+            if (bestKnown != null) {
+                reloadCameraCacheForLocation(bestKnown)
+                val initialMetrics = RadarMath.evaluateLocationData(
+                    bestKnown,
+                    effectiveSpeedKmh,
+                    dbHelper,
+                    getRamCachedLoadResult()
+                )
+                lastMetrics = initialMetrics
+                metricsListener?.invoke(initialMetrics)
+                AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "Instant metrics initialized on wakeup from location (${bestKnown.latitude}, ${bestKnown.longitude}).")
+            }
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", false, "Error getting initial location on wakeup: ${e.message}")
+        }
+
         registerGpsUpdates(1000L, force = true)
     }
 
@@ -175,6 +197,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         isRunning = true
         getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).edit().putBoolean("user_stopped", false).apply()
         lastLocationTimeMs = System.currentTimeMillis()
+
+        createNotificationChannel()
+        val initialText = "Searching for GPS..."
+        lastNotificationText = initialText
+        startForeground(NOTIF_ID, buildNotification(initialText))
 
         val appVersionName = try {
             if (Build.VERSION.SDK_INT >= 33) {
@@ -232,10 +259,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
 
-        createNotificationChannel()
-        val initialText = "Searching for GPS..."
-        lastNotificationText = initialText
-        startForeground(NOTIF_ID, buildNotification(initialText))
         AppLogger.log("RadarForegroundService", "onCreate", true, "Searching for GPS satellites...")
 
         registerGpsUpdates(1000L, force = true)
@@ -246,8 +269,17 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
             val bestKnown = lastGps ?: lastNet
             if (bestKnown != null) {
-                AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Loading 10x10km DB cache immediately...")
+                lastLocation = bestKnown
+                AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Loading 10x10km DB cache & evaluating initial metrics immediately...")
                 reloadCameraCacheForLocation(bestKnown)
+                val initialMetrics = RadarMath.evaluateLocationData(
+                    bestKnown,
+                    0f,
+                    dbHelper,
+                    getRamCachedLoadResult()
+                )
+                lastMetrics = initialMetrics
+                metricsListener?.invoke(initialMetrics)
             }
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "onCreate", false, "Permission missing for last known location: ${e.message}")

@@ -294,6 +294,17 @@ class RadarMapActivity : Activity() {
                 tvSubLabel.text = "Please enable GPS"
                 tvSubLabel.setTextColor(redColor)
                 tvSubLabel.visibility = View.VISIBLE
+            } else if (metrics.isAccuracyWeak) {
+                val orangeColor = Color.parseColor("#FF9100")
+                val speedInt = speedKmh.toInt()
+                tvSpeedValue.text = "$speedInt"
+                tvSpeedValue.textSize = 44f
+                tvSpeedValue.setTextColor(orangeColor)
+                tvSpeedUnit.setTextColor(orangeColor)
+                tvSpeedUnit.visibility = View.VISIBLE
+                tvSubLabel.text = "GPS bad"
+                tvSubLabel.setTextColor(orangeColor)
+                tvSubLabel.visibility = View.VISIBLE
             } else {
                 tvSpeedValue.textSize = 44f
                 tvSpeedUnit.visibility = View.VISIBLE
@@ -301,14 +312,7 @@ class RadarMapActivity : Activity() {
                 val speedInt = speedKmh.toInt()
                 tvSpeedValue.text = "$speedInt"
 
-                if (metrics.isAccuracyWeak) {
-                    val orangeColor = Color.parseColor("#FF9100")
-                    tvSpeedValue.setTextColor(orangeColor)
-                    tvSpeedUnit.setTextColor(orangeColor)
-                    tvSubLabel.text = "GPS bad"
-                    tvSubLabel.setTextColor(orangeColor)
-                    tvSubLabel.visibility = View.VISIBLE
-                } else if (speedKmh < 30f) {
+                if (speedKmh < 30f) {
                     val whiteColor = Color.WHITE
                     tvSpeedValue.setTextColor(whiteColor)
                     tvSpeedUnit.setTextColor(whiteColor)
@@ -715,8 +719,18 @@ class RadarMapActivity : Activity() {
             if (s?.isDeepSleepState == true) {
                 s.wakeUpFromDeepSleep("RadarMapActivity Opened")
             }
-            RadarForegroundService.lastMetrics?.let {
-                updateUi(it)
+            val metrics = RadarForegroundService.lastMetrics
+            if (metrics != null) {
+                updateUi(metrics)
+            } else {
+                val redColor = Color.parseColor("#FF1744")
+                tvSpeedValue.text = "Waiting GPS"
+                tvSpeedValue.textSize = 32f
+                tvSpeedValue.setTextColor(redColor)
+                tvSpeedUnit.visibility = View.GONE
+                tvSubLabel.text = "Searching satellites..."
+                tvSubLabel.setTextColor(redColor)
+                tvSubLabel.visibility = View.VISIBLE
             }
         }
     }
