@@ -295,8 +295,8 @@ class RadarMapActivity : Activity() {
             val closestAlertCam = metrics.closestAlertCamera
             val minAlertDist = metrics.minDistanceToAlert
 
-            // Update Top-Right Camera Warning
-            val isCamNear = closestAlertCam != null && minAlertDist <= 300f
+            // Update Top-Right Camera Warning (Synchronized with Audio Alert: speed > 30 km/h and valid GPS)
+            val isCamNear = closestAlertCam != null && minAlertDist <= 300f && speedKmh > 30f && !metrics.isStationary && !metrics.isAccuracyWeak
             tvCamNearWarning.visibility = if (isCamNear) View.VISIBLE else View.GONE
 
             // Update Top-Left Speed Overlay & Dynamic Styling

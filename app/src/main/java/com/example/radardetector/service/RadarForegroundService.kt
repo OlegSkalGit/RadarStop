@@ -402,8 +402,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (!isRunning) return
         try {
             lastLocationTimeMs = System.currentTimeMillis()
-        val prevLoc = lastLocation
-        lastLocation = location
+            audioEngine.notifyLocationUpdate()
+            val prevLoc = lastLocation
+            lastLocation = location
 
         val trajResult = trajectoryFilter.processLocation(location)
 
