@@ -154,6 +154,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
         stationaryStopStartTimeMs = 0L
         lastLocationTimeMs = System.currentTimeMillis()
+        lastPointIntervalMs = 2333L
         watchdogHandler.removeCallbacks(watchdogRunnable)
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
         watchdogHandler.removeCallbacks(staleGpsRunnable)
@@ -186,6 +187,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private val watchdogHandler = Handler(Looper.getMainLooper())
     @Volatile
     private var lastLocationTimeMs: Long = System.currentTimeMillis()
+    @Volatile
+    private var lastPointIntervalMs: Long = 2333L
     private val WATCHDOG_CHECK_INTERVAL_MS = 60000L
     private val STALE_CHECK_INTERVAL_MS = 2000L
 
@@ -376,7 +379,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (isDeepSleepState || !isRunning) return
         val now = System.currentTimeMillis()
         val timeSinceLastLoc = now - lastLocationTimeMs
-        if (timeSinceLastLoc >= 3500L) {
+        val dynamicStaleTimeoutMs = minOf((lastPointIntervalMs * 1.5).toLong(), 10000L)
+        if (timeSinceLastLoc >= dynamicStaleTimeoutMs) {
             val currentMetrics = lastMetrics
             if (currentMetrics != null && (currentMetrics.speedKmh > 0f || !currentMetrics.isStationary)) {
                 effectiveSpeedKmh = 0f
@@ -389,7 +393,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 lastMetrics = staleMetrics
                 metricsListener?.invoke(staleMetrics)
                 audioEngine.stopAlert()
-                AppLogger.log("RadarForegroundService", "checkStaleGpsAndResetSpeed", true, "GPS paused for ${timeSinceLastLoc / 1000}s. Speed reset to 0 km/h [Stationary].")
+                AppLogger.log("RadarForegroundService", "checkStaleGpsAndResetSpeed", true, "GPS paused for ${timeSinceLastLoc / 1000}s (Threshold: ${dynamicStaleTimeoutMs}ms). Speed reset to 0 km/h [Stationary].")
             }
         }
     }
@@ -430,10 +434,21 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     override fun onLocationChanged(location: Location) {
         if (!isRunning) return
         try {
-            lastLocationTimeMs = System.currentTimeMillis()
-            audioEngine.notifyLocationUpdate()
+            val now = System.currentTimeMillis()
             val prevLoc = lastLocation
-        lastLocation = location
+            if (prevLoc != null) {
+                val dt = if (location.time > 0L && prevLoc.time > 0L && location.time > prevLoc.time) {
+                    location.time - prevLoc.time
+                } else {
+                    now - lastLocationTimeMs
+                }
+                if (dt in 100L..30000L) {
+                    lastPointIntervalMs = dt
+                }
+            }
+            lastLocationTimeMs = now
+            audioEngine.notifyLocationUpdate()
+            lastLocation = location
 
         val trajResult = trajectoryFilter.processLocation(location)
 
@@ -451,7 +466,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
         effectiveSpeedKmh = speedKmh
 
-        val now = System.currentTimeMillis()
         val lat = location.latitude
         val lon = location.longitude
 
