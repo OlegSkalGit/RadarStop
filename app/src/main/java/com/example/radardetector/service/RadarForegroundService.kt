@@ -447,7 +447,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 }
             }
             lastLocationTimeMs = now
-            audioEngine.notifyLocationUpdate()
+            val dynamicStaleTimeoutMs = minOf((lastPointIntervalMs * 1.5).toLong(), 10000L)
+            audioEngine.notifyLocationUpdate(dynamicStaleTimeoutMs)
             lastLocation = location
 
         val trajResult = trajectoryFilter.processLocation(location)

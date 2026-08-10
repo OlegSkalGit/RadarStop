@@ -226,9 +226,9 @@ class TrajectoryFilter(
         // 2. Якщо точність 15м - 100м — перевіряємо зигзаги по єдиному буферу
         if (buffer.size >= 3) {
             val pts = buffer.toList()
-            val firstPt = pts.first()
             val lastPt = pts.last()
-            val distExtreme = firstPt.distanceTo(lastPt)
+            // Знаходимо найбільшу відстань від останньої точки до будь-якої з попередніх точок у буфері
+            val distExtreme = pts.subList(0, pts.size - 1).maxOf { it.distanceTo(lastPt) }
 
             var distSumNeighboring = 0f
             for (i in 0 until pts.size - 1) {

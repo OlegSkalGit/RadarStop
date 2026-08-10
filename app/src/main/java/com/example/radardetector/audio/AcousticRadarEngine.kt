@@ -20,9 +20,12 @@ class AcousticRadarEngine(private val context: Context) {
     private var currentDelayMs: Long = 1500
     @Volatile
     private var lastGpsUpdateMs: Long = 0L
+    @Volatile
+    private var dynamicStaleTimeoutMs: Long = 10000L
 
-    fun notifyLocationUpdate() {
+    fun notifyLocationUpdate(staleTimeoutMs: Long = 10000L) {
         lastGpsUpdateMs = System.currentTimeMillis()
+        dynamicStaleTimeoutMs = staleTimeoutMs
     }
 
     private val audioExecutor = Executors.newSingleThreadExecutor()
@@ -160,12 +163,12 @@ class AcousticRadarEngine(private val context: Context) {
                 while (isBeeping) {
                     try {
                         val now = System.currentTimeMillis()
-                        if (lastGpsUpdateMs != 0L && (now - lastGpsUpdateMs > 3500L)) {
+                        if (lastGpsUpdateMs != 0L && (now - lastGpsUpdateMs > dynamicStaleTimeoutMs)) {
                             AppLogger.log(
                                 "AcousticRadarEngine",
                                 "beepThread",
                                 false,
-                                "GPS stalled for >3.5s during alert (${now - lastGpsUpdateMs}ms). Automatically stopping sound."
+                                "GPS stalled for >${dynamicStaleTimeoutMs}ms during alert (${now - lastGpsUpdateMs}ms). Automatically stopping sound and releasing audio focus."
                             )
                             stopAlert()
                             break
