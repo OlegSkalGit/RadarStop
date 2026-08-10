@@ -41,6 +41,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         const val ACTION_LOAD_COUNTRY_CAMS = "com.example.radardetector.ACTION_LOAD_COUNTRY_CAMS"
         const val EXTRA_COUNTRY_CODE = "extra_country_code"
         const val EXTRA_COUNTRY_NAME = "extra_country_name"
+        const val EXTRA_START_IN_DEEP_SLEEP = "extra_start_in_deep_sleep"
 
         @Volatile
         var isRunning = false
@@ -92,7 +93,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private var lastRamReloadLat = 0.0
     private var lastRamReloadLon = 0.0
 
-    private var speedDropBelow30TimeMs = 0L
+    private var stationaryStopStartTimeMs = 0L
     private var lastLoggedSpeedMode: String = ""
     private var currentAlertCameraId: Long? = null
     private var effectiveSpeedKmh: Float = 0f
@@ -108,7 +109,52 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
     private var lastMotionCheckTimeMs: Long = 0L
+    @Volatile
+    var isDeepSleepState: Boolean = false
+    private var isAccelerometerRegistered: Boolean = false
     private var wakeLock: PowerManager.WakeLock? = null
+
+    fun enterDeepSleep() {
+        if (isDeepSleepState) return
+        isDeepSleepState = true
+        AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "DEEP SLEEP: Stationed > 3 minutes. Disabling active GPS polling & watchdogHandler, activating low-level accelerometer motion trigger...")
+        try {
+            locationManager.removeUpdates(this)
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "enterDeepSleep", false, "Error removing GPS updates: ${e.message}")
+        }
+        currentGpsIntervalMs = 0L
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+
+        if (!isAccelerometerRegistered) {
+            accelerometer?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+                isAccelerometerRegistered = true
+                AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "REGISTERED Accelerometer sensor for motion wakeup.")
+            }
+        }
+        updateNotificationText("Deep Sleep: Stationed (>3m). Accelerometer active.")
+    }
+
+    fun wakeUpFromDeepSleep(reason: String) {
+        if (!isDeepSleepState) return
+        isDeepSleepState = false
+        AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "WAKEUP TRIGGERED ($reason). Unregistering accelerometer sensor, resuming watchdogHandler and 1s GPS updates...")
+        if (isAccelerometerRegistered) {
+            try {
+                sensorManager.unregisterListener(this)
+            } catch (e: Exception) {
+                AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", false, "Error unregistering sensor: ${e.message}")
+            }
+            isAccelerometerRegistered = false
+            AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "UNREGISTERED Accelerometer sensor (application awake).")
+        }
+        stationaryStopStartTimeMs = 0L
+        lastLocationTimeMs = System.currentTimeMillis()
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
+        registerGpsUpdates(1000L, force = true)
+    }
 
     private val watchdogHandler = Handler(Looper.getMainLooper())
     @Volatile
@@ -117,7 +163,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
     private val watchdogRunnable = object : Runnable {
         override fun run() {
-            if (!isRunning) return
+            if (!isRunning || isDeepSleepState) return
             checkWatchdogStall()
             watchdogHandler.postDelayed(this, WATCHDOG_CHECK_INTERVAL_MS)
         }
@@ -184,10 +230,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
-            AppLogger.log("RadarForegroundService", "onCreate", true, "Registered Accelerometer sensor for motion wakeup.")
-        }
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
 
         createNotificationChannel()
@@ -215,6 +257,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra(EXTRA_START_IN_DEEP_SLEEP, false) == true) {
+            AppLogger.log("RadarForegroundService", "onStartCommand", true, "Started with EXTRA_START_IN_DEEP_SLEEP=true. Entering Deep Sleep mode with active accelerometer...")
+            enterDeepSleep()
+        }
+
         if (intent?.action == ACTION_STOP_SERVICE) {
             AppLogger.log("RadarForegroundService", "onStartCommand", true, "Received ACTION_STOP_SERVICE intent. Stopping service...")
             stopSelfAndCleanup()
@@ -255,16 +302,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 minDistance,
                 this
             )
-            // Dual Provider Fallback: Also listen to NETWORK_PROVIDER every 60s
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER,
-                    60000L,
-                    20f,
-                    this
-                )
-            }
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms (minDistance: ${minDistance}m) + NETWORK fallback 60s. Searching for GPS satellites...")
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms (minDistance: ${minDistance}m). Searching for GPS satellites...")
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
             updateNotificationText("Weak GPS signal (>15m)")
@@ -274,6 +312,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     fun checkWatchdogStall() {
+        if (isDeepSleepState) return
         val now = System.currentTimeMillis()
         val timeSinceLastLoc = now - lastLocationTimeMs
         if (timeSinceLastLoc >= WATCHDOG_CHECK_INTERVAL_MS) {
@@ -331,18 +370,22 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (!isRunning) return
         try {
             lastLocationTimeMs = System.currentTimeMillis()
-        audioEngine.notifyLocationUpdate()
+        val prevLoc = lastLocation
         lastLocation = location
 
         val trajResult = trajectoryFilter.processLocation(location)
 
         val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
         val olsSpeed = trajResult.averageSpeedKmh
+        val directDistSpeed = if (prevLoc != null) {
+            val dtSec = (location.time - prevLoc.time) / 1000.0
+            if (dtSec in 0.2..60.0) (prevLoc.distanceTo(location) / dtSec * 3.6).toFloat() else 0f
+        } else 0f
 
         val speedKmh = if (trajResult.isStationary) {
             0f
         } else {
-            maxOf(instantSpeed, olsSpeed)
+            maxOf(instantSpeed, olsSpeed, directDistSpeed)
         }
         effectiveSpeedKmh = speedKmh
 
@@ -442,26 +485,31 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         val isWithinGps1sDistance = (minDistToAnyCamera <= maxGpsReadDistance)
         val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
 
-        val targetInterval = if (speedKmh <= 30f) {
-            if (speedDropBelow30TimeMs == 0L) {
-                speedDropBelow30TimeMs = now
+        val isFullStop = metrics.isStationary || speedKmh == 0f
+
+        val targetInterval = if (isFullStop) {
+            if (stationaryStopStartTimeMs == 0L) {
+                stationaryStopStartTimeMs = now
             }
-            val timeBelow30Ms = now - speedDropBelow30TimeMs
-            if (timeBelow30Ms < 3 * 60 * 1000L) {
-                if (lastLoggedSpeedMode != "SLOW_GRACE_3MIN") {
-                    lastLoggedSpeedMode = "SLOW_GRACE_3MIN"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h (${speedKmh.toInt()} km/h). 3-min Grace Period active: Polling interval kept at 3s.")
+            val timeStoppedMs = now - stationaryStopStartTimeMs
+            if (timeStoppedMs < 3 * 60 * 1000L) {
+                if (lastLoggedSpeedMode != "STOPPED_GRACE_3MIN") {
+                    lastLoggedSpeedMode = "STOPPED_GRACE_3MIN"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "STATIONARY STOP: Vehicle stopped. 3-min Grace Period active: Polling interval kept at 3s.")
                 }
                 3000L
             } else {
-                if (lastLoggedSpeedMode != "SLOW") {
-                    lastLoggedSpeedMode = "SLOW"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Speed <= 30 km/h for >3 minutes (${speedKmh.toInt()} km/h). Polling interval: 30s. Beep alerts inactive.")
+                if (lastLoggedSpeedMode != "DEEP_SLEEP") {
+                    lastLoggedSpeedMode = "DEEP_SLEEP"
                 }
-                30000L
+                enterDeepSleep()
+                return
             }
         } else {
-            speedDropBelow30TimeMs = 0L
+            stationaryStopStartTimeMs = 0L
+            if (isDeepSleepState) {
+                wakeUpFromDeepSleep("Vehicle Motion Started (${speedKmh.toInt()} km/h)")
+            }
             when {
                 isWithinGps1sDistance || isInActiveLinearZone -> {
                     if (lastLoggedSpeedMode != "CAMERA_NEARBY_1S") {
@@ -478,11 +526,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     3000L
                 }
                 else -> {
-                    if (lastLoggedSpeedMode != "SMART_SLEEP") {
-                        lastLoggedSpeedMode = "SMART_SLEEP"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (No cameras within 3km). Polling interval: 15s.")
+                    if (lastLoggedSpeedMode != "SMART_SLEEP_5S") {
+                        lastLoggedSpeedMode = "SMART_SLEEP_5S"
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (No cameras within 3km). Polling interval: 5s.")
                     }
-                    15000L
+                    5000L
                 }
             }
         }
@@ -681,24 +729,21 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     override fun onSensorChanged(event: SensorEvent?) {
         if (!isRunning || event == null) return
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-            val now = System.currentTimeMillis()
-            if (now - lastMotionCheckTimeMs < 60000L) return
-            lastMotionCheckTimeMs = now
-
+            if (!isDeepSleepState) return
             val x = event.values[0]
             val y = event.values[1]
             val z = event.values[2]
             val g = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
             val delta = Math.abs(g - SensorManager.GRAVITY_EARTH)
 
-            if (delta > 1.5f && (now - lastLocationTimeMs >= 60000L)) {
+            if (delta > 1.2f) {
                 AppLogger.log(
                     "RadarForegroundService",
                     "onSensorChanged",
                     true,
-                    "MOTION DETECTED (delta: ${String.format(java.util.Locale.US, "%.2f", delta)}) while GPS silent for >60s. Triggering Watchdog recovery..."
+                    "MOTION DETECTED (delta: ${String.format(java.util.Locale.US, "%.2f", delta)}) while in Deep Sleep. Waking up application..."
                 )
-                checkWatchdogStall()
+                wakeUpFromDeepSleep("Accelerometer Motion Delta ${String.format(java.util.Locale.US, "%.2f", delta)}")
             }
         }
     }

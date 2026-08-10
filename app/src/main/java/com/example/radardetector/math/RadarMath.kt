@@ -192,6 +192,15 @@ class TrajectoryFilter(
         val isHighSpeedOver300 = instantSpeed > 300f
         val hasHighAcc = location.hasAccuracy() && location.accuracy <= 15f
 
+        val derivedSpeed = if (buffer.size >= 2) {
+            val first = buffer.first()
+            val last = buffer.last()
+            val dtSec = (last.time - first.time) / 1000.0
+            if (dtSec > 0.2) (first.distanceTo(last) / dtSec * 3.6).toFloat() else 0f
+        } else 0f
+
+        val effectiveSpeed = maxOf(instantSpeed, derivedSpeed)
+
         if (hasHighAcc || isHighSpeedOver300) {
             // Усікаємо до 3 останніх точок для високої точності або швидкості > 300 км/год
             while (buffer.size > 3) {
@@ -202,7 +211,7 @@ class TrajectoryFilter(
                 isValid = true,
                 isAccuracyWeak = false,
                 points = buffer.toList(),
-                averageSpeedKmh = instantSpeed,
+                averageSpeedKmh = effectiveSpeed,
                 trajectoryBearing = location.bearing,
                 projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
                 isStationary = false,
@@ -286,7 +295,10 @@ class TrajectoryFilter(
         val ref = points.first()
         val last = points.last()
         if (points.size < 3) {
-            val speed = if (last.hasSpeed()) last.speed * 3.6f else 0f
+            val rawSpeed = if (last.hasSpeed() && last.speed > 0f) last.speed * 3.6f else 0f
+            val dtSec = (last.time - ref.time) / 1000.0
+            val derivedSpeed = if (dtSec > 0.2) (ref.distanceTo(last) / dtSec * 3.6).toFloat() else 0f
+            val speed = maxOf(rawSpeed, derivedSpeed)
             return LineMetrics(
                 speedKmh = speed,
                 trajectoryBearing = last.bearing,

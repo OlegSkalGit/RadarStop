@@ -146,14 +146,14 @@ class RadarMapActivity : Activity() {
             text = "0"
             textSize = 44f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#FF1744"))
+            setTextColor(Color.WHITE)
         }
 
         tvSpeedUnit = TextView(this).apply {
             text = " km/h"
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#FF1744"))
+            setTextColor(Color.WHITE)
             setPadding(0, 0, 0, 8)
         }
 
@@ -164,7 +164,7 @@ class RadarMapActivity : Activity() {
             text = "LOW speed"
             textSize = 13f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#FF1744"))
+            setTextColor(Color.WHITE)
             visibility = View.VISIBLE
         }
 
@@ -282,33 +282,52 @@ class RadarMapActivity : Activity() {
             tvCamNearWarning.visibility = if (isCamNear) View.VISIBLE else View.GONE
 
             // Update Top-Left Speed Overlay & Dynamic Styling
-            val speedInt = speedKmh.toInt()
-            tvSpeedValue.text = "$speedInt"
+            val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val isGpsDisabled = !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
 
-            if (metrics.isAccuracyWeak) {
-                tvSpeedValue.setTextColor(Color.WHITE)
-                tvSpeedUnit.setTextColor(Color.WHITE)
-                tvSubLabel.text = "GPS bad"
-                tvSubLabel.setTextColor(Color.WHITE)
+            if (isGpsDisabled) {
+                val redColor = Color.parseColor("#FF1744")
+                tvSpeedValue.text = "GPS OFF"
+                tvSpeedValue.textSize = 32f
+                tvSpeedValue.setTextColor(redColor)
+                tvSpeedUnit.visibility = View.GONE
+                tvSubLabel.text = "Please enable GPS"
+                tvSubLabel.setTextColor(redColor)
                 tvSubLabel.visibility = View.VISIBLE
             } else {
-                if (speedKmh < 30f) {
-                    val redColor = Color.parseColor("#FF1744")
-                    tvSpeedValue.setTextColor(redColor)
-                    tvSpeedUnit.setTextColor(redColor)
+                tvSpeedValue.textSize = 44f
+                tvSpeedUnit.visibility = View.VISIBLE
+
+                val speedInt = speedKmh.toInt()
+                tvSpeedValue.text = "$speedInt"
+
+                if (metrics.isAccuracyWeak) {
+                    val orangeColor = Color.parseColor("#FF9100")
+                    tvSpeedValue.setTextColor(orangeColor)
+                    tvSpeedUnit.setTextColor(orangeColor)
+                    tvSubLabel.text = "GPS bad"
+                    tvSubLabel.setTextColor(orangeColor)
+                    tvSubLabel.visibility = View.VISIBLE
+                } else if (speedKmh < 30f) {
+                    val whiteColor = Color.WHITE
+                    tvSpeedValue.setTextColor(whiteColor)
+                    tvSpeedUnit.setTextColor(whiteColor)
                     tvSubLabel.text = "LOW speed"
-                    tvSubLabel.setTextColor(redColor)
+                    tvSubLabel.setTextColor(whiteColor)
                     tvSubLabel.visibility = View.VISIBLE
                 } else {
-                    val greenColor = Color.parseColor("#00E676")
-                    tvSpeedValue.setTextColor(greenColor)
-                    tvSpeedUnit.setTextColor(greenColor)
                     val isAccGood = metrics.location.hasAccuracy() && metrics.location.accuracy <= 15f
                     if (isAccGood) {
+                        val cyanColor = Color.parseColor("#00E5FF")
+                        tvSpeedValue.setTextColor(cyanColor)
+                        tvSpeedUnit.setTextColor(cyanColor)
                         tvSubLabel.text = "GPS good"
-                        tvSubLabel.setTextColor(greenColor)
+                        tvSubLabel.setTextColor(cyanColor)
                         tvSubLabel.visibility = View.VISIBLE
                     } else {
+                        val greenColor = Color.parseColor("#00E676")
+                        tvSpeedValue.setTextColor(greenColor)
+                        tvSpeedUnit.setTextColor(greenColor)
                         tvSubLabel.text = ""
                         tvSubLabel.visibility = View.GONE
                     }
@@ -320,8 +339,7 @@ class RadarMapActivity : Activity() {
             val pollingIntervalStr = when (activeIntervalMs) {
                 1000L -> "1s (Camera Nearby)"
                 3000L -> if (speedKmh <= 30f) "3s (Grace Period)" else "3s (Normal)"
-                15000L -> "15s (Smart Sleep)"
-                30000L -> "30s (Sleep Mode)"
+                5000L -> if (speedKmh <= 30f) "5s (Stationary Sleep)" else "5s (Smart Sleep)"
                 else -> "${activeSec}s"
             }
 
@@ -682,8 +700,24 @@ class RadarMapActivity : Activity() {
             runOnUiThread { updateUi(metrics) }
         }
 
-        RadarForegroundService.lastMetrics?.let {
-            updateUi(it)
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            val redColor = Color.parseColor("#FF1744")
+            tvSpeedValue.text = "GPS OFF"
+            tvSpeedValue.textSize = 32f
+            tvSpeedValue.setTextColor(redColor)
+            tvSpeedUnit.visibility = View.GONE
+            tvSubLabel.text = "Please enable GPS"
+            tvSubLabel.setTextColor(redColor)
+            tvSubLabel.visibility = View.VISIBLE
+        } else {
+            val s = RadarForegroundService.instance
+            if (s?.isDeepSleepState == true) {
+                s.wakeUpFromDeepSleep("RadarMapActivity Opened")
+            }
+            RadarForegroundService.lastMetrics?.let {
+                updateUi(it)
+            }
         }
     }
 
