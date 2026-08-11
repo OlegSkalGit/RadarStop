@@ -36,7 +36,7 @@ object AppUpdateManager {
     private const val REPO_OWNER = "OlegSkalGit"
     private const val REPO_NAME = "RadarStop"
     private const val API_URL = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases"
-    private const val CHECK_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
+    private const val CHECK_THROTTLE_MS = 15 * 60 * 1000L // 15 minutes throttle for background checks
     private const val PREFS_NAME = "radar_prefs"
     private const val PREF_KEY_LAST_UPDATE_CHECK = "last_app_update_check_ms"
 
@@ -96,6 +96,8 @@ object AppUpdateManager {
                 readTimeout = 15000
                 setRequestProperty("User-Agent", "RadarStop-Updater/1.0")
                 setRequestProperty("Accept", "application/vnd.github.v3+json")
+                setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+                setRequestProperty("Pragma", "no-cache")
             }
 
             if (conn.responseCode == 200) {
@@ -108,6 +110,8 @@ object AppUpdateManager {
                         result.add(arr.getJSONObject(i))
                     }
                 }
+            } else {
+                AppLogger.log("AppUpdateManager", "fetchReleasesFromUrl", false, "GitHub API HTTP ${conn.responseCode} for $urlStr")
             }
         } catch (e: Exception) {
             AppLogger.log("AppUpdateManager", "fetchReleasesFromUrl", false, "Error fetching from $urlStr: ${e.message}")
@@ -124,7 +128,7 @@ object AppUpdateManager {
         onResult: ((String) -> Unit)?
     ) {
         val appContext = context.applicationContext
-        AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Starting GitHub release update check for $REPO_OWNER/$REPO_NAME...")
+        AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Starting GitHub release update check for $REPO_OWNER/$REPO_NAME (force=$force)...")
 
         val installedVersionName = appContext.getAppVersionName()
         val localInstalledVer = extractVersionNumbers(installedVersionName ?: "1.0")
@@ -133,15 +137,16 @@ object AppUpdateManager {
             "AppUpdateManager",
             "performUpdateCheck",
             true,
-            "Local installed version (versionName): $installedVersionName ($localInstalledVer)"
+            "Local installed version: $installedVersionName ($localInstalledVer)"
         )
 
+        // Fetch all releases (including pre-releases)
+        val allReleasesList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases?per_page=30")
         val latestReleaseList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest")
-        val allReleasesList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases")
 
         val combinedReleases = mutableListOf<org.json.JSONObject>()
-        combinedReleases.addAll(latestReleaseList)
         combinedReleases.addAll(allReleasesList)
+        combinedReleases.addAll(latestReleaseList)
 
         if (combinedReleases.isEmpty()) {
             val err = "Failed to fetch releases from GitHub API."
@@ -155,8 +160,8 @@ object AppUpdateManager {
         var latestRemoteUrl = ""
 
         for (release in combinedReleases) {
-            val tagName = release.optString("tag_name", "")
-            val releaseName = release.optString("name", "")
+            val releaseTag = release.optString("tag_name", "")
+            val releaseTitle = release.optString("name", "")
             val assets = release.optJSONArray("assets") ?: continue
 
             for (j in 0 until assets.length()) {
@@ -165,59 +170,62 @@ object AppUpdateManager {
                 val downloadUrl = asset.optString("browser_download_url", "")
 
                 if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotEmpty()) {
-                    val ver = extractVersionNumbers(assetName)
-                        .ifEmpty { extractVersionNumbers(tagName) }
-                        .ifEmpty { extractVersionNumbers(releaseName) }
+                    val assetVer = extractVersionNumbers(assetName)
+                    val tagVer = extractVersionNumbers(releaseTag)
+                    val titleVer = extractVersionNumbers(releaseTitle)
+
+                    val ver = if (assetVer.size >= 4) assetVer
+                              else if (tagVer.size >= 4) tagVer
+                              else if (titleVer.size >= 4) titleVer
+                              else assetVer.ifEmpty { tagVer.ifEmpty { titleVer } }
 
                     if (isVersionNewer(ver, latestRemoteVer)) {
                         latestRemoteVer = ver
-                        latestRemoteName = if (assetName.contains("""\d""".toRegex())) assetName else "$tagName ($assetName)"
+                        latestRemoteName = if (assetName.contains("26.")) assetName else if (releaseTag.isNotEmpty()) "$releaseTag.apk" else assetName
                         latestRemoteUrl = downloadUrl
                     }
                 }
             }
         }
 
-            if (latestRemoteVer.isEmpty() || latestRemoteUrl.isEmpty()) {
-                val msg = "No valid APK release assets found on GitHub."
-                AppLogger.log("AppUpdateManager", "performUpdateCheck", true, msg)
-                prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
-                onResult?.let { mainHandler.post { it(msg) } }
-                return
-            }
-
-            AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Latest remote version on GitHub: $latestRemoteName ($latestRemoteVer)")
-
-            if (isVersionNewer(latestRemoteVer, localInstalledVer)) {
-                AppLogger.log(
-                    "AppUpdateManager",
-                    "performUpdateCheck",
-                    true,
-                    "NEW VERSION DETECTED! Remote: $latestRemoteName ($latestRemoteVer) > Local: $installedVersionName ($localInstalledVer)"
-                )
-
-                if (force) {
-                    // Manual check: start update download immediately without asking
-                    AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Manual check forced - starting update download immediately.")
-                    prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
-                    startDownload(appContext, latestRemoteUrl, latestRemoteName, onResult)
-                } else {
-                    // Automatic check: prompt user in English ("New version available (Current / New). Download? Later.")
-                    AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
-                    promptUserForUpdate(context, prefs, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
-                }
-            } else {
-                prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
-                val upToDateMsg = "App is up to date (v$installedVersionName)"
-                AppLogger.log(
-                    "AppUpdateManager",
-                    "performUpdateCheck",
-                    true,
-                    "App is up-to-date. (Remote: $latestRemoteVer <= Installed: $localInstalledVer)"
-                )
-                onResult?.let { mainHandler.post { it(upToDateMsg) } }
-            }
+        if (latestRemoteVer.isEmpty() || latestRemoteUrl.isEmpty()) {
+            val msg = "No valid APK release assets found on GitHub."
+            AppLogger.log("AppUpdateManager", "performUpdateCheck", true, msg)
+            prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+            onResult?.let { mainHandler.post { it(msg) } }
+            return
         }
+
+        AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Highest remote version on GitHub: $latestRemoteName ($latestRemoteVer)")
+
+        if (isVersionNewer(latestRemoteVer, localInstalledVer)) {
+            AppLogger.log(
+                "AppUpdateManager",
+                "performUpdateCheck",
+                true,
+                "NEW VERSION DETECTED! Remote: $latestRemoteName ($latestRemoteVer) > Local: $installedVersionName ($localInstalledVer)"
+            )
+
+            if (force) {
+                AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Manual check forced - starting update download immediately.")
+                prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                startDownload(appContext, latestRemoteUrl, latestRemoteName, onResult)
+            } else {
+                AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
+                promptUserForUpdate(context, prefs, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
+            }
+        } else {
+            prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+            val upToDateMsg = "App is up to date (v$installedVersionName)"
+            AppLogger.log(
+                "AppUpdateManager",
+                "performUpdateCheck",
+                true,
+                "App is up-to-date. (Remote: $latestRemoteVer <= Installed: $localInstalledVer)"
+            )
+            onResult?.let { mainHandler.post { it(upToDateMsg) } }
+        }
+    }
 
     private fun promptUserForUpdate(
         context: Context,
