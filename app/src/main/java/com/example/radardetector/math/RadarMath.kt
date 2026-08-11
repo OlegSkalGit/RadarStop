@@ -91,19 +91,30 @@ object RadarMath {
         isStationary: Boolean = false,
         instantSpeedKmh: Float = 0f,
         olsSpeedKmh: Float = 0f,
-        isHighSpeedMode: Boolean = false
+        isHighSpeedMode: Boolean = false,
+        isGpsDisabled: Boolean = false,
+        isDeepSleep: Boolean = false,
+        notificationOverride: String? = null
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
+        val accInt = if (location.hasAccuracy()) location.accuracy.toInt() else 0
 
-        val gpsStatusStr = if (isAccuracyWeak) {
-            "GPS: WEAK (>100m [${location.accuracy.toInt()}m])"
-        } else if (location.hasAccuracy()) {
-            "GPS: OK (±${location.accuracy.toInt()}m)"
-        } else {
-            "GPS: ACTIVE"
+        val gpsStatusStr = when {
+            isGpsDisabled -> "GPS: DISABLED IN SETTINGS"
+            isDeepSleep -> "GPS: DEEP SLEEP [ACCELEROMETER]"
+            isAccuracyWeak -> "GPS: WEAK (>100m [${accInt}m])"
+            location.hasAccuracy() -> "GPS: OK (±${accInt}m)"
+            else -> "GPS: ACTIVE"
         }
 
         val loadResult = ramCacheOverride ?: load10x10Cameras(dbHelper, location.latitude, location.longitude)
+        val defaultNotif = when {
+            isGpsDisabled -> "GPS is Disabled in System Settings"
+            isDeepSleep -> "Deep Sleep: Stationed (>3m). Accelerometer active."
+            isAccuracyWeak -> "Weak GPS signal (>100m [${accInt}m])"
+            else -> "Active. Cameras: ${loadResult.cameras.size} in 10x10km / ${loadResult.totalInDb} total in DB"
+        }
+        val notifText = notificationOverride ?: defaultNotif
         val continuousThresh = if (isHighSpeedMode || speedKmh > 70f) 100f else 50f
 
         var minDistToAnyCam = Float.MAX_VALUE
@@ -129,6 +140,9 @@ object RadarMath {
             speedKmh = speedKmh,
             isAccuracyWeak = isAccuracyWeak,
             gpsStatusStr = gpsStatusStr,
+            notificationText = notifText,
+            isGpsDisabled = isGpsDisabled,
+            isDeepSleep = isDeepSleep,
             cameraLoadResult = loadResult,
             inRange3kmCount = inRange3kmCount,
             minDistToAnyCamera = minDistToAnyCam,
@@ -460,6 +474,9 @@ data class ProcessedLocationMetrics(
     val speedKmh: Float,
     val isAccuracyWeak: Boolean,
     val gpsStatusStr: String,
+    val notificationText: String = "",
+    val isGpsDisabled: Boolean = false,
+    val isDeepSleep: Boolean = false,
     val cameraLoadResult: CameraLoadResult,
     val inRange3kmCount: Int,
     val minDistToAnyCamera: Float,

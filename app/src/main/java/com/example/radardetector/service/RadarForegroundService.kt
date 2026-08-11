@@ -145,7 +145,25 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "REGISTERED Accelerometer sensor for motion wakeup.")
             }
         }
-        updateNotificationText("Deep Sleep: Stationed (>3m). Accelerometer active.")
+        val deepSleepNotif = "Deep Sleep: Stationed (>3m). Accelerometer active."
+        updateNotificationText(deepSleepNotif)
+        val loc = lastLocation ?: try {
+            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        } catch (e: Exception) { null }
+        if (loc != null) {
+            val sleepMetrics = RadarMath.evaluateLocationData(
+                loc,
+                0f,
+                dbHelper,
+                getRamCachedLoadResult(),
+                isStationary = true,
+                isDeepSleep = true,
+                notificationOverride = deepSleepNotif
+            )
+            lastMetrics = sleepMetrics
+            metricsListener?.invoke(sleepMetrics)
+        }
     }
 
     fun wakeUpFromDeepSleep(reason: String) {
@@ -184,6 +202,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // Instant metrics evaluation from last known location upon wakeup
         try {
+            val searchingNotif = "Searching for GPS..."
+            updateNotificationText(searchingNotif)
             val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
             val bestKnown = lastLocation ?: lastGps ?: lastNet
@@ -193,7 +213,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     bestKnown,
                     effectiveSpeedKmh,
                     dbHelper,
-                    getRamCachedLoadResult()
+                    getRamCachedLoadResult(),
+                    notificationOverride = searchingNotif
                 )
                 lastMetrics = initialMetrics
                 metricsListener?.invoke(initialMetrics)
@@ -308,7 +329,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     bestKnown,
                     0f,
                     dbHelper,
-                    getRamCachedLoadResult()
+                    getRamCachedLoadResult(),
+                    notificationOverride = initialText
                 )
                 lastMetrics = initialMetrics
                 metricsListener?.invoke(initialMetrics)
@@ -351,7 +373,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS Hardware Provider is DISABLED in Android System Settings!")
-            updateNotificationText("GPS is Disabled in System Settings")
+            val disabledNotif = "GPS is Disabled in System Settings"
+            updateNotificationText(disabledNotif)
+            notifyStateChange(isGpsDisabled = true, notificationText = disabledNotif)
             return
         }
 
@@ -552,16 +576,44 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         // 3. Trigger network sync update
         syncManager.onLocationUpdate(location, speedKmh)
 
-        // 4. Weak GPS Check (Alerting paused if accuracy > 100m, but RAM cache is ALREADY loaded)
+        // 4. Weak GPS Check (Alerting paused if accuracy > 100m, effective speed reset to 0, stationary timer evaluated)
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
         if (isAccuracyWeak) {
+            effectiveSpeedKmh = 0f
             if (!isWeakGpsState) {
                 isWeakGpsState = true
-                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>100m [${location.accuracy.toInt()}m]). Alerting paused.")
+                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>100m [${location.accuracy.toInt()}m]). Alerting paused & speed set to 0.")
             }
             val accInt = location.accuracy.toInt()
-            updateNotificationText("Weak GPS signal (>100m [${accInt}m])")
+            val weakNotif = "Weak GPS signal (>100m [${accInt}m])"
+            updateNotificationText(weakNotif)
             audioEngine.stopAlert()
+
+            val weakMetrics = RadarMath.evaluateLocationData(
+                effectiveLoc,
+                0f,
+                dbHelper,
+                getRamCachedLoadResult(),
+                trajResult.trajectoryBearing,
+                trajResult.points,
+                isStationary = true,
+                instantSpeedKmh = 0f,
+                olsSpeedKmh = 0f,
+                isHighSpeedMode = false,
+                isGpsDisabled = false,
+                notificationOverride = weakNotif
+            )
+            lastMetrics = weakMetrics
+            metricsListener?.invoke(weakMetrics)
+
+            if (stationaryStopStartTimeMs == 0L) {
+                stationaryStopStartTimeMs = now
+            }
+            val timeStoppedMs = now - stationaryStopStartTimeMs
+            if (timeStoppedMs >= 3 * 60 * 1000L) {
+                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "WEAK GPS TIMEOUT: Weak GPS (>100m) for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
+                enterDeepSleep()
+            }
             return
         } else {
             if (isWeakGpsState) {
@@ -854,8 +906,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     override fun onProviderEnabled(provider: String) {
         AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system ($provider).")
         if (provider == LocationManager.GPS_PROVIDER) {
+            val searchingNotif = "Searching for GPS..."
+            updateNotificationText(searchingNotif)
             registerGpsUpdates(1000L, force = true)
-            notifyStateChange()
+            notifyStateChange(isGpsDisabled = false, notificationText = searchingNotif)
         }
     }
 
@@ -863,12 +917,13 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         AppLogger.log("RadarForegroundService", "onProviderDisabled", false, "GPS provider disabled by user/system ($provider).")
         if (provider == LocationManager.GPS_PROVIDER) {
             audioEngine.stopAlert()
-            updateNotificationText("GPS is Disabled in System Settings")
-            notifyStateChange()
+            val disabledNotif = "GPS is Disabled in System Settings"
+            updateNotificationText(disabledNotif)
+            notifyStateChange(isGpsDisabled = true, notificationText = disabledNotif)
         }
     }
 
-    private fun notifyStateChange() {
+    private fun notifyStateChange(isGpsDisabled: Boolean = false, notificationText: String? = null) {
         val loc = lastLocation ?: try {
             locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                 ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
@@ -877,9 +932,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (loc != null) {
             val metrics = RadarMath.evaluateLocationData(
                 loc,
-                effectiveSpeedKmh,
+                if (isGpsDisabled) 0f else effectiveSpeedKmh,
                 dbHelper,
-                getRamCachedLoadResult()
+                getRamCachedLoadResult(),
+                isGpsDisabled = isGpsDisabled,
+                notificationOverride = notificationText ?: lastNotificationText
             )
             lastMetrics = metrics
             metricsListener?.invoke(metrics)

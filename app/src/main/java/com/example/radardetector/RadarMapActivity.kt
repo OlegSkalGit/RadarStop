@@ -263,7 +263,7 @@ class RadarMapActivity : Activity() {
         isGpsDisabled: Boolean,
         metrics: com.example.radardetector.math.ProcessedLocationMetrics?
     ) {
-        if (isGpsDisabled) {
+        if (isGpsDisabled || metrics?.isGpsDisabled == true) {
             val redColor = Color.parseColor("#FF1744")
             tvSpeedValue.text = "GPS OFF"
             tvSpeedValue.textSize = 32f
@@ -281,6 +281,16 @@ class RadarMapActivity : Activity() {
             tvSpeedUnit.visibility = View.GONE
             tvSubLabel.text = "Searching satellites..."
             tvSubLabel.setTextColor(redColor)
+            tvSubLabel.visibility = View.VISIBLE
+        } else if (metrics.isDeepSleep) {
+            val orangeColor = Color.parseColor("#FF9100")
+            tvSpeedValue.text = "0"
+            tvSpeedValue.textSize = 44f
+            tvSpeedValue.setTextColor(orangeColor)
+            tvSpeedUnit.setTextColor(orangeColor)
+            tvSpeedUnit.visibility = View.VISIBLE
+            tvSubLabel.text = "Deep sleep"
+            tvSubLabel.setTextColor(orangeColor)
             tvSubLabel.visibility = View.VISIBLE
         } else if (metrics.isAccuracyWeak) {
             val orangeColor = Color.parseColor("#FF9100")
@@ -501,13 +511,16 @@ class RadarMapActivity : Activity() {
         RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || metrics?.isGpsDisabled == true
 
         if (isGpsDisabled || metrics == null) {
             updateGpsSpeedDisplay(isGpsDisabled, metrics)
             if (isGpsDisabled) {
                 tvStatusLine1.text = "Speed: 0 km/h | GPS Disabled in Settings | Interval: --"
                 tvStatusLine2.text = "Beep Status: OFF (GPS Disabled) | Cams: --"
+            } else {
+                tvStatusLine1.text = "Speed: 0 km/h | Searching Satellites... | Interval: --"
+                tvStatusLine2.text = "Beep Status: OFF (Searching GPS) | Cams: --"
             }
             return
         }
