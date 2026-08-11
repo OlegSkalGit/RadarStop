@@ -154,7 +154,18 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "REGISTERED Accelerometer sensor for motion wakeup.")
             }
         }
-        val deepSleepNotif = "Deep Sleep: Stationed (>3m). Accelerometer active."
+        val isSystemGpsDisabled = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                !locationManager.isLocationEnabled
+            } else {
+                !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }
+        } catch (e: Exception) {
+            !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        }
+
+        val disabledNotif = "GPS is Disabled in System Settings"
+        val deepSleepNotif = if (isSystemGpsDisabled) disabledNotif else "Deep Sleep: Stationed (>3m). Accelerometer active."
         val loc = lastLocation ?: try {
             locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                 ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
@@ -172,6 +183,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             getRamCachedLoadResult(),
             isStationary = true,
             isDeepSleep = true,
+            isGpsDisabled = isSystemGpsDisabled,
             notificationOverride = deepSleepNotif
         )
         publishStateAndMetrics(sleepMetrics)
@@ -395,10 +407,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         if (isSystemGpsDisabled) {
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS Hardware Provider is DISABLED in Android System Settings!")
-            val disabledNotif = "GPS is Disabled in System Settings"
-            updateNotificationText(disabledNotif)
-            notifyStateChange(isGpsDisabled = true, notificationText = disabledNotif)
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS Hardware Provider is DISABLED in Android System Settings! Transitioning to Deep Sleep.")
+            enterDeepSleep()
             return
         }
 
@@ -990,20 +1000,17 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     override fun onProviderEnabled(provider: String) {
-        AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system ($provider).")
+        AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system ($provider). Waking up from Deep Sleep.")
         if (provider == LocationManager.GPS_PROVIDER) {
-            val searchingNotif = "Searching for GPS..."
-            registerGpsUpdates(1000L, force = true)
-            notifyStateChange(isGpsDisabled = false, notificationText = searchingNotif)
+            wakeUpFromDeepSleep("GPS turned ON by user/system")
         }
     }
 
     override fun onProviderDisabled(provider: String) {
-        AppLogger.log("RadarForegroundService", "onProviderDisabled", false, "GPS provider disabled by user/system ($provider).")
+        AppLogger.log("RadarForegroundService", "onProviderDisabled", false, "GPS provider disabled by user/system ($provider). Entering Deep Sleep mode.")
         if (provider == LocationManager.GPS_PROVIDER) {
             audioEngine.stopAlert()
-            val disabledNotif = "GPS is Disabled in System Settings"
-            notifyStateChange(isGpsDisabled = true, notificationText = disabledNotif)
+            enterDeepSleep()
         }
     }
 
