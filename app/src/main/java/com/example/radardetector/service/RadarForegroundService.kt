@@ -222,6 +222,23 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         watchdogHandler.removeCallbacks(staleGpsRunnable)
         watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
 
+        // Check if system GPS is disabled before attempting wakeup notification
+        val isSystemGpsDisabled = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                !locationManager.isLocationEnabled
+            } else {
+                !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }
+        } catch (e: Exception) {
+            !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        }
+
+        if (isSystemGpsDisabled) {
+            AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", false, "System GPS is disabled. Remaining in Deep Sleep.")
+            enterDeepSleep()
+            return
+        }
+
         // Instant metrics evaluation from last known location upon wakeup
         try {
             val searchingNotif = "Searching for GPS..."
@@ -283,7 +300,17 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         lastLocationTimeMs = System.currentTimeMillis()
 
         createNotificationChannel()
-        val initialText = "Searching for GPS..."
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val isSystemGpsDisabled = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                !locationManager.isLocationEnabled
+            } else {
+                !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }
+        } catch (e: Exception) {
+            !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        }
+        val initialText = if (isSystemGpsDisabled) "GPS is Disabled in System Settings" else "Searching for GPS..."
         lastNotificationText = initialText
         startForeground(NOTIF_ID, buildNotification(initialText))
 
@@ -1035,6 +1062,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         publishStateAndMetrics(metrics)
     }
 
+    private var motionSpikeCount = 0
+    private var lastSpikeTimeMs = 0L
+
     override fun onSensorChanged(event: SensorEvent?) {
         if (!isRunning || event == null) return
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
@@ -1044,15 +1074,30 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val z = event.values[2]
             val g = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
             val delta = Math.abs(g - SensorManager.GRAVITY_EARTH)
+            val now = System.currentTimeMillis()
 
-            if (delta > 0.4f) {
-                AppLogger.log(
-                    "RadarForegroundService",
-                    "onSensorChanged",
-                    true,
-                    "MOTION DETECTED (delta: ${String.format(java.util.Locale.US, "%.2f", delta)}) while in Deep Sleep. Waking up application..."
-                )
-                wakeUpFromDeepSleep("Accelerometer Motion Delta ${String.format(java.util.Locale.US, "%.2f", delta)}")
+            if (delta >= 1.0f) {
+                if (now - lastSpikeTimeMs < 1500L) {
+                    motionSpikeCount++
+                } else {
+                    motionSpikeCount = 1
+                }
+                lastSpikeTimeMs = now
+
+                if (motionSpikeCount >= 3) {
+                    motionSpikeCount = 0
+                    AppLogger.log(
+                        "RadarForegroundService",
+                        "onSensorChanged",
+                        true,
+                        "SUSTAINED MOTION CONFIRMED (3 spikes >= 1.0 m/s²). Waking up from Deep Sleep..."
+                    )
+                    wakeUpFromDeepSleep("Confirmed Motion Spikes (delta: ${String.format(java.util.Locale.US, "%.2f", delta)})")
+                }
+            } else {
+                if (now - lastSpikeTimeMs > 2000L) {
+                    motionSpikeCount = 0
+                }
             }
         }
     }

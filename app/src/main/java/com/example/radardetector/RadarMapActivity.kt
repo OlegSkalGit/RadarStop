@@ -56,6 +56,15 @@ class RadarMapActivity : Activity() {
 
     private val mapRefreshRunnable = object : Runnable {
         override fun run() {
+            val service = RadarForegroundService.instance
+            if (service?.isDeepSleepState == true) {
+                if (::tvSleepCountdown.isInitialized) {
+                    tvSleepCountdown.text = "Sleep: 0:00"
+                    tvSleepCountdown.visibility = View.VISIBLE
+                }
+                mapRefreshHandler.postDelayed(this, 3000L)
+                return
+            }
             updateSleepCountdown()
             val now = System.currentTimeMillis()
             if (now - lastMapUpdateTimeMs >= MAP_REFRESH_INTERVAL_MS) {
@@ -571,7 +580,7 @@ class RadarMapActivity : Activity() {
 
         val s = RadarForegroundService.instance
         if (s?.isDeepSleepState == true) {
-            s.wakeUpFromDeepSleep("RadarMapActivity Opened")
+            refreshMapState()
         }
 
         RadarForegroundService.serviceStateListener = { isRunning ->
