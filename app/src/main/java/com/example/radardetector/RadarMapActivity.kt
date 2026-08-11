@@ -287,10 +287,10 @@ class RadarMapActivity : Activity() {
         isGpsDisabled: Boolean,
         metrics: com.example.radardetector.math.ProcessedLocationMetrics?
     ) {
-        val state = if (isGpsDisabled || metrics?.isGpsDisabled == true) {
+        val state = metrics?.radarState ?: if (isGpsDisabled) {
             RadarState.GPS_DISABLED
         } else {
-            metrics?.radarState ?: RadarState.SEARCHING_GPS
+            RadarState.SEARCHING_GPS
         }
 
         val color = Color.parseColor(state.mapColorHex)

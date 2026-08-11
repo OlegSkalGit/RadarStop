@@ -101,9 +101,9 @@ object RadarMath {
         val isSearchingGps = (notificationOverride == "Searching for GPS...") || (location.latitude == 0.0 && location.longitude == 0.0 && !isGpsDisabled && !isDeepSleep)
 
         val radarState = when {
+            isDeepSleep -> RadarState.DEEP_SLEEP
             isGpsDisabled -> RadarState.GPS_DISABLED
             isSearchingGps -> RadarState.SEARCHING_GPS
-            isDeepSleep -> RadarState.DEEP_SLEEP
             isAccuracyWeak -> RadarState.WEAK_GPS
             isStationary || speedKmh <= 3.0f -> RadarState.STOPPED
             speedKmh < 30.0f -> RadarState.LOW_SPEED

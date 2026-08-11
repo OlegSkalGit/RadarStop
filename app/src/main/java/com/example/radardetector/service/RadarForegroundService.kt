@@ -164,8 +164,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
         }
 
-        val disabledNotif = "GPS is Disabled in System Settings"
-        val deepSleepNotif = if (isSystemGpsDisabled) disabledNotif else "Deep Sleep: Stationed (>3m). Accelerometer active."
+        val deepSleepNotif = "Deep Sleep: Stationed (>3m). Accelerometer active."
         val loc = lastLocation ?: try {
             locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                 ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
