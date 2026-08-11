@@ -131,7 +131,7 @@ object AppUpdateManager {
         AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Starting GitHub release update check for $REPO_OWNER/$REPO_NAME (force=$force)...")
 
         val installedVersionName = appContext.getAppVersionName()
-        val localInstalledVer = extractVersionNumbers(installedVersionName ?: "1.0")
+        val localInstalledVer = extractVersionNumbers(installedVersionName)
 
         AppLogger.log(
             "AppUpdateManager",
@@ -212,7 +212,7 @@ object AppUpdateManager {
                 startDownload(appContext, latestRemoteUrl, latestRemoteName, onResult)
             } else {
                 AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
-                promptUserForUpdate(context, prefs, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
+                promptUserForUpdate(context, prefs, installedVersionName, latestRemoteName, latestRemoteUrl, onResult)
             }
         } else {
             prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
