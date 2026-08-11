@@ -116,6 +116,15 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private var isAccelerometerRegistered: Boolean = false
     private var wakeLock: PowerManager.WakeLock? = null
 
+    fun getSecondsUntilDeepSleep(): Long {
+        if (isDeepSleepState) return 0L
+        val start = stationaryStopStartTimeMs
+        if (start == 0L) return 180L
+        val elapsedMs = System.currentTimeMillis() - start
+        val remainingMs = maxOf(0L, 3 * 60 * 1000L - elapsedMs)
+        return remainingMs / 1000L
+    }
+
     fun enterDeepSleep() {
         if (isDeepSleepState) return
         isDeepSleepState = true
@@ -146,24 +155,26 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
         }
         val deepSleepNotif = "Deep Sleep: Stationed (>3m). Accelerometer active."
-        updateNotificationText(deepSleepNotif)
         val loc = lastLocation ?: try {
             locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                 ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
         } catch (e: Exception) { null }
-        if (loc != null) {
-            val sleepMetrics = RadarMath.evaluateLocationData(
-                loc,
-                0f,
-                dbHelper,
-                getRamCachedLoadResult(),
-                isStationary = true,
-                isDeepSleep = true,
-                notificationOverride = deepSleepNotif
-            )
-            lastMetrics = sleepMetrics
-            metricsListener?.invoke(sleepMetrics)
+
+        val targetLoc = loc ?: Location("dummy").apply {
+            latitude = 0.0
+            longitude = 0.0
         }
+
+        val sleepMetrics = RadarMath.evaluateLocationData(
+            targetLoc,
+            0f,
+            dbHelper,
+            getRamCachedLoadResult(),
+            isStationary = true,
+            isDeepSleep = true,
+            notificationOverride = deepSleepNotif
+        )
+        publishStateAndMetrics(sleepMetrics)
     }
 
     fun wakeUpFromDeepSleep(reason: String) {
@@ -206,7 +217,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             updateNotificationText(searchingNotif)
             val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            val bestKnown = lastLocation ?: lastGps ?: lastNet
+            val lastPass = locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+            val bestKnown = lastLocation ?: lastGps ?: lastNet ?: lastPass
             if (bestKnown != null) {
                 reloadCameraCacheForLocation(bestKnown)
                 val initialMetrics = RadarMath.evaluateLocationData(
@@ -320,7 +332,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         try {
             val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            val bestKnown = lastGps ?: lastNet
+            val lastPass = locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+            val bestKnown = lastGps ?: lastNet ?: lastPass
             if (bestKnown != null) {
                 lastLocation = bestKnown
                 AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Loading 10x10km DB cache & evaluating initial metrics immediately...")
@@ -371,7 +384,17 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             return
         }
 
-        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+        val isSystemGpsDisabled = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                !locationManager.isLocationEnabled
+            } else {
+                !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }
+        } catch (e: Exception) {
+            !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        }
+
+        if (isSystemGpsDisabled) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS Hardware Provider is DISABLED in Android System Settings!")
             val disabledNotif = "GPS is Disabled in System Settings"
             updateNotificationText(disabledNotif)
@@ -384,16 +407,44 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         try {
             locationManager.removeUpdates(this)
             val minDistance = if (intervalMs >= 15000L) 10f else 0f
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                intervalMs,
-                minDistance,
-                this
-            )
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "GPS polling registered at ${intervalMs}ms (minDistance: ${minDistance}m). Searching for GPS satellites...")
+            var registeredCount = 0
+
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                try {
+                    locationManager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        intervalMs,
+                        minDistance,
+                        this
+                    )
+                    registeredCount++
+                } catch (e: Exception) {}
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                try {
+                    locationManager.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        intervalMs,
+                        minDistance,
+                        this
+                    )
+                    registeredCount++
+                } catch (e: Exception) {}
+            }
+            if (locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
+                try {
+                    locationManager.requestLocationUpdates(
+                        LocationManager.PASSIVE_PROVIDER,
+                        intervalMs,
+                        minDistance,
+                        this
+                    )
+                    registeredCount++
+                } catch (e: Exception) {}
+            }
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "Location polling registered on $registeredCount providers at ${intervalMs}ms. Searching satellites with instant network fallback...")
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
-            updateNotificationText("Weak GPS signal (>15m)")
         } catch (e: Exception) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS request failed: ${e.message}")
         }
@@ -627,9 +678,23 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             return
         }
 
-        val minDistToAnyCamera = metrics.minDistToAnyCamera
-        val closestAlertCamera = metrics.closestAlertCamera
-        val minDistanceToAlert = metrics.minDistanceToAlert
+        // Evaluate temporary metrics for camera distance thresholds
+        val tempMetrics = RadarMath.evaluateLocationData(
+            effectiveLoc,
+            effectiveSpeedKmh,
+            dbHelper,
+            getRamCachedLoadResult(),
+            trajResult.trajectoryBearing,
+            trajResult.points,
+            trajResult.isStationary,
+            instantSpeed,
+            olsSpeed,
+            isHighSpeedGpsMode
+        )
+
+        val minDistToAnyCamera = tempMetrics.minDistToAnyCamera
+        val closestAlertCamera = tempMetrics.closestAlertCamera
+        val minDistanceToAlert = tempMetrics.minDistanceToAlert
 
         // 1-time logging for entering 300m zone and direct crossing
         closestAlertCamera?.let { camera ->
@@ -647,7 +712,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 logged300mCameraIds.remove(camera.id)
             }
 
-            val continuousThreshold = metrics.continuousThreshold
+            val continuousThreshold = tempMetrics.continuousThreshold
             if (distance <= continuousThreshold) {
                 if (loggedCrossingCameraIds.add(camera.id)) {
                     AppLogger.log(
@@ -662,13 +727,12 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
         }
 
-
         val maxGpsReadDistance = if (isHighSpeedGpsMode) 1000f else 500f
         val isInActiveLinearZone = (activeLinearEntryCam != null)
         val isWithinGps1sDistance = (minDistToAnyCamera <= maxGpsReadDistance)
         val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
 
-        val isFullStop = metrics.isStationary || speedKmh == 0f
+        val isFullStop = tempMetrics.isStationary || speedKmh == 0f
 
         val targetInterval = if (isFullStop) {
             if (stationaryStopStartTimeMs == 0L) {
@@ -719,7 +783,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
         registerGpsUpdates(targetInterval)
 
-        val defaultStatusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
+        var activeAlertNotifText: String? = null
 
         if (speedKmh <= 30f) {
             if (currentAlertCameraId != null) {
@@ -727,11 +791,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 currentAlertCameraId = null
             }
             audioEngine.stopAlert()
-            updateNotificationText(defaultStatusText)
-            return
-        }
-
-        if (closestAlertCamera != null) {
+        } else if (closestAlertCamera != null) {
             val speedInt = speedKmh.toInt()
             val distInt = minDistanceToAlert.toInt()
 
@@ -764,8 +824,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert)
             audioEngine.startAlert(delayMs)
             audioEngine.updateDelay(delayMs)
-
-            updateNotificationText("Radar! Distance: ${distInt}m (${speedInt} km/h)")
+            activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h)"
         } else {
             val entryCam = activeLinearEntryCam
             if (entryCam != null) {
@@ -791,18 +850,38 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     val delayMs = 1500L
                     audioEngine.startAlert(delayMs)
                     audioEngine.updateDelay(delayMs)
-                    updateNotificationText("Radar! Linear Zone Alert (${speedInt} km/h)")
-                    return
+                    activeAlertNotifText = "Radar! Linear Zone Alert (${speedInt} km/h)"
                 }
             }
 
-            if (currentAlertCameraId != null) {
-                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Camera #${currentAlertCameraId} cleared).")
-                currentAlertCameraId = null
+            if (activeAlertNotifText == null) {
+                if (currentAlertCameraId != null) {
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Camera #${currentAlertCameraId} cleared).")
+                    currentAlertCameraId = null
+                }
+                audioEngine.stopAlert()
             }
-            audioEngine.stopAlert()
-            updateNotificationText(defaultStatusText)
         }
+
+        val defaultStatusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
+        val finalNotifText = activeAlertNotifText ?: defaultStatusText
+
+        val finalMetrics = RadarMath.evaluateLocationData(
+            effectiveLoc,
+            effectiveSpeedKmh,
+            dbHelper,
+            getRamCachedLoadResult(),
+            trajResult.trajectoryBearing,
+            trajResult.points,
+            trajResult.isStationary,
+            instantSpeed,
+            olsSpeed,
+            isHighSpeedGpsMode,
+            isGpsDisabled = false,
+            notificationOverride = finalNotifText
+        )
+
+        publishStateAndMetrics(finalMetrics)
         } catch (e: Exception) {
             AppLogger.log("RadarForegroundService", "onLocationChanged", false, "Unhandled exception during location processing: ${e.message}")
         }
@@ -903,11 +982,17 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    fun publishStateAndMetrics(metrics: ProcessedLocationMetrics) {
+        lastMetrics = metrics
+        updateNotificationText(metrics.notificationText)
+        metricsListener?.invoke(metrics)
+    }
+
     override fun onProviderEnabled(provider: String) {
         AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system ($provider).")
         if (provider == LocationManager.GPS_PROVIDER) {
             val searchingNotif = "Searching for GPS..."
-            updateNotificationText(searchingNotif)
             registerGpsUpdates(1000L, force = true)
             notifyStateChange(isGpsDisabled = false, notificationText = searchingNotif)
         }
@@ -918,7 +1003,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (provider == LocationManager.GPS_PROVIDER) {
             audioEngine.stopAlert()
             val disabledNotif = "GPS is Disabled in System Settings"
-            updateNotificationText(disabledNotif)
             notifyStateChange(isGpsDisabled = true, notificationText = disabledNotif)
         }
     }
@@ -929,20 +1013,20 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
         } catch (e: Exception) { null }
 
-        if (loc != null) {
-            val metrics = RadarMath.evaluateLocationData(
-                loc,
-                if (isGpsDisabled) 0f else effectiveSpeedKmh,
-                dbHelper,
-                getRamCachedLoadResult(),
-                isGpsDisabled = isGpsDisabled,
-                notificationOverride = notificationText ?: lastNotificationText
-            )
-            lastMetrics = metrics
-            metricsListener?.invoke(metrics)
-        } else {
-            lastMetrics?.let { metricsListener?.invoke(it) }
+        val targetLoc = loc ?: Location("dummy").apply {
+            latitude = 0.0
+            longitude = 0.0
         }
+
+        val metrics = RadarMath.evaluateLocationData(
+            targetLoc,
+            if (isGpsDisabled) 0f else effectiveSpeedKmh,
+            dbHelper,
+            getRamCachedLoadResult(),
+            isGpsDisabled = isGpsDisabled,
+            notificationOverride = notificationText ?: lastNotificationText
+        )
+        publishStateAndMetrics(metrics)
     }
 
     override fun onSensorChanged(event: SensorEvent?) {

@@ -97,21 +97,36 @@ object RadarMath {
         notificationOverride: String? = null
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
+        val isAccGood = location.hasAccuracy() && location.accuracy <= 15f
+        val isSearchingGps = (notificationOverride == "Searching for GPS...") || (location.latitude == 0.0 && location.longitude == 0.0 && !isGpsDisabled && !isDeepSleep)
+
+        val radarState = when {
+            isGpsDisabled -> RadarState.GPS_DISABLED
+            isSearchingGps -> RadarState.SEARCHING_GPS
+            isDeepSleep -> RadarState.DEEP_SLEEP
+            isAccuracyWeak -> RadarState.WEAK_GPS
+            isStationary || speedKmh <= 3.0f -> RadarState.STOPPED
+            speedKmh < 30.0f -> RadarState.LOW_SPEED
+            isAccGood -> RadarState.ACCURATE_SPEED
+            else -> RadarState.REGULAR_SPEED
+        }
+
         val accInt = if (location.hasAccuracy()) location.accuracy.toInt() else 0
 
-        val gpsStatusStr = when {
-            isGpsDisabled -> "GPS: DISABLED IN SETTINGS"
-            isDeepSleep -> "GPS: DEEP SLEEP [ACCELEROMETER]"
-            isAccuracyWeak -> "GPS: WEAK (>100m [${accInt}m])"
-            location.hasAccuracy() -> "GPS: OK (±${accInt}m)"
-            else -> "GPS: ACTIVE"
+        val gpsStatusStr = when (radarState) {
+            RadarState.GPS_DISABLED -> "GPS: DISABLED IN SETTINGS"
+            RadarState.SEARCHING_GPS -> "GPS: SEARCHING SATELLITES"
+            RadarState.DEEP_SLEEP -> "GPS: DEEP SLEEP [ACCELEROMETER]"
+            RadarState.WEAK_GPS -> "GPS: WEAK (>100m [${accInt}m])"
+            else -> if (location.hasAccuracy()) "GPS: OK (±${accInt}m)" else "GPS: ACTIVE"
         }
 
         val loadResult = ramCacheOverride ?: load10x10Cameras(dbHelper, location.latitude, location.longitude)
-        val defaultNotif = when {
-            isGpsDisabled -> "GPS is Disabled in System Settings"
-            isDeepSleep -> "Deep Sleep: Stationed (>3m). Accelerometer active."
-            isAccuracyWeak -> "Weak GPS signal (>100m [${accInt}m])"
+        val defaultNotif = when (radarState) {
+            RadarState.GPS_DISABLED -> radarState.baseNotificationText
+            RadarState.SEARCHING_GPS -> radarState.baseNotificationText
+            RadarState.DEEP_SLEEP -> radarState.baseNotificationText
+            RadarState.WEAK_GPS -> "Weak GPS signal (>100m [${accInt}m])"
             else -> "Active. Cameras: ${loadResult.cameras.size} in 10x10km / ${loadResult.totalInDb} total in DB"
         }
         val notifText = notificationOverride ?: defaultNotif
@@ -143,6 +158,7 @@ object RadarMath {
             notificationText = notifText,
             isGpsDisabled = isGpsDisabled,
             isDeepSleep = isDeepSleep,
+            radarState = radarState,
             cameraLoadResult = loadResult,
             inRange3kmCount = inRange3kmCount,
             minDistToAnyCamera = minDistToAnyCam,
@@ -469,6 +485,71 @@ data class CameraLoadResult(
     val maxLon: Double
 )
 
+enum class RadarState(
+    val stateName: String,
+    val baseNotificationText: String,
+    val mapSpeedText: String,
+    val mapSubLabelText: String,
+    val mapColorHex: String
+) {
+    GPS_DISABLED(
+        stateName = "GPS_DISABLED",
+        baseNotificationText = "GPS is Disabled in System Settings",
+        mapSpeedText = "GPS OFF",
+        mapSubLabelText = "Please enable GPS",
+        mapColorHex = "#FF1744"
+    ),
+    SEARCHING_GPS(
+        stateName = "SEARCHING_GPS",
+        baseNotificationText = "Searching for GPS...",
+        mapSpeedText = "Waiting GPS",
+        mapSubLabelText = "Searching satellites...",
+        mapColorHex = "#FF1744"
+    ),
+    WEAK_GPS(
+        stateName = "WEAK_GPS",
+        baseNotificationText = "Weak GPS signal (>100m)",
+        mapSpeedText = "0",
+        mapSubLabelText = "GPS bad",
+        mapColorHex = "#FF9100"
+    ),
+    DEEP_SLEEP(
+        stateName = "DEEP_SLEEP",
+        baseNotificationText = "Deep Sleep: Stationed (>3m). Accelerometer active.",
+        mapSpeedText = "0",
+        mapSubLabelText = "Deep sleep",
+        mapColorHex = "#FF9100"
+    ),
+    STOPPED(
+        stateName = "STOPPED",
+        baseNotificationText = "Active.",
+        mapSpeedText = "0",
+        mapSubLabelText = "Stopped",
+        mapColorHex = "#FFFFFF"
+    ),
+    LOW_SPEED(
+        stateName = "LOW_SPEED",
+        baseNotificationText = "Active.",
+        mapSpeedText = "",
+        mapSubLabelText = "LOW speed",
+        mapColorHex = "#FFFFFF"
+    ),
+    ACCURATE_SPEED(
+        stateName = "ACCURATE_SPEED",
+        baseNotificationText = "Active.",
+        mapSpeedText = "",
+        mapSubLabelText = "GPS good",
+        mapColorHex = "#00E5FF"
+    ),
+    REGULAR_SPEED(
+        stateName = "REGULAR_SPEED",
+        baseNotificationText = "Active.",
+        mapSpeedText = "",
+        mapSubLabelText = "",
+        mapColorHex = "#00E676"
+    )
+}
+
 data class ProcessedLocationMetrics(
     val location: Location,
     val speedKmh: Float,
@@ -477,6 +558,7 @@ data class ProcessedLocationMetrics(
     val notificationText: String = "",
     val isGpsDisabled: Boolean = false,
     val isDeepSleep: Boolean = false,
+    val radarState: RadarState = RadarState.SEARCHING_GPS,
     val cameraLoadResult: CameraLoadResult,
     val inRange3kmCount: Int,
     val minDistToAnyCamera: Float,
