@@ -155,7 +155,10 @@ object AppUpdateManager {
         var latestRemoteUrl = ""
 
         for (release in combinedReleases) {
+            val tagName = release.optString("tag_name", "")
+            val releaseName = release.optString("name", "")
             val assets = release.optJSONArray("assets") ?: continue
+
             for (j in 0 until assets.length()) {
                 val asset = assets.getJSONObject(j)
                 val assetName = asset.optString("name", "")
@@ -163,9 +166,12 @@ object AppUpdateManager {
 
                 if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotEmpty()) {
                     val ver = extractVersionNumbers(assetName)
+                        .ifEmpty { extractVersionNumbers(tagName) }
+                        .ifEmpty { extractVersionNumbers(releaseName) }
+
                     if (isVersionNewer(ver, latestRemoteVer)) {
                         latestRemoteVer = ver
-                        latestRemoteName = assetName
+                        latestRemoteName = if (assetName.contains("""\d""".toRegex())) assetName else "$tagName ($assetName)"
                         latestRemoteUrl = downloadUrl
                     }
                 }
