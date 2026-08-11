@@ -204,6 +204,8 @@ class TrajectoryFilter(
         } else 0f
 
         val effectiveSpeed = maxOf(instantSpeed, derivedSpeed)
+        val isStationaryHighAcc = effectiveSpeed < 3.0f || (buffer.size >= 2 && buffer.first().distanceTo(buffer.last()) < 5.0f && effectiveSpeed < 5.0f)
+        val finalSpeed = if (isStationaryHighAcc) 0f else effectiveSpeed
 
         if (hasHighAcc || isHighSpeedOver300) {
             // Усікаємо до 3 останніх точок для високої точності або швидкості > 300 км/год
@@ -215,10 +217,10 @@ class TrajectoryFilter(
                 isValid = true,
                 isAccuracyWeak = false,
                 points = buffer.toList(),
-                averageSpeedKmh = effectiveSpeed,
+                averageSpeedKmh = finalSpeed,
                 trajectoryBearing = location.bearing,
                 projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
-                isStationary = false,
+                isStationary = isStationaryHighAcc && !isHighSpeedOver300,
                 projectedLocation = location
             )
         }

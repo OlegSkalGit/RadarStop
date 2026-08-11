@@ -129,6 +129,15 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         watchdogHandler.removeCallbacks(watchdogRunnable)
         watchdogHandler.removeCallbacks(staleGpsRunnable)
 
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+                AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "RELEASED PowerManager PARTIAL_WAKE_LOCK for full CPU Doze sleep during Deep Sleep.")
+            }
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "enterDeepSleep", false, "Error releasing WakeLock: ${e.message}")
+        }
+
         if (!isAccelerometerRegistered) {
             accelerometer?.let {
                 sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
@@ -143,6 +152,19 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (!isDeepSleepState) return
         isDeepSleepState = false
         AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "WAKEUP TRIGGERED ($reason). Unregistering accelerometer sensor, resuming watchdogHandler and 1s GPS updates...")
+        
+        try {
+            if (wakeLock == null || wakeLock?.isHeld == false) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RadarStop:ForegroundWakeLock").apply {
+                    acquire()
+                }
+                AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "RE-ACQUIRED PowerManager PARTIAL_WAKE_LOCK for continuous CPU execution.")
+            }
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", false, "Error re-acquiring WakeLock: ${e.message}")
+        }
+
         if (isAccelerometerRegistered) {
             try {
                 sensorManager.unregisterListener(this)
@@ -357,7 +379,15 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (isDeepSleepState) return
         val now = System.currentTimeMillis()
         val timeSinceLastLoc = now - lastLocationTimeMs
-        if (timeSinceLastLoc >= WATCHDOG_CHECK_INTERVAL_MS) {
+        if (timeSinceLastLoc >= 3 * 60 * 1000L) {
+            AppLogger.log(
+                "RadarForegroundService",
+                "checkWatchdogStall",
+                true,
+                "NO GPS FIXES for ${timeSinceLastLoc / 1000}s (>=3 min). Entering Deep Sleep mode with active accelerometer..."
+            )
+            enterDeepSleep()
+        } else if (timeSinceLastLoc >= WATCHDOG_CHECK_INTERVAL_MS) {
             AppLogger.log(
                 "RadarForegroundService",
                 "checkWatchdogStall",
@@ -395,6 +425,21 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 audioEngine.stopAlert()
                 AppLogger.log("RadarForegroundService", "checkStaleGpsAndResetSpeed", true, "GPS paused for ${timeSinceLastLoc / 1000}s (Threshold: ${dynamicStaleTimeoutMs}ms). Speed reset to 0 km/h [Stationary].")
             }
+        }
+
+        // Periodic stationary Deep Sleep evaluation (independent of onLocationChanged & accuracy > 100m)
+        val isFullStop = (lastMetrics?.isStationary == true) || effectiveSpeedKmh == 0f || timeSinceLastLoc >= 10000L
+        if (isFullStop) {
+            if (stationaryStopStartTimeMs == 0L) {
+                stationaryStopStartTimeMs = now
+            }
+            val timeStoppedMs = now - stationaryStopStartTimeMs
+            if (timeStoppedMs >= 3 * 60 * 1000L) {
+                AppLogger.log("RadarForegroundService", "checkStaleGpsAndResetSpeed", true, "STATIONARY/NO_GPS TIMEOUT: Stationary/no GPS for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
+                enterDeepSleep()
+            }
+        } else {
+            stationaryStopStartTimeMs = 0L
         }
     }
 
