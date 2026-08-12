@@ -541,8 +541,7 @@ class RadarMapActivity : Activity() {
         updateSleepCountdown()
         RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
-        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(lm)
+        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(this)
         val isGpsDisabled = isSystemGpsDisabled || metrics?.isGpsDisabled == true
 
         if (isGpsDisabled || metrics == null) {

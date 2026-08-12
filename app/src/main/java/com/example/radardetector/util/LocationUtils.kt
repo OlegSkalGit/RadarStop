@@ -36,6 +36,14 @@ object LocationUtils {
     /**
      * Attempts to retrieve the best available last known location across GPS, Network, and Passive providers.
      */
+    fun getLastKnownLocationCascade(context: Context): Location? {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        return getLastKnownLocationCascade(lm)
+    }
+
+    /**
+     * Attempts to retrieve the best available last known location across GPS, Network, and Passive providers.
+     */
     fun getLastKnownLocationCascade(lm: LocationManager): Location? {
         return try {
             lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
