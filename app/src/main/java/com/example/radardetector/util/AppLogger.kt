@@ -43,7 +43,7 @@ object AppLogger {
     fun setLoggingEnabled(context: Context, enabled: Boolean) {
         isLoggingEnabled = enabled
         try {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            AppPrefs.getPrefs(context)
                 .edit()
                 .putBoolean(PREF_KEY_LOGGING, enabled)
                 .apply()
