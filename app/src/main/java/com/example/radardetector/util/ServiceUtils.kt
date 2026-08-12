@@ -39,11 +39,19 @@ object ServiceUtils {
 
     fun isLocationEnabled(context: Context): Boolean {
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return false
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            lm.isLocationEnabled
-        } else {
-            lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
-                    lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                lm.isLocationEnabled
+            } else {
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+                        lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+            }
+        } catch (e: Exception) {
+            try {
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+            } catch (ex: Exception) {
+                false
+            }
         }
     }
 }
