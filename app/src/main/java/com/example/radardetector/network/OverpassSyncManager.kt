@@ -11,7 +11,6 @@ import android.os.Looper
 import android.util.JsonReader
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
-import com.example.radardetector.math.RadarMath
 import com.example.radardetector.util.AppLogger
 import java.io.InputStream
 import java.io.InputStreamReader
@@ -73,7 +72,7 @@ class OverpassSyncManager(
     @Volatile
     private var hasDoneInitialSync = false
 
-    fun onLocationUpdate(location: Location) {
+    fun onLocationUpdate(location: Location, speedKmh: Float) {
         if (isSyncing.get()) return
 
         val now = System.currentTimeMillis()
@@ -119,11 +118,12 @@ class OverpassSyncManager(
         AppUpdateManager.checkAndDownloadUpdate(context)
         mainHandler.post { onStatusUpdate("Downloading camera data...") }
 
-        val box = RadarMath.getBoundingBoxCoordinates(lat, lon, 100.0)
-        val south = box[0]
-        val north = box[1]
-        val west = box[2]
-        val east = box[3]
+        val south = lat - 0.45
+        val north = lat + 0.45
+        val cosLat = Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1)
+        val deltaLon = (0.45 / cosLat).coerceIn(0.45, 0.9)
+        val west = lon - deltaLon
+        val east = lon + deltaLon
 
         val query = """
             [out:json][timeout:25];

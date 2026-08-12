@@ -2,9 +2,6 @@ package com.example.radardetector.math
 
 import android.location.Location
 import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.hypot
 
 object RadarMath {
 
@@ -43,20 +40,15 @@ object RadarMath {
     }
 
     /**
-     * Calculates Bounding Box coordinates (minLat, maxLat, minLon, maxLon)
-     * for a given box size in kilometers around lat/lon.
+     * Calculates 10x10 km Bounding Box coordinates (minLat, maxLat, minLon, maxLon)
+     * corresponding to +-0.045 degrees around lat/lon.
      */
-    fun getBoundingBoxCoordinates(lat: Double, lon: Double, sizeKm: Double = 10.0): DoubleArray {
-        val deltaLat = sizeKm * 0.0045
-        val cosLat = cos(Math.toRadians(lat)).coerceAtLeast(0.1)
-        val deltaLon = (deltaLat / cosLat).coerceIn(deltaLat, deltaLat * 10.0)
+    fun get10x10BoxCoordinates(lat: Double, lon: Double): DoubleArray {
+        val deltaLat = 0.045
+        val cosLat = kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2)
+        val deltaLon = (0.045 / cosLat).coerceIn(0.045, 0.5)
         return doubleArrayOf(lat - deltaLat, lat + deltaLat, lon - deltaLon, lon + deltaLon)
     }
-
-    fun get10x10BoxCoordinates(lat: Double, lon: Double): DoubleArray =
-        getBoundingBoxCoordinates(lat, lon, 10.0)
-
-
 
     /**
      * Unified camera loader for 10x10 km RAM cache + linear cameras.
@@ -99,45 +91,19 @@ object RadarMath {
         isStationary: Boolean = false,
         instantSpeedKmh: Float = 0f,
         olsSpeedKmh: Float = 0f,
-        isHighSpeedMode: Boolean = false,
-        isGpsDisabled: Boolean = false,
-        isDeepSleep: Boolean = false,
-        notificationOverride: String? = null
+        isHighSpeedMode: Boolean = false
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
-        val isAccGood = location.hasAccuracy() && location.accuracy <= 15f
-        val isSearchingGps = (notificationOverride == "Searching for GPS...") || (location.latitude == 0.0 && location.longitude == 0.0 && !isGpsDisabled && !isDeepSleep)
 
-        val radarState = when {
-            isDeepSleep -> RadarState.DEEP_SLEEP
-            isGpsDisabled -> RadarState.GPS_DISABLED
-            isSearchingGps -> RadarState.SEARCHING_GPS
-            isAccuracyWeak -> RadarState.WEAK_GPS
-            isStationary || speedKmh <= 3.0f -> RadarState.STOPPED
-            speedKmh < 30.0f -> RadarState.LOW_SPEED
-            isAccGood -> RadarState.ACCURATE_SPEED
-            else -> RadarState.REGULAR_SPEED
-        }
-
-        val accInt = if (location.hasAccuracy()) location.accuracy.toInt() else 0
-
-        val gpsStatusStr = when (radarState) {
-            RadarState.GPS_DISABLED -> "GPS: DISABLED IN SETTINGS"
-            RadarState.SEARCHING_GPS -> "GPS: SEARCHING SATELLITES"
-            RadarState.DEEP_SLEEP -> "GPS: DEEP SLEEP [ACCELEROMETER]"
-            RadarState.WEAK_GPS -> "GPS: WEAK (>100m [${accInt}m])"
-            else -> if (location.hasAccuracy()) "GPS: OK (±${accInt}m)" else "GPS: ACTIVE"
+        val gpsStatusStr = if (isAccuracyWeak) {
+            "GPS: WEAK (>100m [${location.accuracy.toInt()}m])"
+        } else if (location.hasAccuracy()) {
+            "GPS: OK (±${location.accuracy.toInt()}m)"
+        } else {
+            "GPS: ACTIVE"
         }
 
         val loadResult = ramCacheOverride ?: load10x10Cameras(dbHelper, location.latitude, location.longitude)
-        val defaultNotif = when (radarState) {
-            RadarState.GPS_DISABLED -> radarState.baseNotificationText
-            RadarState.SEARCHING_GPS -> radarState.baseNotificationText
-            RadarState.DEEP_SLEEP -> radarState.baseNotificationText
-            RadarState.WEAK_GPS -> "Weak GPS signal (>100m [${accInt}m])"
-            else -> "Active. Cameras: ${loadResult.cameras.size} in 10x10km / ${loadResult.totalInDb} total in DB"
-        }
-        val notifText = notificationOverride ?: defaultNotif
         val continuousThresh = if (isHighSpeedMode || speedKmh > 70f) 100f else 50f
 
         var minDistToAnyCam = Float.MAX_VALUE
@@ -163,10 +129,6 @@ object RadarMath {
             speedKmh = speedKmh,
             isAccuracyWeak = isAccuracyWeak,
             gpsStatusStr = gpsStatusStr,
-            notificationText = notifText,
-            isGpsDisabled = isGpsDisabled,
-            isDeepSleep = isDeepSleep,
-            radarState = radarState,
             cameraLoadResult = loadResult,
             inRange3kmCount = inRange3kmCount,
             minDistToAnyCamera = minDistToAnyCam,
@@ -242,8 +204,6 @@ class TrajectoryFilter(
         } else 0f
 
         val effectiveSpeed = maxOf(instantSpeed, derivedSpeed)
-        val isStationaryHighAcc = effectiveSpeed < 3.0f || (buffer.size >= 2 && buffer.first().distanceTo(buffer.last()) < 5.0f && effectiveSpeed < 5.0f)
-        val finalSpeed = if (isStationaryHighAcc) 0f else effectiveSpeed
 
         if (hasHighAcc || isHighSpeedOver300) {
             // Усікаємо до 3 останніх точок для високої точності або швидкості > 300 км/год
@@ -255,10 +215,10 @@ class TrajectoryFilter(
                 isValid = true,
                 isAccuracyWeak = false,
                 points = buffer.toList(),
-                averageSpeedKmh = finalSpeed,
+                averageSpeedKmh = effectiveSpeed,
                 trajectoryBearing = location.bearing,
                 projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
-                isStationary = isStationaryHighAcc && !isHighSpeedOver300,
+                isStationary = false,
                 projectedLocation = location
             )
         }
@@ -324,7 +284,7 @@ class TrajectoryFilter(
             den += dx * dx
         }
 
-        val slope = if (abs(den) > 1e-6) num / den else 0.0
+        val slope = if (Math.abs(den) > 1e-6) num / den else 0.0
         val intercept = meanY - slope * meanX
         return Pair(slope, intercept)
     }
@@ -356,7 +316,7 @@ class TrajectoryFilter(
 
         val radLat = Math.toRadians(ref.latitude)
         val metersPerDegLat = 111139.0
-        val metersPerDegLon = 111139.0 * cos(radLat)
+        val metersPerDegLon = 111139.0 * Math.cos(radLat)
 
         val seriesX = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.longitude - ref.longitude) * metersPerDegLon) }
         val seriesY = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.latitude - ref.latitude) * metersPerDegLat) }
@@ -372,17 +332,17 @@ class TrajectoryFilter(
             val (slopeX, interceptX) = fitLinearSeries(seriesX)
             val (slopeY, interceptY) = fitLinearSeries(seriesY)
 
-            avgSpeedKmh = (hypot(slopeX, slopeY) * 3.6).toFloat().coerceAtLeast(0f)
+            avgSpeedKmh = (Math.hypot(slopeX, slopeY) * 3.6).toFloat().coerceAtLeast(0f)
             val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
             val futureT = targetT + lookaheadSec
 
             projX = slopeX * futureT + interceptX
             projY = slopeY * futureT + interceptY
 
-            var az = (90.0 - Math.toDegrees(atan2(slopeY, slopeX))).toFloat()
+            var az = (90.0 - Math.toDegrees(Math.atan2(slopeY, slopeX))).toFloat()
             if (az < 0f) az += 360f
             if (az >= 360f) az -= 360f
-            trajectoryBearing = if (hypot(slopeX, slopeY) > 0.1) az else last.bearing
+            trajectoryBearing = if (Math.hypot(slopeX, slopeY) > 0.1) az else last.bearing
         } else {
             val mid = points.size / 2
             val headX = seriesX.take(mid)
@@ -395,19 +355,19 @@ class TrajectoryFilter(
             val (slopeY1, interceptY1) = fitLinearSeries(headY)
             val (slopeY2, interceptY2) = fitLinearSeries(tailY)
 
-            var az1 = (90.0 - Math.toDegrees(atan2(slopeY1, slopeX1))).toFloat()
+            var az1 = (90.0 - Math.toDegrees(Math.atan2(slopeY1, slopeX1))).toFloat()
             if (az1 < 0f) az1 += 360f
             if (az1 >= 360f) az1 -= 360f
 
-            var az2 = (90.0 - Math.toDegrees(atan2(slopeY2, slopeX2))).toFloat()
+            var az2 = (90.0 - Math.toDegrees(Math.atan2(slopeY2, slopeX2))).toFloat()
             if (az2 < 0f) az2 += 360f
             if (az2 >= 360f) az2 -= 360f
 
-            val diffAngle = abs(RadarMath.angleDifference(az1, az2))
+            val diffAngle = Math.abs(RadarMath.angleDifference(az1, az2))
 
             if (diffAngle < 30f) {
-                val speed1 = hypot(slopeX1, slopeY1)
-                val speed2 = hypot(slopeX2, slopeY2)
+                val speed1 = Math.hypot(slopeX1, slopeY1)
+                val speed2 = Math.hypot(slopeX2, slopeY2)
                 avgSpeedKmh = (0.5 * (speed1 + speed2) * 3.6).toFloat().coerceAtLeast(0f)
 
                 val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
@@ -429,7 +389,7 @@ class TrajectoryFilter(
                 while (buffer.size > 3) {
                     buffer.removeFirst()
                 }
-                avgSpeedKmh = (hypot(slopeX2, slopeY2) * 3.6).toFloat().coerceAtLeast(0f)
+                avgSpeedKmh = (Math.hypot(slopeX2, slopeY2) * 3.6).toFloat().coerceAtLeast(0f)
 
                 val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
                 val futureT = targetT + lookaheadSec
@@ -493,80 +453,11 @@ data class CameraLoadResult(
     val maxLon: Double
 )
 
-enum class RadarState(
-    val stateName: String,
-    val baseNotificationText: String,
-    val mapSpeedText: String,
-    val mapSubLabelText: String,
-    val mapColorHex: String
-) {
-    GPS_DISABLED(
-        stateName = "GPS_DISABLED",
-        baseNotificationText = "GPS is Disabled in System Settings",
-        mapSpeedText = "GPS OFF",
-        mapSubLabelText = "Please enable GPS",
-        mapColorHex = "#FF1744"
-    ),
-    SEARCHING_GPS(
-        stateName = "SEARCHING_GPS",
-        baseNotificationText = "Searching for GPS...",
-        mapSpeedText = "Waiting GPS",
-        mapSubLabelText = "Searching satellites...",
-        mapColorHex = "#FF1744"
-    ),
-    WEAK_GPS(
-        stateName = "WEAK_GPS",
-        baseNotificationText = "Weak GPS signal (>100m)",
-        mapSpeedText = "0",
-        mapSubLabelText = "GPS bad",
-        mapColorHex = "#FF9100"
-    ),
-    DEEP_SLEEP(
-        stateName = "DEEP_SLEEP",
-        baseNotificationText = "Deep Sleep: Stationed (>3m). Accelerometer active.",
-        mapSpeedText = "0",
-        mapSubLabelText = "Deep sleep",
-        mapColorHex = "#FF9100"
-    ),
-    STOPPED(
-        stateName = "STOPPED",
-        baseNotificationText = "Active.",
-        mapSpeedText = "0",
-        mapSubLabelText = "Stopped",
-        mapColorHex = "#FFFFFF"
-    ),
-    LOW_SPEED(
-        stateName = "LOW_SPEED",
-        baseNotificationText = "Active.",
-        mapSpeedText = "",
-        mapSubLabelText = "LOW speed",
-        mapColorHex = "#FFFFFF"
-    ),
-    ACCURATE_SPEED(
-        stateName = "ACCURATE_SPEED",
-        baseNotificationText = "Active.",
-        mapSpeedText = "",
-        mapSubLabelText = "GPS good",
-        mapColorHex = "#00E5FF"
-    ),
-    REGULAR_SPEED(
-        stateName = "REGULAR_SPEED",
-        baseNotificationText = "Active.",
-        mapSpeedText = "",
-        mapSubLabelText = "",
-        mapColorHex = "#00E676"
-    )
-}
-
 data class ProcessedLocationMetrics(
     val location: Location,
     val speedKmh: Float,
     val isAccuracyWeak: Boolean,
     val gpsStatusStr: String,
-    val notificationText: String = "",
-    val isGpsDisabled: Boolean = false,
-    val isDeepSleep: Boolean = false,
-    val radarState: RadarState = RadarState.SEARCHING_GPS,
     val cameraLoadResult: CameraLoadResult,
     val inRange3kmCount: Int,
     val minDistToAnyCamera: Float,

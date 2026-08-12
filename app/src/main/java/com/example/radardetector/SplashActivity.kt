@@ -16,7 +16,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
-import com.example.radardetector.util.ServiceUtils
 import com.example.radardetector.util.createSingleTopIntent
 
 class SplashActivity : Activity() {
@@ -144,7 +143,7 @@ class SplashActivity : Activity() {
     private fun startRadarServiceAndFinish() {
         AppLogger.log("SplashActivity", "startRadarServiceAndFinish", true, "Starting RadarForegroundService...")
         val serviceIntent = Intent(this, RadarForegroundService::class.java)
-        ServiceUtils.startRadarForegroundService(this, serviceIntent)
+        com.example.radardetector.util.ServiceUtils.startRadarForegroundService(this, serviceIntent)
         startActivity(createSingleTopIntent<RadarMapActivity>())
         finish()
     }

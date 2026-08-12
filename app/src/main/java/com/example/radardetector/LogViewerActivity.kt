@@ -27,7 +27,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.radardetector.audio.AcousticRadarEngine
-import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.ui.UiUtils
 import com.example.radardetector.util.AppLogger
 import java.io.File
@@ -376,7 +375,7 @@ class LogViewerActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (!RadarForegroundService.isRunning) {
+        if (!com.example.radardetector.service.RadarForegroundService.isRunning) {
             finish()
         }
     }

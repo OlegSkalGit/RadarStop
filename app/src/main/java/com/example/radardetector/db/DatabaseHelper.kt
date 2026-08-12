@@ -192,7 +192,8 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     fun getCountries(): List<Pair<String, String>> {
         val list = ArrayList<Pair<String, String>>()
         val db = readableDatabase
-        db.rawQuery("SELECT $COLUMN_COUNTRY_NAME, $COLUMN_COUNTRY_CODE FROM $TABLE_COUNTRIES ORDER BY $COLUMN_COUNTRY_NAME ASC", null).use { cursor ->
+        val cursor = db.rawQuery("SELECT $COLUMN_COUNTRY_NAME, $COLUMN_COUNTRY_CODE FROM $TABLE_COUNTRIES ORDER BY $COLUMN_COUNTRY_NAME ASC", null)
+        cursor.use {
             val nameIdx = cursor.getColumnIndexOrThrow(COLUMN_COUNTRY_NAME)
             val codeIdx = cursor.getColumnIndexOrThrow(COLUMN_COUNTRY_CODE)
             while (cursor.moveToNext()) {
