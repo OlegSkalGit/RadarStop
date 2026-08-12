@@ -7,6 +7,9 @@ import android.content.Intent
 import android.os.Build
 import com.example.radardetector.service.RadarForegroundService
 
+import android.location.Location
+import android.location.LocationManager
+
 /**
  * Utility functions for service management and common Intent creations.
  */
@@ -40,5 +43,24 @@ object ServiceUtils {
 inline fun <reified T : Activity> Context.createSingleTopIntent(): Intent {
     return Intent(this, T::class.java).apply {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+    }
+}
+
+/**
+ * Triple-provider location acquisition (GPS, Network, Passive).
+ * Returns the most recently updated Location among all active providers.
+ */
+fun LocationManager.getBestLastKnownLocation(): Location? {
+    return try {
+        val providers = listOf(
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
+            LocationManager.PASSIVE_PROVIDER
+        )
+        providers.mapNotNull { provider ->
+            try { getLastKnownLocation(provider) } catch (e: Exception) { null }
+        }.maxByOrNull { it.time }
+    } catch (e: Exception) {
+        null
     }
 }

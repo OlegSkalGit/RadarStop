@@ -30,6 +30,7 @@ import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.receiver.AlarmWatchdogReceiver
 import com.example.radardetector.util.AppLogger
 import com.example.radardetector.util.getAppVersionName
+import com.example.radardetector.util.getBestLastKnownLocation
 import android.os.PowerManager
 import java.util.concurrent.Executors
 
@@ -162,9 +163,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // Instant metrics evaluation from last known location upon wakeup
         try {
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            val bestKnown = lastLocation ?: lastGps ?: lastNet
+            val bestKnown = lastLocation ?: locationManager.getBestLastKnownLocation()
             if (bestKnown != null) {
                 reloadCameraCacheForLocation(bestKnown)
                 val initialMetrics = RadarMath.evaluateLocationData(
@@ -248,10 +247,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             onStatusUpdate = { statusMsg -> updateNotificationText(statusMsg) },
             onSyncSuccess = { _, totalCount ->
                 cachedTotalCameraCount = totalCount
-                val loc = lastLocation ?: try {
-                    locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                        ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                } catch (e: Exception) { null }
+                val loc = lastLocation ?: locationManager.getBestLastKnownLocation()
 
                 if (loc != null) {
                     reloadCameraCacheForLocation(loc)
@@ -275,9 +271,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // Try last known location for instant startup
         try {
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            val bestKnown = lastGps ?: lastNet
+            val bestKnown = locationManager.getBestLastKnownLocation()
             if (bestKnown != null) {
                 lastLocation = bestKnown
                 AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Loading 10x10km DB cache & evaluating initial metrics immediately...")
@@ -824,10 +818,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     private fun notifyStateChange() {
-        val loc = lastLocation ?: try {
-            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-        } catch (e: Exception) { null }
+        val loc = lastLocation ?: locationManager.getBestLastKnownLocation()
 
         if (loc != null) {
             val metrics = RadarMath.evaluateLocationData(
