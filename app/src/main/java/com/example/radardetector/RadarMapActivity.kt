@@ -33,6 +33,8 @@ import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.ui.CountrySelectionDialog
 import com.example.radardetector.ui.UiUtils
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.AppPrefs
+import com.example.radardetector.util.ServiceUtils
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -427,8 +429,7 @@ class RadarMapActivity : Activity() {
     }
 
     private fun updateDebugVisibility() {
-        val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
-        isDebugMode = prefs.getBoolean("debug_mode", false)
+        isDebugMode = AppPrefs.isDebugMode(this)
         bottomStatusPanel.visibility = if (isDebugMode) View.VISIBLE else View.GONE
         updateSleepCountdown()
         if (::mapView.isInitialized) {
@@ -442,15 +443,14 @@ class RadarMapActivity : Activity() {
         }
 
         val container = UiUtils.createDarkDialogContainer(this)
-        val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
         val itemStyleParams = UiUtils.createStandardItemParams()
 
         // 1. Autostart On / Off
-        var isAutostart = prefs.getBoolean("autostart", false)
+        var isAutostart = AppPrefs.isAutostart(this)
         lateinit var btnAutostart: Button
         btnAutostart = UiUtils.createStyledButton(this, if (isAutostart) "Autostart On" else "Autostart Off", itemStyleParams) {
             isAutostart = !isAutostart
-            prefs.edit().putBoolean("autostart", isAutostart).apply()
+            AppPrefs.setAutostart(this, isAutostart)
             btnAutostart.text = if (isAutostart) "Autostart On" else "Autostart Off"
             val statusMsg = if (isAutostart) "Start with system - Enable" else "Start with system - Disable"
             Toast.makeText(this@RadarMapActivity, statusMsg, Toast.LENGTH_SHORT).show()
@@ -482,7 +482,7 @@ class RadarMapActivity : Activity() {
         container.addView(UiUtils.createDialogDivider(this))
 
         // 4. Debug On / Off + Logs & Test Beep
-        var isDebug = prefs.getBoolean("debug_mode", false)
+        var isDebug = AppPrefs.isDebugMode(this)
 
         val debugSubContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -508,7 +508,7 @@ class RadarMapActivity : Activity() {
         lateinit var btnDebug: Button
         btnDebug = UiUtils.createStyledButton(this, if (isDebug) "Debug On" else "Debug Off", itemStyleParams) {
             isDebug = !isDebug
-            prefs.edit().putBoolean("debug_mode", isDebug).apply()
+            AppPrefs.setDebugMode(this, isDebug)
             btnDebug.text = if (isDebug) "Debug On" else "Debug Off"
             if (!isDebug) {
                 AppLogger.setLoggingEnabled(this@RadarMapActivity, false)
@@ -542,16 +542,7 @@ class RadarMapActivity : Activity() {
         updateSleepCountdown()
         RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
-        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val isSystemGpsDisabled = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                !lm.isLocationEnabled
-            } else {
-                !lm.isProviderEnabled(LocationManager.GPS_PROVIDER) && !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-            }
-        } catch (e: Exception) {
-            !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        }
+        val isSystemGpsDisabled = !ServiceUtils.isLocationEnabled(this)
         val isGpsDisabled = isSystemGpsDisabled || metrics?.isGpsDisabled == true
 
         if (isGpsDisabled || metrics == null) {

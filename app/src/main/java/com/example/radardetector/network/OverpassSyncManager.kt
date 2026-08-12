@@ -42,7 +42,7 @@ class OverpassSyncManager(
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val prefs: SharedPreferences = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = com.example.radardetector.util.AppPrefs.getPrefs(context)
     @Volatile
     private var lastSyncTimeMs = prefs.getLong("last_sync_time_ms", 0L)
     @Volatile

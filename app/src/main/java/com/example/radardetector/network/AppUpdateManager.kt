@@ -69,7 +69,7 @@ object AppUpdateManager {
         force: Boolean = false,
         onResult: ((String) -> Unit)? = null
     ) {
-        val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs: SharedPreferences = com.example.radardetector.util.AppPrefs.getPrefs(context)
         val lastCheckMs = prefs.getLong(PREF_KEY_LAST_UPDATE_CHECK, 0L)
         val now = System.currentTimeMillis()
 
@@ -255,14 +255,14 @@ object AppUpdateManager {
     }
 
     fun postponeUpdate(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = com.example.radardetector.util.AppPrefs.getPrefs(context)
         prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
         AppLogger.log("AppUpdateManager", "postponeUpdate", true, "Update postponed by user. Next check in 24h.")
     }
 
     fun startDownloadFromNotification(context: Context, downloadUrl: String, fileName: String) {
         executor.execute {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val prefs = com.example.radardetector.util.AppPrefs.getPrefs(context)
             prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
             startDownload(context, downloadUrl, fileName, null)
         }

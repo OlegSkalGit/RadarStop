@@ -28,13 +28,12 @@ object AppLogger {
     fun initNewSession(context: Context) {
         try {
             appFilesDir = context.filesDir
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val isDebug = prefs.getBoolean("debug_mode", false)
+            val isDebug = AppPrefs.isDebugMode(context)
             if (!isDebug) {
                 isLoggingEnabled = false
-                prefs.edit().putBoolean(PREF_KEY_LOGGING, false).apply()
+                AppPrefs.getPrefs(context).edit().putBoolean(PREF_KEY_LOGGING, false).apply()
             } else {
-                isLoggingEnabled = prefs.getBoolean(PREF_KEY_LOGGING, false)
+                isLoggingEnabled = AppPrefs.getPrefs(context).getBoolean(PREF_KEY_LOGGING, false)
             }
         } catch (e: Exception) {
             e.printStackTrace()

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.location.Location
 import android.os.Build
 import com.example.radardetector.service.RadarForegroundService
 
@@ -35,6 +36,28 @@ object ServiceUtils {
         }
         startRadarForegroundService(context, serviceIntent)
     }
+
+    fun isLocationEnabled(context: Context): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            lm.isLocationEnabled
+        } else {
+            lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+                    lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+        }
+    }
+}
+
+fun android.location.LocationManager.getBestLastKnownLocation(): Location? {
+    return try {
+        getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+            ?: getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            ?: getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER)
+    } catch (e: SecurityException) {
+        null
+    } catch (e: Exception) {
+        null
+    }
 }
 
 inline fun <reified T : Activity> Context.createSingleTopIntent(): Intent {
@@ -42,3 +65,4 @@ inline fun <reified T : Activity> Context.createSingleTopIntent(): Intent {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
     }
 }
+

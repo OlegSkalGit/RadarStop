@@ -9,6 +9,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.AppPrefs
 
 class BootReceiver : BroadcastReceiver() {
 
@@ -18,8 +19,7 @@ class BootReceiver : BroadcastReceiver() {
             action == "android.intent.action.QUICKBOOT_POWERON" ||
             action == "com.htc.intent.action.QUICKBOOT_POWERON"
         ) {
-            val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
-            val isAutostartEnabled = prefs.getBoolean("autostart", false)
+            val isAutostartEnabled = AppPrefs.isAutostart(context)
             AppLogger.log("BootReceiver", "onReceive", true, "System boot event received ($action). Autostart setting: $isAutostartEnabled")
 
             if (isAutostartEnabled) {
