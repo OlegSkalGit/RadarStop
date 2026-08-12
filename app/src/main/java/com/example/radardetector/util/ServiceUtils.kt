@@ -4,11 +4,10 @@ import android.app.Activity
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
-import com.example.radardetector.service.RadarForegroundService
-
 import android.location.Location
 import android.location.LocationManager
+import android.os.Build
+import com.example.radardetector.service.RadarForegroundService
 
 /**
  * Utility functions for service management and common Intent creations.
