@@ -10,7 +10,6 @@ import java.util.concurrent.Executors
 
 object AppLogger {
 
-    private const val PREFS_NAME = "radar_prefs"
     private const val PREF_KEY_LOGGING = "pref_logging_enabled"
 
     private val fileDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
