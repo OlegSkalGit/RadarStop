@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.location.Location
 import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -46,6 +47,7 @@ class RadarMapActivity : Activity() {
     private lateinit var tvSpeedUnit: TextView
     private lateinit var tvSubLabel: TextView
     private lateinit var tvCamNearWarning: TextView
+    private lateinit var tvSleepCountdown: TextView
     private lateinit var bottomStatusPanel: LinearLayout
     private var isDebugMode: Boolean = false
     private var lastMapUpdateTimeMs: Long = System.currentTimeMillis()
@@ -54,6 +56,16 @@ class RadarMapActivity : Activity() {
 
     private val mapRefreshRunnable = object : Runnable {
         override fun run() {
+            val service = RadarForegroundService.instance
+            if (service?.isDeepSleepState == true) {
+                if (::tvSleepCountdown.isInitialized) {
+                    tvSleepCountdown.text = "Sleep: 0:00"
+                    tvSleepCountdown.visibility = View.VISIBLE
+                }
+                mapRefreshHandler.postDelayed(this, 3000L)
+                return
+            }
+            updateSleepCountdown()
             val now = System.currentTimeMillis()
             if (now - lastMapUpdateTimeMs >= MAP_REFRESH_INTERVAL_MS) {
                 refreshMapState()
@@ -162,7 +174,28 @@ class RadarMapActivity : Activity() {
         topLeftContainer.addView(speedRow)
         topLeftContainer.addView(tvSubLabel)
 
+        val labelsSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+        }
+
+        val topRightContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#121212"))
+            setPadding(24, 16, 24, 16)
+        }
+
+        tvSleepCountdown = TextView(this).apply {
+            text = "Sleep in 3:00"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            visibility = View.GONE
+        }
+        topRightContainer.addView(tvSleepCountdown)
+
         labelsRow.addView(topLeftContainer)
+        labelsRow.addView(labelsSpacer)
+        labelsRow.addView(topRightContainer)
         topOverlayPanel.addView(labelsRow)
 
         val topOverlayParams = FrameLayout.LayoutParams(
@@ -263,76 +296,64 @@ class RadarMapActivity : Activity() {
         isGpsDisabled: Boolean,
         metrics: com.example.radardetector.math.ProcessedLocationMetrics?
     ) {
-        if (isGpsDisabled) {
-            val redColor = Color.parseColor("#FF1744")
-            tvSpeedValue.text = "GPS OFF"
-            tvSpeedValue.textSize = 32f
-            tvSpeedValue.setTextColor(redColor)
-            tvSpeedUnit.visibility = View.GONE
-            tvSubLabel.text = "Please enable GPS"
-            tvSubLabel.setTextColor(redColor)
-            tvSubLabel.visibility = View.VISIBLE
-            tvCamNearWarning.visibility = View.GONE
-        } else if (metrics == null) {
-            val redColor = Color.parseColor("#FF1744")
-            tvSpeedValue.text = "Waiting GPS"
-            tvSpeedValue.textSize = 32f
-            tvSpeedValue.setTextColor(redColor)
-            tvSpeedUnit.visibility = View.GONE
-            tvSubLabel.text = "Searching satellites..."
-            tvSubLabel.setTextColor(redColor)
-            tvSubLabel.visibility = View.VISIBLE
-        } else if (metrics.isAccuracyWeak) {
-            val orangeColor = Color.parseColor("#FF9100")
-            val speedInt = metrics.speedKmh.toInt()
-            tvSpeedValue.text = "$speedInt"
-            tvSpeedValue.textSize = 44f
-            tvSpeedValue.setTextColor(orangeColor)
-            tvSpeedUnit.setTextColor(orangeColor)
-            tvSpeedUnit.visibility = View.VISIBLE
-            tvSubLabel.text = "GPS bad"
-            tvSubLabel.setTextColor(orangeColor)
-            tvSubLabel.visibility = View.VISIBLE
+        val state = metrics?.radarState ?: if (isGpsDisabled) {
+            RadarState.GPS_DISABLED
         } else {
-            tvSpeedValue.textSize = 44f
-            tvSpeedUnit.visibility = View.VISIBLE
-            val speedKmh = metrics.speedKmh
+            RadarState.SEARCHING_GPS
+        }
 
-            if (metrics.isStationary || speedKmh <= 3.0f) {
-                val whiteColor = Color.WHITE
+        val color = Color.parseColor(state.mapColorHex)
+        val speedInt = metrics?.speedKmh?.toInt() ?: 0
+
+        when (state) {
+            RadarState.GPS_DISABLED, RadarState.SEARCHING_GPS -> {
+                tvSpeedValue.text = state.mapSpeedText
+                tvSpeedValue.textSize = 32f
+                tvSpeedValue.setTextColor(color)
+                tvSpeedUnit.visibility = View.GONE
+                tvSubLabel.text = state.mapSubLabelText
+                tvSubLabel.setTextColor(color)
+                tvSubLabel.visibility = View.VISIBLE
+                tvCamNearWarning.visibility = View.GONE
+            }
+            RadarState.WEAK_GPS -> {
+                tvSpeedValue.text = "$speedInt"
+                tvSpeedValue.textSize = 44f
+                tvSpeedValue.setTextColor(color)
+                tvSpeedUnit.setTextColor(color)
+                tvSpeedUnit.visibility = View.VISIBLE
+                tvSubLabel.text = state.mapSubLabelText
+                tvSubLabel.setTextColor(color)
+                tvSubLabel.visibility = View.VISIBLE
+            }
+            RadarState.DEEP_SLEEP, RadarState.STOPPED -> {
                 tvSpeedValue.text = "0"
-                tvSpeedValue.setTextColor(whiteColor)
-                tvSpeedUnit.setTextColor(whiteColor)
-                tvSubLabel.text = "Stopped"
-                tvSubLabel.setTextColor(whiteColor)
+                tvSpeedValue.textSize = 44f
+                tvSpeedValue.setTextColor(color)
+                tvSpeedUnit.setTextColor(color)
+                tvSpeedUnit.visibility = View.VISIBLE
+                tvSubLabel.text = state.mapSubLabelText
+                tvSubLabel.setTextColor(color)
                 tvSubLabel.visibility = View.VISIBLE
-            } else if (speedKmh < 30f) {
-                val whiteColor = Color.WHITE
-                val speedInt = speedKmh.toInt()
+            }
+            RadarState.LOW_SPEED, RadarState.ACCURATE_SPEED -> {
                 tvSpeedValue.text = "$speedInt"
-                tvSpeedValue.setTextColor(whiteColor)
-                tvSpeedUnit.setTextColor(whiteColor)
-                tvSubLabel.text = "LOW speed"
-                tvSubLabel.setTextColor(whiteColor)
+                tvSpeedValue.textSize = 44f
+                tvSpeedValue.setTextColor(color)
+                tvSpeedUnit.setTextColor(color)
+                tvSpeedUnit.visibility = View.VISIBLE
+                tvSubLabel.text = state.mapSubLabelText
+                tvSubLabel.setTextColor(color)
                 tvSubLabel.visibility = View.VISIBLE
-            } else {
-                val speedInt = speedKmh.toInt()
+            }
+            RadarState.REGULAR_SPEED -> {
                 tvSpeedValue.text = "$speedInt"
-                val isAccGood = metrics.location.hasAccuracy() && metrics.location.accuracy <= 15f
-                if (isAccGood) {
-                    val cyanColor = Color.parseColor("#00E5FF")
-                    tvSpeedValue.setTextColor(cyanColor)
-                    tvSpeedUnit.setTextColor(cyanColor)
-                    tvSubLabel.text = "GPS good"
-                    tvSubLabel.setTextColor(cyanColor)
-                    tvSubLabel.visibility = View.VISIBLE
-                } else {
-                    val greenColor = Color.parseColor("#00E676")
-                    tvSpeedValue.setTextColor(greenColor)
-                    tvSpeedUnit.setTextColor(greenColor)
-                    tvSubLabel.text = ""
-                    tvSubLabel.visibility = View.GONE
-                }
+                tvSpeedValue.textSize = 44f
+                tvSpeedValue.setTextColor(color)
+                tvSpeedUnit.setTextColor(color)
+                tvSpeedUnit.visibility = View.VISIBLE
+                tvSubLabel.text = ""
+                tvSubLabel.visibility = View.GONE
             }
         }
     }
@@ -386,10 +407,30 @@ class RadarMapActivity : Activity() {
         }
     }
 
+    private fun updateSleepCountdown() {
+        if (!::tvSleepCountdown.isInitialized) return
+        if (isDebugMode) {
+            val service = RadarForegroundService.instance
+            val isSleeping = service?.isDeepSleepState == true
+            if (isSleeping) {
+                tvSleepCountdown.text = "Sleep: 0:00"
+            } else {
+                val sec = service?.getSecondsUntilDeepSleep() ?: 180L
+                val m = sec / 60
+                val s = sec % 60
+                tvSleepCountdown.text = String.format(java.util.Locale.US, "Sleep in %d:%02d", m, s)
+            }
+            tvSleepCountdown.visibility = View.VISIBLE
+        } else {
+            tvSleepCountdown.visibility = View.GONE
+        }
+    }
+
     private fun updateDebugVisibility() {
         val prefs = getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
         isDebugMode = prefs.getBoolean("debug_mode", false)
         bottomStatusPanel.visibility = if (isDebugMode) View.VISIBLE else View.GONE
+        updateSleepCountdown()
         if (::mapView.isInitialized) {
             mapView.postInvalidate()
         }
@@ -498,16 +539,29 @@ class RadarMapActivity : Activity() {
 
     private fun refreshMapState(metricsParam: com.example.radardetector.math.ProcessedLocationMetrics? = null) {
         lastMapUpdateTimeMs = System.currentTimeMillis()
+        updateSleepCountdown()
         RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        val isSystemGpsDisabled = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                !lm.isLocationEnabled
+            } else {
+                !lm.isProviderEnabled(LocationManager.GPS_PROVIDER) && !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }
+        } catch (e: Exception) {
+            !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        }
+        val isGpsDisabled = isSystemGpsDisabled || metrics?.isGpsDisabled == true
 
         if (isGpsDisabled || metrics == null) {
             updateGpsSpeedDisplay(isGpsDisabled, metrics)
             if (isGpsDisabled) {
                 tvStatusLine1.text = "Speed: 0 km/h | GPS Disabled in Settings | Interval: --"
                 tvStatusLine2.text = "Beep Status: OFF (GPS Disabled) | Cams: --"
+            } else {
+                tvStatusLine1.text = "Speed: 0 km/h | Searching Satellites... | Interval: --"
+                tvStatusLine2.text = "Beep Status: OFF (Searching GPS) | Cams: --"
             }
             return
         }
@@ -526,7 +580,7 @@ class RadarMapActivity : Activity() {
 
         val s = RadarForegroundService.instance
         if (s?.isDeepSleepState == true) {
-            s.wakeUpFromDeepSleep("RadarMapActivity Opened")
+            refreshMapState()
         }
 
         RadarForegroundService.serviceStateListener = { isRunning ->

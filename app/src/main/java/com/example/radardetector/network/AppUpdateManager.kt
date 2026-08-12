@@ -136,14 +136,9 @@ object AppUpdateManager {
             "Local installed version (versionName): $installedVersionName ($localInstalledVer)"
         )
 
-        val latestReleaseList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest")
-        val allReleasesList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases")
+        val releasesList = fetchReleasesFromUrl("https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases?per_page=100")
 
-        val combinedReleases = mutableListOf<org.json.JSONObject>()
-        combinedReleases.addAll(latestReleaseList)
-        combinedReleases.addAll(allReleasesList)
-
-        if (combinedReleases.isEmpty()) {
+        if (releasesList.isEmpty()) {
             val err = "Failed to fetch releases from GitHub API."
             AppLogger.log("AppUpdateManager", "performUpdateCheck", false, err)
             onResult?.let { mainHandler.post { it(err) } }
@@ -154,7 +149,7 @@ object AppUpdateManager {
         var latestRemoteName = ""
         var latestRemoteUrl = ""
 
-        for (release in combinedReleases) {
+        for (release in releasesList) {
             val assets = release.optJSONArray("assets") ?: continue
             for (j in 0 until assets.length()) {
                 val asset = assets.getJSONObject(j)
