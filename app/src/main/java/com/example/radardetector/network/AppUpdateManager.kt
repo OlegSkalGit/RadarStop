@@ -37,6 +37,7 @@ object AppUpdateManager {
     private const val REPO_NAME = "RadarStop"
     private const val API_URL = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases"
     private const val CHECK_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
+    private const val PREFS_NAME = "radar_prefs"
     private const val PREF_KEY_LAST_UPDATE_CHECK = "last_app_update_check_ms"
 
     const val NOTIFICATION_ID = 9901
@@ -68,7 +69,7 @@ object AppUpdateManager {
         force: Boolean = false,
         onResult: ((String) -> Unit)? = null
     ) {
-        val prefs: SharedPreferences = com.example.radardetector.util.AppPrefs.getPrefs(context)
+        val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val lastCheckMs = prefs.getLong(PREF_KEY_LAST_UPDATE_CHECK, 0L)
         val now = System.currentTimeMillis()
 
@@ -254,14 +255,14 @@ object AppUpdateManager {
     }
 
     fun postponeUpdate(context: Context) {
-        val prefs = com.example.radardetector.util.AppPrefs.getPrefs(context)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
         AppLogger.log("AppUpdateManager", "postponeUpdate", true, "Update postponed by user. Next check in 24h.")
     }
 
     fun startDownloadFromNotification(context: Context, downloadUrl: String, fileName: String) {
         executor.execute {
-            val prefs = com.example.radardetector.util.AppPrefs.getPrefs(context)
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
             startDownload(context, downloadUrl, fileName, null)
         }
