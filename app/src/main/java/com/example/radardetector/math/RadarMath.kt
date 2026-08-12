@@ -2,6 +2,9 @@ package com.example.radardetector.math
 
 import android.location.Location
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
 
 object RadarMath {
 
@@ -40,15 +43,20 @@ object RadarMath {
     }
 
     /**
-     * Calculates 10x10 km Bounding Box coordinates (minLat, maxLat, minLon, maxLon)
-     * corresponding to +-0.045 degrees around lat/lon.
+     * Calculates Bounding Box coordinates (minLat, maxLat, minLon, maxLon)
+     * for a given box size in kilometers around lat/lon.
      */
-    fun get10x10BoxCoordinates(lat: Double, lon: Double): DoubleArray {
-        val deltaLat = 0.045
-        val cosLat = kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2)
-        val deltaLon = (0.045 / cosLat).coerceIn(0.045, 0.5)
+    fun getBoundingBoxCoordinates(lat: Double, lon: Double, sizeKm: Double = 10.0): DoubleArray {
+        val deltaLat = sizeKm * 0.0045
+        val cosLat = cos(Math.toRadians(lat)).coerceAtLeast(0.1)
+        val deltaLon = (deltaLat / cosLat).coerceIn(deltaLat, deltaLat * 10.0)
         return doubleArrayOf(lat - deltaLat, lat + deltaLat, lon - deltaLon, lon + deltaLon)
     }
+
+    fun get10x10BoxCoordinates(lat: Double, lon: Double): DoubleArray =
+        getBoundingBoxCoordinates(lat, lon, 10.0)
+
+
 
     /**
      * Unified camera loader for 10x10 km RAM cache + linear cameras.
@@ -316,7 +324,7 @@ class TrajectoryFilter(
             den += dx * dx
         }
 
-        val slope = if (Math.abs(den) > 1e-6) num / den else 0.0
+        val slope = if (abs(den) > 1e-6) num / den else 0.0
         val intercept = meanY - slope * meanX
         return Pair(slope, intercept)
     }
@@ -348,7 +356,7 @@ class TrajectoryFilter(
 
         val radLat = Math.toRadians(ref.latitude)
         val metersPerDegLat = 111139.0
-        val metersPerDegLon = 111139.0 * Math.cos(radLat)
+        val metersPerDegLon = 111139.0 * cos(radLat)
 
         val seriesX = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.longitude - ref.longitude) * metersPerDegLon) }
         val seriesY = points.map { SeriesPoint((it.time - refTime) / 1000.0, (it.latitude - ref.latitude) * metersPerDegLat) }
@@ -364,17 +372,17 @@ class TrajectoryFilter(
             val (slopeX, interceptX) = fitLinearSeries(seriesX)
             val (slopeY, interceptY) = fitLinearSeries(seriesY)
 
-            avgSpeedKmh = (Math.hypot(slopeX, slopeY) * 3.6).toFloat().coerceAtLeast(0f)
+            avgSpeedKmh = (hypot(slopeX, slopeY) * 3.6).toFloat().coerceAtLeast(0f)
             val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
             val futureT = targetT + lookaheadSec
 
             projX = slopeX * futureT + interceptX
             projY = slopeY * futureT + interceptY
 
-            var az = (90.0 - Math.toDegrees(Math.atan2(slopeY, slopeX))).toFloat()
+            var az = (90.0 - Math.toDegrees(atan2(slopeY, slopeX))).toFloat()
             if (az < 0f) az += 360f
             if (az >= 360f) az -= 360f
-            trajectoryBearing = if (Math.hypot(slopeX, slopeY) > 0.1) az else last.bearing
+            trajectoryBearing = if (hypot(slopeX, slopeY) > 0.1) az else last.bearing
         } else {
             val mid = points.size / 2
             val headX = seriesX.take(mid)
@@ -387,19 +395,19 @@ class TrajectoryFilter(
             val (slopeY1, interceptY1) = fitLinearSeries(headY)
             val (slopeY2, interceptY2) = fitLinearSeries(tailY)
 
-            var az1 = (90.0 - Math.toDegrees(Math.atan2(slopeY1, slopeX1))).toFloat()
+            var az1 = (90.0 - Math.toDegrees(atan2(slopeY1, slopeX1))).toFloat()
             if (az1 < 0f) az1 += 360f
             if (az1 >= 360f) az1 -= 360f
 
-            var az2 = (90.0 - Math.toDegrees(Math.atan2(slopeY2, slopeX2))).toFloat()
+            var az2 = (90.0 - Math.toDegrees(atan2(slopeY2, slopeX2))).toFloat()
             if (az2 < 0f) az2 += 360f
             if (az2 >= 360f) az2 -= 360f
 
-            val diffAngle = Math.abs(RadarMath.angleDifference(az1, az2))
+            val diffAngle = abs(RadarMath.angleDifference(az1, az2))
 
             if (diffAngle < 30f) {
-                val speed1 = Math.hypot(slopeX1, slopeY1)
-                val speed2 = Math.hypot(slopeX2, slopeY2)
+                val speed1 = hypot(slopeX1, slopeY1)
+                val speed2 = hypot(slopeX2, slopeY2)
                 avgSpeedKmh = (0.5 * (speed1 + speed2) * 3.6).toFloat().coerceAtLeast(0f)
 
                 val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
@@ -421,7 +429,7 @@ class TrajectoryFilter(
                 while (buffer.size > 3) {
                     buffer.removeFirst()
                 }
-                avgSpeedKmh = (Math.hypot(slopeX2, slopeY2) * 3.6).toFloat().coerceAtLeast(0f)
+                avgSpeedKmh = (hypot(slopeX2, slopeY2) * 3.6).toFloat().coerceAtLeast(0f)
 
                 val lookaheadSec = if (avgSpeedKmh >= 30.0f) PROJECTION_LOOKAHEAD_SEC else 0.0
                 val futureT = targetT + lookaheadSec

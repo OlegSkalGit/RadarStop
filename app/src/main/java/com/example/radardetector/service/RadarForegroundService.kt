@@ -30,6 +30,8 @@ import com.example.radardetector.network.OverpassSyncManager
 import com.example.radardetector.receiver.AlarmWatchdogReceiver
 import com.example.radardetector.util.AppLogger
 import com.example.radardetector.util.getAppVersionName
+import com.example.radardetector.util.isGpsSystemDisabled
+import com.example.radardetector.util.getBestLastKnownLocation
 import android.os.PowerManager
 import java.util.concurrent.Executors
 
@@ -154,21 +156,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "REGISTERED Accelerometer sensor for motion wakeup.")
             }
         }
-        val isSystemGpsDisabled = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                !locationManager.isLocationEnabled
-            } else {
-                !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-            }
-        } catch (e: Exception) {
-            !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        }
+        val isSystemGpsDisabled = locationManager.isGpsSystemDisabled()
 
         val deepSleepNotif = "Deep Sleep: Stationed (>3m). Accelerometer active."
-        val loc = lastLocation ?: try {
-            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-        } catch (e: Exception) { null }
+        val loc = lastLocation ?: locationManager.getBestLastKnownLocation()
 
         val targetLoc = loc ?: Location("dummy").apply {
             latitude = 0.0
@@ -223,15 +214,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
 
         // Check if system GPS is disabled before attempting wakeup notification
-        val isSystemGpsDisabled = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                !locationManager.isLocationEnabled
-            } else {
-                !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-            }
-        } catch (e: Exception) {
-            !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        }
+        val isSystemGpsDisabled = locationManager.isGpsSystemDisabled()
 
         if (isSystemGpsDisabled) {
             AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", false, "System GPS is disabled. Remaining in Deep Sleep.")
@@ -243,10 +226,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         try {
             val searchingNotif = "Searching for GPS..."
             updateNotificationText(searchingNotif)
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            val lastPass = locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
-            val bestKnown = lastLocation ?: lastGps ?: lastNet ?: lastPass
+            val bestKnown = lastLocation ?: locationManager.getBestLastKnownLocation()
             if (bestKnown != null) {
                 reloadCameraCacheForLocation(bestKnown)
                 val initialMetrics = RadarMath.evaluateLocationData(
@@ -301,15 +281,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         createNotificationChannel()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val isSystemGpsDisabled = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                !locationManager.isLocationEnabled
-            } else {
-                !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-            }
-        } catch (e: Exception) {
-            !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        }
+        val isSystemGpsDisabled = locationManager.isGpsSystemDisabled()
         val initialText = if (isSystemGpsDisabled) "GPS is Disabled in System Settings" else "Searching for GPS..."
         lastNotificationText = initialText
         startForeground(NOTIF_ID, buildNotification(initialText))
@@ -341,10 +313,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             onStatusUpdate = { statusMsg -> updateNotificationText(statusMsg) },
             onSyncSuccess = { _, totalCount ->
                 cachedTotalCameraCount = totalCount
-                val loc = lastLocation ?: try {
-                    locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                        ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                } catch (e: Exception) { null }
+                val loc = lastLocation ?: locationManager.getBestLastKnownLocation()
 
                 if (loc != null) {
                     reloadCameraCacheForLocation(loc)
@@ -368,10 +337,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // Try last known location for instant startup
         try {
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            val lastPass = locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
-            val bestKnown = lastGps ?: lastNet ?: lastPass
+            val bestKnown = locationManager.getBestLastKnownLocation()
             if (bestKnown != null) {
                 lastLocation = bestKnown
                 AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Loading 10x10km DB cache & evaluating initial metrics immediately...")
@@ -422,15 +388,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             return
         }
 
-        val isSystemGpsDisabled = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                !locationManager.isLocationEnabled
-            } else {
-                !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) && !locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-            }
-        } catch (e: Exception) {
-            !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        }
+        val isSystemGpsDisabled = locationManager.isGpsSystemDisabled()
 
         if (isSystemGpsDisabled) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS Hardware Provider is DISABLED in Android System Settings! Transitioning to Deep Sleep.")
@@ -661,7 +619,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         metricsListener?.invoke(metrics)
 
         // 3. Trigger network sync update
-        syncManager.onLocationUpdate(location, speedKmh)
+        syncManager.onLocationUpdate(location)
 
         // 4. Weak GPS Check (Alerting paused if accuracy > 100m, effective speed reset to 0, stationary timer evaluated)
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
@@ -1008,7 +966,12 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         dbExecutor.shutdownNow()
         audioEngine.release()
         syncManager.shutdown()
-        stopForeground(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         stopSelf()
     }
 
@@ -1041,10 +1004,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     private fun notifyStateChange(isGpsDisabled: Boolean = false, notificationText: String? = null) {
-        val loc = lastLocation ?: try {
-            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-        } catch (e: Exception) { null }
+        val loc = lastLocation ?: locationManager.getBestLastKnownLocation()
 
         val targetLoc = loc ?: Location("dummy").apply {
             latitude = 0.0

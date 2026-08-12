@@ -33,6 +33,7 @@ import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.ui.CountrySelectionDialog
 import com.example.radardetector.ui.UiUtils
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.isGpsSystemDisabled
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -543,15 +544,7 @@ class RadarMapActivity : Activity() {
         RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val isSystemGpsDisabled = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                !lm.isLocationEnabled
-            } else {
-                !lm.isProviderEnabled(LocationManager.GPS_PROVIDER) && !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-            }
-        } catch (e: Exception) {
-            !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        }
+        val isSystemGpsDisabled = lm.isGpsSystemDisabled()
         val isGpsDisabled = isSystemGpsDisabled || metrics?.isGpsDisabled == true
 
         if (isGpsDisabled || metrics == null) {

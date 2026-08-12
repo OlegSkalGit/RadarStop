@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.ServiceUtils
 
 class AlarmWatchdogReceiver : BroadcastReceiver() {
 
@@ -86,7 +87,7 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
                 val serviceIntent = Intent(context, RadarForegroundService::class.java).apply {
                     putExtra(RadarForegroundService.EXTRA_START_IN_DEEP_SLEEP, true)
                 }
-                com.example.radardetector.util.ServiceUtils.startRadarForegroundService(context, serviceIntent)
+                ServiceUtils.startRadarForegroundService(context, serviceIntent)
                 AppLogger.log("AlarmWatchdogReceiver", "onReceive", true, "Service restarted in Deep Sleep mode with active accelerometer by AlarmManager.")
             } catch (e: Exception) {
                 AppLogger.log("AlarmWatchdogReceiver", "onReceive", false, "Failed to restart service on alarm tick: ${e.message}")

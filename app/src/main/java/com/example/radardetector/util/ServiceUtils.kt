@@ -7,6 +7,9 @@ import android.content.Intent
 import android.os.Build
 import com.example.radardetector.service.RadarForegroundService
 
+import android.location.Location
+import android.location.LocationManager
+
 /**
  * Utility functions for service management and common Intent creations.
  */
@@ -42,3 +45,27 @@ inline fun <reified T : Activity> Context.createSingleTopIntent(): Intent {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
     }
 }
+
+fun LocationManager.isGpsSystemDisabled(): Boolean {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            !isLocationEnabled
+        } else {
+            !isProviderEnabled(LocationManager.GPS_PROVIDER) && !isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
+    } catch (e: Exception) {
+        !isProviderEnabled(LocationManager.GPS_PROVIDER)
+    }
+}
+
+fun LocationManager.getBestLastKnownLocation(): Location? {
+    return try {
+        val lastGps = getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        val lastNet = getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        val lastPass = getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+        lastGps ?: lastNet ?: lastPass
+    } catch (e: Exception) {
+        null
+    }
+}
+
