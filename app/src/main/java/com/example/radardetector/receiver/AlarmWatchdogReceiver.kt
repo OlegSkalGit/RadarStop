@@ -8,9 +8,6 @@ import android.content.Intent
 import android.os.Build
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
-import com.example.radardetector.util.ServiceUtils
-import com.example.radardetector.util.isAutostartEnabled
-import com.example.radardetector.util.isUserStopped
 
 class AlarmWatchdogReceiver : BroadcastReceiver() {
 
@@ -19,7 +16,8 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
         const val ALARM_INTERVAL_MS = 15 * 60 * 1000L // 15 minutes
 
         fun scheduleNextAlarm(context: Context) {
-            if (context.isUserStopped()) {
+            val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("user_stopped", false)) {
                 AppLogger.log("AlarmWatchdogReceiver", "scheduleNextAlarm", true, "User stopped app manually. Skipping AlarmManager scheduling.")
                 return
             }
@@ -67,7 +65,9 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (context.isUserStopped()) {
+        val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
+        val isUserStopped = prefs.getBoolean("user_stopped", false)
+        if (isUserStopped) {
             AppLogger.log("AlarmWatchdogReceiver", "onReceive", true, "App was manually stopped by user. Cancelling alarm and exiting.")
             cancelAlarm(context)
             return
@@ -82,9 +82,13 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
                 serviceInstance.checkWatchdogStall()
             }
         } else {
-            if (context.isAutostartEnabled()) {
+            val isAutostartEnabled = prefs.getBoolean("autostart", false)
+            if (isAutostartEnabled) {
                 try {
-                    ServiceUtils.startRadarServiceInDeepSleep(context)
+                    val serviceIntent = Intent(context, RadarForegroundService::class.java).apply {
+                        putExtra(RadarForegroundService.EXTRA_START_IN_DEEP_SLEEP, true)
+                    }
+                    com.example.radardetector.util.ServiceUtils.startRadarForegroundService(context, serviceIntent)
                     AppLogger.log("AlarmWatchdogReceiver", "onReceive", true, "Service restarted in Deep Sleep mode with active accelerometer by AlarmManager.")
                 } catch (e: Exception) {
                     AppLogger.log("AlarmWatchdogReceiver", "onReceive", false, "Failed to restart service on alarm tick: ${e.message}")

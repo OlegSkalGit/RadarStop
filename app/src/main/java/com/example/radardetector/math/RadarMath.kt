@@ -1,17 +1,7 @@
 package com.example.radardetector.math
 
 import android.location.Location
-import com.example.radardetector.util.isAccuracyWeak
 import kotlin.math.abs
-
-data class BoundingBox(
-    val minLat: Double,
-    val maxLat: Double,
-    val minLon: Double,
-    val maxLon: Double
-) {
-    fun toArray(): DoubleArray = doubleArrayOf(minLat, maxLat, minLon, maxLon)
-}
 
 object RadarMath {
 
@@ -50,51 +40,14 @@ object RadarMath {
     }
 
     /**
-     * Universal geographic bounding box calculator for sizeKm x sizeKm square.
-     * Computes minLat, maxLat, minLon, maxLon ensuring real physical dimensions
-     * closely match sizeKm across any latitude on Earth.
-     */
-    fun calculateBoundingBox(lat: Double, lon: Double, sizeKm: Double): BoundingBox {
-        val halfSizeKm = sizeKm / 2.0
-        val kmPerDegLat = 111.132
-        val deltaLat = halfSizeKm / kmPerDegLat
-
-        val minLat = (lat - deltaLat).coerceIn(-90.0, 90.0)
-        val maxLat = (lat + deltaLat).coerceIn(-90.0, 90.0)
-
-        val cosLat = kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.0001)
-        val kmPerDegLon = kmPerDegLat * cosLat
-        val deltaLon = halfSizeKm / kmPerDegLon
-
-        val minLon: Double
-        val maxLon: Double
-        if (deltaLon >= 180.0) {
-            minLon = -180.0
-            maxLon = 180.0
-        } else {
-            var startLon = lon - deltaLon
-            var endLon = lon + deltaLon
-            if (startLon < -180.0) startLon += 360.0
-            if (endLon > 180.0) endLon -= 360.0
-            minLon = startLon
-            maxLon = endLon
-        }
-
-        return BoundingBox(minLat, maxLat, minLon, maxLon)
-    }
-
-    /**
-     * Calculates 10x10 km Bounding Box coordinates (minLat, maxLat, minLon, maxLon).
+     * Calculates 10x10 km Bounding Box coordinates (minLat, maxLat, minLon, maxLon)
+     * corresponding to +-0.045 degrees around lat/lon.
      */
     fun get10x10BoxCoordinates(lat: Double, lon: Double): DoubleArray {
-        return calculateBoundingBox(lat, lon, 10.0).toArray()
-    }
-
-    /**
-     * Calculates 100x100 km Bounding Box coordinates (minLat, maxLat, minLon, maxLon).
-     */
-    fun get100x100BoxCoordinates(lat: Double, lon: Double): DoubleArray {
-        return calculateBoundingBox(lat, lon, 100.0).toArray()
+        val deltaLat = 0.045
+        val cosLat = kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.2)
+        val deltaLon = (0.045 / cosLat).coerceIn(0.045, 0.5)
+        return doubleArrayOf(lat - deltaLat, lat + deltaLat, lon - deltaLon, lon + deltaLon)
     }
 
     /**
@@ -140,7 +93,7 @@ object RadarMath {
         olsSpeedKmh: Float = 0f,
         isHighSpeedMode: Boolean = false
     ): ProcessedLocationMetrics {
-        val isAccuracyWeak = location.isAccuracyWeak()
+        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
 
         val gpsStatusStr = if (isAccuracyWeak) {
             "GPS: WEAK (>100m [${location.accuracy.toInt()}m])"
@@ -215,7 +168,7 @@ class TrajectoryFilter(
 
     @Synchronized
     fun processLocation(location: Location): TrajectoryResult {
-        val isWeak = location.isAccuracyWeak()
+        val isWeak = location.hasAccuracy() && location.accuracy > 100f
         if (isWeak) {
             val lm = computeLineMetrics()
             return TrajectoryResult(

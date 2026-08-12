@@ -96,14 +96,47 @@ class AcousticRadarEngine(private val context: Context) {
         hasAudioFocus = false
     }
 
-    private inline fun executeAudioSession(tag: String, crossinline action: () -> Unit) {
+    fun playSingleBeep() {
         audioExecutor.execute {
             try {
                 synchronized(this@AcousticRadarEngine) {
                     requestFocus()
                     initToneGenerator()
                 }
-                action()
+                // Bluetooth A2DP / Audio HAL Warmup delay (350ms) so PCM channel opens fully before beep
+                Thread.sleep(350)
+                synchronized(this@AcousticRadarEngine) {
+                    emitBeep()
+                }
+                Thread.sleep(250)
+                synchronized(this@AcousticRadarEngine) {
+                    if (!isBeeping) {
+                        abandonFocus()
+                    }
+                }
+                AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played after stream warmup and focus released.")
+            } catch (e: Exception) {
+                AppLogger.log("AcousticRadarEngine", "playSingleBeep", false, "Error: ${e.message}")
+            }
+        }
+    }
+
+    fun playBeeps(count: Int, intervalMs: Long) {
+        audioExecutor.execute {
+            try {
+                synchronized(this@AcousticRadarEngine) {
+                    requestFocus()
+                    initToneGenerator()
+                }
+                AppLogger.log("AcousticRadarEngine", "playBeeps", true, "Playing $count test beeps at ${intervalMs}ms interval...")
+                for (i in 1..count) {
+                    synchronized(this@AcousticRadarEngine) {
+                        emitBeep()
+                    }
+                    if (i < count) {
+                        Thread.sleep(intervalMs)
+                    }
+                }
                 Thread.sleep(250)
                 synchronized(this@AcousticRadarEngine) {
                     if (!isBeeping) {
@@ -111,31 +144,7 @@ class AcousticRadarEngine(private val context: Context) {
                     }
                 }
             } catch (e: Exception) {
-                AppLogger.log("AcousticRadarEngine", tag, false, "Error: ${e.message}")
-            }
-        }
-    }
-
-    fun playSingleBeep() {
-        executeAudioSession("playSingleBeep") {
-            Thread.sleep(350)
-            synchronized(this@AcousticRadarEngine) {
-                emitBeep()
-            }
-            AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played after stream warmup and focus released.")
-        }
-    }
-
-    fun playBeeps(count: Int, intervalMs: Long) {
-        executeAudioSession("playBeeps") {
-            AppLogger.log("AcousticRadarEngine", "playBeeps", true, "Playing $count test beeps at ${intervalMs}ms interval...")
-            for (i in 1..count) {
-                synchronized(this@AcousticRadarEngine) {
-                    emitBeep()
-                }
-                if (i < count) {
-                    Thread.sleep(intervalMs)
-                }
+                AppLogger.log("AcousticRadarEngine", "playBeeps", false, "Error: ${e.message}")
             }
         }
     }
