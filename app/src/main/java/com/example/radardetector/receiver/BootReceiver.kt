@@ -9,6 +9,8 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.ServiceUtils
+import com.example.radardetector.util.isAutostartEnabled
 
 class BootReceiver : BroadcastReceiver() {
 
@@ -18,8 +20,7 @@ class BootReceiver : BroadcastReceiver() {
             action == "android.intent.action.QUICKBOOT_POWERON" ||
             action == "com.htc.intent.action.QUICKBOOT_POWERON"
         ) {
-            val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
-            val isAutostartEnabled = prefs.getBoolean("autostart", false)
+            val isAutostartEnabled = context.isAutostartEnabled()
             AppLogger.log("BootReceiver", "onReceive", true, "System boot event received ($action). Autostart setting: $isAutostartEnabled")
 
             if (isAutostartEnabled) {
@@ -39,10 +40,7 @@ class BootReceiver : BroadcastReceiver() {
                 }
 
                 try {
-                    val serviceIntent = Intent(context, RadarForegroundService::class.java).apply {
-                        putExtra(RadarForegroundService.EXTRA_START_IN_DEEP_SLEEP, true)
-                    }
-                    com.example.radardetector.util.ServiceUtils.startRadarForegroundService(context, serviceIntent)
+                    ServiceUtils.startRadarServiceInDeepSleep(context)
                     AppLogger.log("BootReceiver", "onReceive", true, "RadarForegroundService automatically launched in Deep Sleep mode on system boot.")
                 } catch (e: IllegalStateException) {
                     AppLogger.log("BootReceiver", "onReceive", false, "ForegroundServiceStartNotAllowedException / Background start restricted by Android OS: ${e.message}")

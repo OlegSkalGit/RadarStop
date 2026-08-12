@@ -32,6 +32,9 @@ import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.ui.CountrySelectionDialog
 import com.example.radardetector.ui.UiUtils
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.isAutostartEnabled
+import com.example.radardetector.util.isGpsSystemDisabled
+import com.example.radardetector.util.setAutostartEnabled
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -349,7 +352,7 @@ class RadarMapActivity : Activity() {
             tvCamNearWarning.visibility = if (isCamNear) View.VISIBLE else View.GONE
 
             val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val isGpsDisabled = !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            val isGpsDisabled = locationManager.isGpsSystemDisabled()
             updateGpsSpeedDisplay(isGpsDisabled, metrics)
 
             val activeIntervalMs = RadarForegroundService.currentGpsIntervalMs
@@ -405,11 +408,11 @@ class RadarMapActivity : Activity() {
         val itemStyleParams = UiUtils.createStandardItemParams()
 
         // 1. Autostart On / Off
-        var isAutostart = prefs.getBoolean("autostart", false)
+        var isAutostart = isAutostartEnabled()
         lateinit var btnAutostart: Button
         btnAutostart = UiUtils.createStyledButton(this, if (isAutostart) "Autostart On" else "Autostart Off", itemStyleParams) {
             isAutostart = !isAutostart
-            prefs.edit().putBoolean("autostart", isAutostart).apply()
+            setAutostartEnabled(isAutostart)
             btnAutostart.text = if (isAutostart) "Autostart On" else "Autostart Off"
             val statusMsg = if (isAutostart) "Start with system - Enable" else "Start with system - Disable"
             Toast.makeText(this@RadarMapActivity, statusMsg, Toast.LENGTH_SHORT).show()
@@ -501,7 +504,7 @@ class RadarMapActivity : Activity() {
         RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
         val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val isGpsDisabled = !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        val isGpsDisabled = lm.isGpsSystemDisabled()
 
         if (isGpsDisabled || metrics == null) {
             updateGpsSpeedDisplay(isGpsDisabled, metrics)

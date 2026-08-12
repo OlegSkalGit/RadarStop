@@ -63,3 +63,42 @@ fun LocationManager.getBestLastKnownLocation(): Location? {
         null
     }
 }
+
+fun LocationManager.isGpsSystemDisabled(): Boolean {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            !isLocationEnabled
+        } else {
+            !isProviderEnabled(LocationManager.GPS_PROVIDER) && !isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
+    } catch (e: Exception) {
+        !isProviderEnabled(LocationManager.GPS_PROVIDER)
+    }
+}
+
+fun Context.isUserStopped(): Boolean {
+    return getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).getBoolean("user_stopped", false)
+}
+
+fun Context.setUserStopped(stopped: Boolean) {
+    getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).edit().putBoolean("user_stopped", stopped).apply()
+}
+
+fun Context.isAutostartEnabled(): Boolean {
+    return getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).getBoolean("autostart", false)
+}
+
+fun Context.setAutostartEnabled(enabled: Boolean) {
+    getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).edit().putBoolean("autostart", enabled).apply()
+}
+
+fun ServiceUtils.startRadarServiceInDeepSleep(context: Context) {
+    val serviceIntent = Intent(context, RadarForegroundService::class.java).apply {
+        putExtra(RadarForegroundService.EXTRA_START_IN_DEEP_SLEEP, true)
+    }
+    startRadarForegroundService(context, serviceIntent)
+}
+
+fun Location.isAccuracyWeak(): Boolean {
+    return hasAccuracy() && accuracy > 100f
+}

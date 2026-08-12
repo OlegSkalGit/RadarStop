@@ -1,6 +1,7 @@
 package com.example.radardetector.math
 
 import android.location.Location
+import com.example.radardetector.util.isAccuracyWeak
 import kotlin.math.abs
 
 data class BoundingBox(
@@ -139,7 +140,7 @@ object RadarMath {
         olsSpeedKmh: Float = 0f,
         isHighSpeedMode: Boolean = false
     ): ProcessedLocationMetrics {
-        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
+        val isAccuracyWeak = location.isAccuracyWeak()
 
         val gpsStatusStr = if (isAccuracyWeak) {
             "GPS: WEAK (>100m [${location.accuracy.toInt()}m])"
@@ -214,7 +215,7 @@ class TrajectoryFilter(
 
     @Synchronized
     fun processLocation(location: Location): TrajectoryResult {
-        val isWeak = location.hasAccuracy() && location.accuracy > 100f
+        val isWeak = location.isAccuracyWeak()
         if (isWeak) {
             val lm = computeLineMetrics()
             return TrajectoryResult(
