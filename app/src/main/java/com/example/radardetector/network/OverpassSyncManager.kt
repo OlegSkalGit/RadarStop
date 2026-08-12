@@ -1,7 +1,6 @@
 package com.example.radardetector.network
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.location.Location
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -12,6 +11,7 @@ import android.util.JsonReader
 import com.example.radardetector.db.Camera
 import com.example.radardetector.db.DatabaseHelper
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.AppPrefs
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
@@ -42,15 +42,14 @@ class OverpassSyncManager(
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val prefs: SharedPreferences = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
     @Volatile
-    private var lastSyncTimeMs = prefs.getLong("last_sync_time_ms", 0L)
+    private var lastSyncTimeMs = AppPrefs.getLastSyncTimeMs(context)
     @Volatile
     private var lastSyncAttemptMs = 0L
 
     private val isSyncing = java.util.concurrent.atomic.AtomicBoolean(false)
-    private var lastSyncedLat = prefs.getFloat("last_synced_lat", 0f).toDouble()
-    private var lastSyncedLon = prefs.getFloat("last_synced_lon", 0f).toDouble()
+    private var lastSyncedLat = AppPrefs.getLastSyncedLat(context)
+    private var lastSyncedLon = AppPrefs.getLastSyncedLon(context)
 
     private fun isInternetAvailable(): Boolean {
         return try {
@@ -145,11 +144,7 @@ class OverpassSyncManager(
                 lastSyncAttemptMs = 0L
                 lastSyncedLat = lat
                 lastSyncedLon = lon
-                prefs.edit()
-                    .putLong("last_sync_time_ms", lastSyncTimeMs)
-                    .putFloat("last_synced_lat", lat.toFloat())
-                    .putFloat("last_synced_lon", lon.toFloat())
-                    .apply()
+                AppPrefs.setLastSyncData(context, lastSyncTimeMs, lat, lon)
                 success = true
                 val count = dbHelper.getCameraCount()
                 AppLogger.log(
@@ -352,7 +347,7 @@ class OverpassSyncManager(
                 onResult(cached)
             }
 
-            val lastCountrySyncTimeMs = prefs.getLong("last_country_sync_ms", 0L)
+            val lastCountrySyncTimeMs = AppPrefs.getLastCountrySyncMs(context)
             if (cached.isNotEmpty() && (now - lastCountrySyncTimeMs < 24 * 60 * 60 * 1000L)) {
                 return@execute
             }
@@ -376,7 +371,7 @@ class OverpassSyncManager(
                 fetched = executePostAndParseCountriesStream(mirror, query)
                 if (fetched != null && fetched.isNotEmpty()) {
                     dbHelper.insertCountries(fetched)
-                    prefs.edit().putLong("last_country_sync_ms", System.currentTimeMillis()).apply()
+                    AppPrefs.setLastCountrySyncMs(context)
                     AppLogger.log("OverpassSyncManager", "fetchOrGetCachedCountries", true, "Fetched ${fetched.size} countries from Overpass ($mirror) and cached to SQLite DB.")
                     if (cached.isEmpty()) {
                         onResult(fetched)

@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import com.example.radardetector.service.RadarForegroundService
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.AppPrefs
 
 class AlarmWatchdogReceiver : BroadcastReceiver() {
 
@@ -16,8 +17,7 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
         const val ALARM_INTERVAL_MS = 15 * 60 * 1000L // 15 minutes
 
         fun scheduleNextAlarm(context: Context) {
-            val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
-            if (prefs.getBoolean("user_stopped", false)) {
+            if (AppPrefs.isUserStopped(context)) {
                 AppLogger.log("AlarmWatchdogReceiver", "scheduleNextAlarm", true, "User stopped app manually. Skipping AlarmManager scheduling.")
                 return
             }
@@ -65,8 +65,7 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        val prefs = context.getSharedPreferences("radar_prefs", Context.MODE_PRIVATE)
-        val isUserStopped = prefs.getBoolean("user_stopped", false)
+        val isUserStopped = AppPrefs.isUserStopped(context)
         if (isUserStopped) {
             AppLogger.log("AlarmWatchdogReceiver", "onReceive", true, "App was manually stopped by user. Cancelling alarm and exiting.")
             cancelAlarm(context)

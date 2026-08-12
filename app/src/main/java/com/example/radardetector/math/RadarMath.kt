@@ -1,6 +1,7 @@
 package com.example.radardetector.math
 
 import android.location.Location
+import com.example.radardetector.util.LocationUtils
 import kotlin.math.abs
 
 object RadarMath {
@@ -16,10 +17,7 @@ object RadarMath {
      * Calculates geodesic distance in meters between car and camera coordinates.
      */
     fun calculateDistance(carLocation: Location, cameraLat: Double, cameraLon: Double): Float {
-        val cameraLocation = Location("").apply {
-            latitude = cameraLat
-            longitude = cameraLon
-        }
+        val cameraLocation = LocationUtils.createLocation(cameraLat, cameraLon)
         return carLocation.distanceTo(cameraLocation)
     }
 
@@ -230,7 +228,7 @@ class TrajectoryFilter(
             val first = buffer.first()
             val last = buffer.last()
             val dtSec = (last.time - first.time) / 1000.0
-            if (dtSec > 0.2) (first.distanceTo(last) / dtSec * 3.6).toFloat() else 0f
+            LocationUtils.calculateSpeedKmh(first, last, dtSec)
         } else 0f
 
         val effectiveSpeed = maxOf(instantSpeed, derivedSpeed)
@@ -333,7 +331,7 @@ class TrajectoryFilter(
         if (points.size < 3) {
             val rawSpeed = if (last.hasSpeed() && last.speed > 0f) last.speed * 3.6f else 0f
             val dtSec = (last.time - ref.time) / 1000.0
-            val derivedSpeed = if (dtSec > 0.2) (ref.distanceTo(last) / dtSec * 3.6).toFloat() else 0f
+            val derivedSpeed = LocationUtils.calculateSpeedKmh(ref, last, dtSec)
             val speed = maxOf(rawSpeed, derivedSpeed)
             return LineMetrics(
                 speedKmh = speed,

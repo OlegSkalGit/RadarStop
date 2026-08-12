@@ -10,9 +10,6 @@ import java.util.concurrent.Executors
 
 object AppLogger {
 
-    private const val PREFS_NAME = "radar_prefs"
-    private const val PREF_KEY_LOGGING = "pref_logging_enabled"
-
     private val fileDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
     private val logTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
 
@@ -28,13 +25,12 @@ object AppLogger {
     fun initNewSession(context: Context) {
         try {
             appFilesDir = context.filesDir
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val isDebug = prefs.getBoolean("debug_mode", false)
+            val isDebug = AppPrefs.isDebugMode(context)
             if (!isDebug) {
                 isLoggingEnabled = false
-                prefs.edit().putBoolean(PREF_KEY_LOGGING, false).apply()
+                AppPrefs.setLoggingEnabled(context, false)
             } else {
-                isLoggingEnabled = prefs.getBoolean(PREF_KEY_LOGGING, false)
+                isLoggingEnabled = AppPrefs.isLoggingEnabled(context)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -44,10 +40,7 @@ object AppLogger {
     fun setLoggingEnabled(context: Context, enabled: Boolean) {
         isLoggingEnabled = enabled
         try {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(PREF_KEY_LOGGING, enabled)
-                .apply()
+            AppPrefs.setLoggingEnabled(context, enabled)
         } catch (e: Exception) {
             e.printStackTrace()
         }

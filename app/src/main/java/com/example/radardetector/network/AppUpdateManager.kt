@@ -23,6 +23,7 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.radardetector.receiver.UpdateActionReceiver
 import com.example.radardetector.util.AppLogger
+import com.example.radardetector.util.AppPrefs
 import com.example.radardetector.util.getAppVersionName
 import org.json.JSONArray
 import java.io.File
@@ -37,8 +38,6 @@ object AppUpdateManager {
     private const val REPO_NAME = "RadarStop"
     private const val API_URL = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases"
     private const val CHECK_THROTTLE_MS = 24 * 60 * 60 * 1000L // 24 hours
-    private const val PREFS_NAME = "radar_prefs"
-    private const val PREF_KEY_LAST_UPDATE_CHECK = "last_app_update_check_ms"
 
     const val NOTIFICATION_ID = 9901
     const val NOTIFICATION_CHANNEL_ID = "radar_update_channel"
@@ -69,8 +68,7 @@ object AppUpdateManager {
         force: Boolean = false,
         onResult: ((String) -> Unit)? = null
     ) {
-        val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val lastCheckMs = prefs.getLong(PREF_KEY_LAST_UPDATE_CHECK, 0L)
+        val lastCheckMs = AppPrefs.getLastUpdateCheckMs(context)
         val now = System.currentTimeMillis()
 
         if (!force && lastCheckMs != 0L && (now - lastCheckMs < CHECK_THROTTLE_MS)) {
@@ -81,7 +79,7 @@ object AppUpdateManager {
         }
 
         executor.execute {
-            performUpdateCheck(context, prefs, force, onResult)
+            performUpdateCheck(context, force, onResult)
         }
     }
 
@@ -119,7 +117,6 @@ object AppUpdateManager {
 
     private fun performUpdateCheck(
         context: Context,
-        prefs: SharedPreferences,
         force: Boolean,
         onResult: ((String) -> Unit)?
     ) {
@@ -170,7 +167,7 @@ object AppUpdateManager {
             if (latestRemoteVer.isEmpty() || latestRemoteUrl.isEmpty()) {
                 val msg = "No valid APK release assets found on GitHub."
                 AppLogger.log("AppUpdateManager", "performUpdateCheck", true, msg)
-                prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                AppPrefs.setLastUpdateCheckMs(context)
                 onResult?.let { mainHandler.post { it(msg) } }
                 return
             }
@@ -188,15 +185,15 @@ object AppUpdateManager {
                 if (force) {
                     // Manual check: start update download immediately without asking
                     AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Manual check forced - starting update download immediately.")
-                    prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                    AppPrefs.setLastUpdateCheckMs(context)
                     startDownload(appContext, latestRemoteUrl, latestRemoteName, onResult)
                 } else {
                     // Automatic check: prompt user in English ("New version available (Current / New). Download? Later.")
                     AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
-                    promptUserForUpdate(context, prefs, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
+                    promptUserForUpdate(context, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
                 }
             } else {
-                prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                AppPrefs.setLastUpdateCheckMs(context)
                 val upToDateMsg = "App is up to date (v$installedVersionName)"
                 AppLogger.log(
                     "AppUpdateManager",
@@ -210,7 +207,6 @@ object AppUpdateManager {
 
     private fun promptUserForUpdate(
         context: Context,
-        prefs: SharedPreferences,
         installedVerStr: String,
         latestRemoteName: String,
         latestRemoteUrl: String,
@@ -222,7 +218,7 @@ object AppUpdateManager {
 
             val downloadAction = {
                 executor.execute {
-                    prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                    AppPrefs.setLastUpdateCheckMs(context)
                     startDownload(context.applicationContext, latestRemoteUrl, latestRemoteName, onResult)
                 }
             }
@@ -255,15 +251,13 @@ object AppUpdateManager {
     }
 
     fun postponeUpdate(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+        AppPrefs.setLastUpdateCheckMs(context)
         AppLogger.log("AppUpdateManager", "postponeUpdate", true, "Update postponed by user. Next check in 24h.")
     }
 
     fun startDownloadFromNotification(context: Context, downloadUrl: String, fileName: String) {
         executor.execute {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().putLong(PREF_KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+            AppPrefs.setLastUpdateCheckMs(context)
             startDownload(context, downloadUrl, fileName, null)
         }
     }
