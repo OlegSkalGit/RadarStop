@@ -37,6 +37,13 @@ object ServiceUtils {
         }
         startRadarForegroundService(context, serviceIntent)
     }
+
+    fun startRadarServiceInDeepSleep(context: Context) {
+        val serviceIntent = Intent(context, RadarForegroundService::class.java).apply {
+            putExtra(RadarForegroundService.EXTRA_START_IN_DEEP_SLEEP, true)
+        }
+        startRadarForegroundService(context, serviceIntent)
+    }
 }
 
 inline fun <reified T : Activity> Context.createSingleTopIntent(): Intent {
@@ -90,13 +97,6 @@ fun Context.isAutostartEnabled(): Boolean {
 
 fun Context.setAutostartEnabled(enabled: Boolean) {
     getSharedPreferences("radar_prefs", Context.MODE_PRIVATE).edit().putBoolean("autostart", enabled).apply()
-}
-
-fun ServiceUtils.startRadarServiceInDeepSleep(context: Context) {
-    val serviceIntent = Intent(context, RadarForegroundService::class.java).apply {
-        putExtra(RadarForegroundService.EXTRA_START_IN_DEEP_SLEEP, true)
-    }
-    startRadarForegroundService(context, serviceIntent)
 }
 
 fun Location.isAccuracyWeak(): Boolean {
