@@ -1,12 +1,8 @@
 package com.example.radardetector
 
 import android.app.Activity
-import android.content.Intent
 import android.graphics.Color
-import android.net.Uri
 import android.os.Bundle
-import android.text.method.LinkMovementMethod
-import android.text.util.Linkify
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.ViewGroup
@@ -52,14 +48,6 @@ class HelpActivity : Activity() {
             )
         }
 
-        val contentContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
-
         val helpContentText = """
 RadarStop (v$appVersionName)
 
@@ -98,30 +86,16 @@ Key Features & Operations:
             setLineSpacing(8f, 1.2f)
             setPadding(16, 16, 16, 16)
             setBackgroundColor(Color.parseColor("#1E1E1E"))
-            movementMethod = LinkMovementMethod.getInstance()
-            Linkify.addLinks(this, Linkify.WEB_URLS)
-        }
-
-        val btnGitHub = UiUtils.createStyledButton(this, "Open GitHub Repository") {
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/OlegSkalGit/RadarStop"))
-                startActivity(intent)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }.apply {
-            layoutParams = UiUtils.createStandardItemParams().apply {
-                setMargins(0, 16, 0, 8)
-            }
+            autoLinkMask = android.text.util.Linkify.WEB_URLS
+            movementMethod = android.text.method.LinkMovementMethod.getInstance()
+            linksClickable = true
         }
 
         scaleGestureDetector = UiUtils.setupTextPinchZoom(this, textViewHelp, currentTextSizeSp, 10f, 36f) { newSp ->
             currentTextSizeSp = newSp
         }
 
-        contentContainer.addView(textViewHelp)
-        contentContainer.addView(btnGitHub)
-        scrollView.addView(contentContainer)
+        scrollView.addView(textViewHelp)
         rootLayout.addView(scrollView)
 
         setContentView(rootLayout)
