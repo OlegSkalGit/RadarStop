@@ -632,7 +632,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val effectiveLoc = trajResult.projectedLocation ?: location
 
             // Trigger network sync update
-            syncManager.onLocationUpdate(location, speedKmh)
+            syncManager.onLocationUpdate(location)
 
             // Weak GPS Check (Alerting paused if accuracy > 100m, effective speed reset to 0, stationary timer evaluated)
             val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f

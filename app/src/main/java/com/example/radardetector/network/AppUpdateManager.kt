@@ -125,7 +125,7 @@ object AppUpdateManager {
         AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Starting GitHub release update check for $REPO_OWNER/$REPO_NAME...")
 
         val installedVersionName = appContext.getAppVersionName()
-        val localInstalledVer = extractVersionNumbers(installedVersionName ?: "1.0")
+        val localInstalledVer = extractVersionNumbers(installedVersionName)
 
         AppLogger.log(
             "AppUpdateManager",
@@ -189,7 +189,7 @@ object AppUpdateManager {
             } else {
                 // Automatic check: prompt user in English ("New version available (Current / New). Download? Later.")
                 AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
-                promptUserForUpdate(context, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
+                promptUserForUpdate(context, installedVersionName, latestRemoteName, latestRemoteUrl, onResult)
             }
         } else {
             val upToDateMsg = "App is up to date (v$installedVersionName)"

@@ -71,7 +71,7 @@ class OverpassSyncManager(
     @Volatile
     private var hasDoneInitialSync = false
 
-    fun onLocationUpdate(location: Location, speedKmh: Float) {
+    fun onLocationUpdate(location: Location) {
         if (isSyncing.get()) return
 
         val now = System.currentTimeMillis()

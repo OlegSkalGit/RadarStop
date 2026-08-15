@@ -60,29 +60,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     @Volatile
     private var cachedCameraCount: Int = -1
 
-    fun clearCameras() {
-        cachedCameraCount = -1
-        try {
-            writableDatabase.execSQL("DELETE FROM $TABLE_CAMERAS")
-            AppLogger.log("DatabaseHelper", "clearCameras", true, "Cleared all camera records from SQLite DB.")
-        } catch (e: Exception) {
-            AppLogger.log("DatabaseHelper", "clearCameras", false, "Error clearing cameras: ${e.message}")
-        }
-    }
-
-    fun clearCamerasInBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {
-        cachedCameraCount = -1
-        try {
-            writableDatabase.execSQL(
-                "DELETE FROM $TABLE_CAMERAS WHERE $COLUMN_LAT BETWEEN ? AND ? AND $COLUMN_LON BETWEEN ? AND ?",
-                arrayOf(minLat, maxLat, minLon, maxLon)
-            )
-            AppLogger.log("DatabaseHelper", "clearCamerasInBox", true, "Targeted clear of cameras in bounding box [$minLat, $maxLat, $minLon, $maxLon].")
-        } catch (e: Exception) {
-            AppLogger.log("DatabaseHelper", "clearCamerasInBox", false, "Error clearing cameras in box: ${e.message}")
-        }
-    }
-
     private fun executeInsertCameras(db: SQLiteDatabase, cameras: List<Camera>) {
         db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?)").use { stmt ->
             for (cam in cameras) {
