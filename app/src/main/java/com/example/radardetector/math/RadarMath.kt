@@ -258,8 +258,20 @@ class TrajectoryFilter(
         } else 0f
 
         val effectiveSpeed = maxOf(instantSpeed, derivedSpeed)
-        val isStationaryHighAcc = effectiveSpeed < 15.0f || (buffer.size >= 2 && buffer.first().distanceTo(buffer.last()) < 5.0f)
-        val finalSpeed = if (isStationaryHighAcc) 0f else effectiveSpeed
+        val isStationary = effectiveSpeed < 15.0f || (buffer.size >= 2 && buffer.first().distanceTo(buffer.last()) < 5.0f)
+
+        if (isStationary && !isHighSpeedOver300) {
+            return TrajectoryResult(
+                isValid = true,
+                isAccuracyWeak = false,
+                points = buffer.toList(),
+                averageSpeedKmh = 0f,
+                trajectoryBearing = 0f,
+                projectedDistanceMeters = 0f,
+                isStationary = true,
+                projectedLocation = location
+            )
+        }
 
         if (hasHighAcc || isHighSpeedOver300) {
             // Усікаємо до 3 останніх точок для високої точності або швидкості > 300 км/год
@@ -271,10 +283,10 @@ class TrajectoryFilter(
                 isValid = true,
                 isAccuracyWeak = false,
                 points = buffer.toList(),
-                averageSpeedKmh = finalSpeed,
+                averageSpeedKmh = effectiveSpeed,
                 trajectoryBearing = location.bearing,
                 projectedDistanceMeters = if (buffer.size >= 2) buffer.first().distanceTo(buffer.last()) else 0f,
-                isStationary = isStationaryHighAcc && !isHighSpeedOver300,
+                isStationary = false,
                 projectedLocation = location
             )
         }
@@ -310,13 +322,15 @@ class TrajectoryFilter(
         }
 
         val lm = computeLineMetrics()
+        val isLmStationary = lm.speedKmh < 15.0f
         return TrajectoryResult(
             isValid = true,
             isAccuracyWeak = false,
             points = buffer.toList(),
-            averageSpeedKmh = lm.speedKmh,
+            averageSpeedKmh = if (isLmStationary) 0f else lm.speedKmh,
             trajectoryBearing = lm.trajectoryBearing,
             projectedDistanceMeters = lm.projectedDistanceMeters,
+            isStationary = isLmStationary,
             projectedLocation = lm.projectedLocation ?: location
         )
     }
