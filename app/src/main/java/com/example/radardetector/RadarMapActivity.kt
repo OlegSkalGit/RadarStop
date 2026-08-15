@@ -473,7 +473,7 @@ class RadarMapActivity : Activity() {
                 }
 
                 val btnTestBeep = UiUtils.createStyledButton(this@RadarMapActivity, "Test Beep", itemStyleParams) {
-                    AcousticRadarEngine(this@RadarMapActivity).playSingleBeep()
+                    RadarForegroundService.instance?.playTestBeep()
                 }
 
                 debugSubContainer.addView(btnLogs)
@@ -648,6 +648,8 @@ class RadarMapActivity : Activity() {
             color = Color.parseColor("#FFCC00")
             textSize = 20f
         }
+        private val bgColor = Color.parseColor("#121212")
+        private val tempGeoResults = FloatArray(2)
 
         fun updateData(
             location: Location,
@@ -673,7 +675,7 @@ class RadarMapActivity : Activity() {
             val maxRangeMeters = 3000f // 3km radius = 6km view canvas
 
             // 1. Dark Background Grid & Distance Rings (1km, 2km, 3km)
-            canvas.drawColor(Color.parseColor("#121212"))
+            canvas.drawColor(bgColor)
 
             for (i in 1..2) {
                 val r = maxRadiusPx * (i / 3f)
@@ -695,13 +697,14 @@ class RadarMapActivity : Activity() {
             canvas.drawText("W", cx - maxRadiusPx - 30f, cy + 10f, textPaint)
 
             val loc = currentLocation ?: return
+            val locLat = loc.latitude
+            val locLon = loc.longitude
 
             // 2. Plot Cameras inside 3km range AND project outer RAM cameras onto the 3km Outer Ring
             for (cam in cameras) {
-                val dist = RadarMath.calculateDistance(loc, cam.lat, cam.lon)
-
-                val camLoc = LocationUtils.createLocation(cam.lat, cam.lon)
-                val bearingToCam = loc.bearingTo(camLoc)
+                RadarMath.calculateDistanceAndBearing(locLat, locLon, cam.lat, cam.lon, tempGeoResults)
+                val dist = tempGeoResults[0]
+                val bearingToCam = tempGeoResults[1]
                 val rad = Math.toRadians(bearingToCam.toDouble())
 
                 if (dist <= maxRangeMeters) {
@@ -729,9 +732,10 @@ class RadarMapActivity : Activity() {
                 var prevSx = -1f
                 var prevSy = -1f
                 for (rawLoc in rawTrajectoryPoints) {
-                    val dist = loc.distanceTo(rawLoc)
+                    RadarMath.calculateDistanceAndBearing(locLat, locLon, rawLoc.latitude, rawLoc.longitude, tempGeoResults)
+                    val dist = tempGeoResults[0]
                     if (dist <= maxRangeMeters) {
-                        val bearingToPt = loc.bearingTo(rawLoc)
+                        val bearingToPt = tempGeoResults[1]
                         val rad = Math.toRadians(bearingToPt.toDouble())
                         val dx = (dist * sin(rad)).toFloat()
                         val dy = (dist * cos(rad)).toFloat()

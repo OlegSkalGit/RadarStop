@@ -13,12 +13,38 @@ object RadarMath {
         return diff
     }
 
+    private val distanceResults = object : ThreadLocal<FloatArray>() {
+        override fun initialValue(): FloatArray = FloatArray(1)
+    }
+
+    private val distanceBearingResults = object : ThreadLocal<FloatArray>() {
+        override fun initialValue(): FloatArray = FloatArray(2)
+    }
+
     /**
-     * Calculates geodesic distance in meters between car and camera coordinates.
+     * Calculates geodesic distance in meters between car and camera coordinates without allocating Location objects.
      */
     fun calculateDistance(carLocation: Location, cameraLat: Double, cameraLon: Double): Float {
-        val cameraLocation = LocationUtils.createLocation(cameraLat, cameraLon)
-        return carLocation.distanceTo(cameraLocation)
+        val results = distanceResults.get() ?: FloatArray(1)
+        Location.distanceBetween(carLocation.latitude, carLocation.longitude, cameraLat, cameraLon, results)
+        return results[0]
+    }
+
+    /**
+     * Calculates distance (meters) and initial bearing (degrees) simultaneously without object allocations.
+     * results[0] = distance in meters
+     * results[1] = initial bearing in degrees
+     */
+    fun calculateDistanceAndBearing(
+        fromLat: Double,
+        fromLon: Double,
+        toLat: Double,
+        toLon: Double,
+        outResults: FloatArray? = null
+    ): FloatArray {
+        val res = outResults ?: (distanceBearingResults.get() ?: FloatArray(2))
+        Location.distanceBetween(fromLat, fromLon, toLat, toLon, res)
+        return res
     }
 
     /**

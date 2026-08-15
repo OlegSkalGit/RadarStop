@@ -965,6 +965,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         metricsListener?.invoke(metrics)
     }
 
+    fun playTestBeep() {
+        audioEngine.playSingleBeep()
+    }
+
     override fun onProviderEnabled(provider: String) {
         AppLogger.log("RadarForegroundService", "onProviderEnabled", true, "GPS provider enabled by user/system ($provider). Waking up from Deep Sleep.")
         if (provider == LocationManager.GPS_PROVIDER) {

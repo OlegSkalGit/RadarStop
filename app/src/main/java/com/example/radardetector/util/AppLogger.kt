@@ -10,8 +10,12 @@ import java.util.concurrent.Executors
 
 object AppLogger {
 
-    private val fileDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
-    private val logTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    private val fileDateFormat = object : ThreadLocal<SimpleDateFormat>() {
+        override fun initialValue(): SimpleDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
+    }
+    private val logTimeFormat = object : ThreadLocal<SimpleDateFormat>() {
+        override fun initialValue(): SimpleDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    }
 
     private var appFilesDir: File? = null
     private val writeExecutor = Executors.newSingleThreadExecutor()
@@ -47,12 +51,12 @@ object AppLogger {
     }
 
     fun getTodayFileName(): String {
-        return fileDateFormat.format(Date()) + ".log"
+        return (fileDateFormat.get() ?: SimpleDateFormat("yyyyMMdd", Locale.US)).format(Date()) + ".log"
     }
 
     private fun getTodayLogFile(): File? {
         val dir = appFilesDir ?: return null
-        val dateStr = fileDateFormat.format(Date())
+        val dateStr = (fileDateFormat.get() ?: SimpleDateFormat("yyyyMMdd", Locale.US)).format(Date())
 
         // Check if date changed -> perform cleanup of files > 7 days old before writing new log file
         if (dateStr != currentLogDateStr) {
@@ -81,7 +85,7 @@ object AppLogger {
         for (file in files) {
             try {
                 val dateStr = file.name.removeSuffix(".log")
-                val fileDate = fileDateFormat.parse(dateStr)
+                val fileDate = (fileDateFormat.get() ?: SimpleDateFormat("yyyyMMdd", Locale.US)).parse(dateStr)
                 if (fileDate != null) {
                     val ageMs = nowMs - fileDate.time
                     if (ageMs > sevenDaysMs) {
@@ -104,7 +108,7 @@ object AppLogger {
         if (!isLoggingEnabled) return
         writeExecutor.execute {
             try {
-                val timestamp = logTimeFormat.format(Date())
+                val timestamp = (logTimeFormat.get() ?: SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)).format(Date())
                 val statusStr = if (isSuccess) "SUCCESS" else "FAILURE"
                 val line = "[$timestamp] [$module::$functionName] $statusStr: $details\n"
                 val file = getTodayLogFile() ?: return@execute
@@ -154,18 +158,5 @@ object AppLogger {
             e.printStackTrace()
         }
         return false
-    }
-}
-
-fun Context.getAppVersionName(): String {
-    return try {
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0L)).versionName
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0).versionName
-        }
-    } catch (e: Exception) {
-        "1.0"
     }
 }
