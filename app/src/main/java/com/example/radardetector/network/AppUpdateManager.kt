@@ -121,6 +121,7 @@ object AppUpdateManager {
         onResult: ((String) -> Unit)?
     ) {
         val appContext = context.applicationContext
+        AppPrefs.setLastUpdateCheckMs(context)
         AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Starting GitHub release update check for $REPO_OWNER/$REPO_NAME...")
 
         val installedVersionName = appContext.getAppVersionName()
@@ -164,46 +165,43 @@ object AppUpdateManager {
             }
         }
 
-            if (latestRemoteVer.isEmpty() || latestRemoteUrl.isEmpty()) {
-                val msg = "No valid APK release assets found on GitHub."
-                AppLogger.log("AppUpdateManager", "performUpdateCheck", true, msg)
-                AppPrefs.setLastUpdateCheckMs(context)
-                onResult?.let { mainHandler.post { it(msg) } }
-                return
-            }
-
-            AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Latest remote version on GitHub: $latestRemoteName ($latestRemoteVer)")
-
-            if (isVersionNewer(latestRemoteVer, localInstalledVer)) {
-                AppLogger.log(
-                    "AppUpdateManager",
-                    "performUpdateCheck",
-                    true,
-                    "NEW VERSION DETECTED! Remote: $latestRemoteName ($latestRemoteVer) > Local: $installedVersionName ($localInstalledVer)"
-                )
-
-                if (force) {
-                    // Manual check: start update download immediately without asking
-                    AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Manual check forced - starting update download immediately.")
-                    AppPrefs.setLastUpdateCheckMs(context)
-                    startDownload(appContext, latestRemoteUrl, latestRemoteName, onResult)
-                } else {
-                    // Automatic check: prompt user in English ("New version available (Current / New). Download? Later.")
-                    AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
-                    promptUserForUpdate(context, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
-                }
-            } else {
-                AppPrefs.setLastUpdateCheckMs(context)
-                val upToDateMsg = "App is up to date (v$installedVersionName)"
-                AppLogger.log(
-                    "AppUpdateManager",
-                    "performUpdateCheck",
-                    true,
-                    "App is up-to-date. (Remote: $latestRemoteVer <= Installed: $localInstalledVer)"
-                )
-                onResult?.let { mainHandler.post { it(upToDateMsg) } }
-            }
+        if (latestRemoteVer.isEmpty() || latestRemoteUrl.isEmpty()) {
+            val msg = "No valid APK release assets found on GitHub."
+            AppLogger.log("AppUpdateManager", "performUpdateCheck", true, msg)
+            onResult?.let { mainHandler.post { it(msg) } }
+            return
         }
+
+        AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Latest remote version on GitHub: $latestRemoteName ($latestRemoteVer)")
+
+        if (isVersionNewer(latestRemoteVer, localInstalledVer)) {
+            AppLogger.log(
+                "AppUpdateManager",
+                "performUpdateCheck",
+                true,
+                "NEW VERSION DETECTED! Remote: $latestRemoteName ($latestRemoteVer) > Local: $installedVersionName ($localInstalledVer)"
+            )
+
+            if (force) {
+                // Manual check: start update download immediately without asking
+                AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Manual check forced - starting update download immediately.")
+                startDownload(appContext, latestRemoteUrl, latestRemoteName, onResult)
+            } else {
+                // Automatic check: prompt user in English ("New version available (Current / New). Download? Later.")
+                AppLogger.log("AppUpdateManager", "performUpdateCheck", true, "Automatic check - prompting user for update approval.")
+                promptUserForUpdate(context, installedVersionName ?: "1.0", latestRemoteName, latestRemoteUrl, onResult)
+            }
+        } else {
+            val upToDateMsg = "App is up to date (v$installedVersionName)"
+            AppLogger.log(
+                "AppUpdateManager",
+                "performUpdateCheck",
+                true,
+                "App is up-to-date. (Remote: $latestRemoteVer <= Installed: $localInstalledVer)"
+            )
+            onResult?.let { mainHandler.post { it(upToDateMsg) } }
+        }
+    }
 
     private fun promptUserForUpdate(
         context: Context,
@@ -218,7 +216,6 @@ object AppUpdateManager {
 
             val downloadAction = {
                 executor.execute {
-                    AppPrefs.setLastUpdateCheckMs(context)
                     startDownload(context.applicationContext, latestRemoteUrl, latestRemoteName, onResult)
                 }
             }

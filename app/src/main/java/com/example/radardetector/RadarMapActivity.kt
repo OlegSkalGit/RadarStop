@@ -307,55 +307,32 @@ class RadarMapActivity : Activity() {
         val color = Color.parseColor(state.mapColorHex)
         val speedInt = metrics?.speedKmh?.toInt() ?: 0
 
+        tvSpeedValue.setTextColor(color)
+        tvSpeedUnit.setTextColor(color)
+        tvSubLabel.setTextColor(color)
+
         when (state) {
             RadarState.GPS_DISABLED, RadarState.SEARCHING_GPS -> {
                 tvSpeedValue.text = state.mapSpeedText
                 tvSpeedValue.textSize = 32f
-                tvSpeedValue.setTextColor(color)
                 tvSpeedUnit.visibility = View.GONE
                 tvSubLabel.text = state.mapSubLabelText
-                tvSubLabel.setTextColor(color)
                 tvSubLabel.visibility = View.VISIBLE
                 tvCamNearWarning.visibility = View.GONE
-            }
-            RadarState.WEAK_GPS -> {
-                tvSpeedValue.text = "$speedInt"
-                tvSpeedValue.textSize = 44f
-                tvSpeedValue.setTextColor(color)
-                tvSpeedUnit.setTextColor(color)
-                tvSpeedUnit.visibility = View.VISIBLE
-                tvSubLabel.text = state.mapSubLabelText
-                tvSubLabel.setTextColor(color)
-                tvSubLabel.visibility = View.VISIBLE
-            }
-            RadarState.DEEP_SLEEP, RadarState.STOPPED -> {
-                tvSpeedValue.text = "0"
-                tvSpeedValue.textSize = 44f
-                tvSpeedValue.setTextColor(color)
-                tvSpeedUnit.setTextColor(color)
-                tvSpeedUnit.visibility = View.VISIBLE
-                tvSubLabel.text = state.mapSubLabelText
-                tvSubLabel.setTextColor(color)
-                tvSubLabel.visibility = View.VISIBLE
-            }
-            RadarState.LOW_SPEED, RadarState.ACCURATE_SPEED -> {
-                tvSpeedValue.text = "$speedInt"
-                tvSpeedValue.textSize = 44f
-                tvSpeedValue.setTextColor(color)
-                tvSpeedUnit.setTextColor(color)
-                tvSpeedUnit.visibility = View.VISIBLE
-                tvSubLabel.text = state.mapSubLabelText
-                tvSubLabel.setTextColor(color)
-                tvSubLabel.visibility = View.VISIBLE
             }
             RadarState.REGULAR_SPEED -> {
                 tvSpeedValue.text = "$speedInt"
                 tvSpeedValue.textSize = 44f
-                tvSpeedValue.setTextColor(color)
-                tvSpeedUnit.setTextColor(color)
                 tvSpeedUnit.visibility = View.VISIBLE
                 tvSubLabel.text = ""
                 tvSubLabel.visibility = View.GONE
+            }
+            else -> {
+                tvSpeedValue.text = if (state == RadarState.DEEP_SLEEP || state == RadarState.STOPPED) "0" else "$speedInt"
+                tvSpeedValue.textSize = 44f
+                tvSpeedUnit.visibility = View.VISIBLE
+                tvSubLabel.text = state.mapSubLabelText
+                tvSubLabel.visibility = View.VISIBLE
             }
         }
     }

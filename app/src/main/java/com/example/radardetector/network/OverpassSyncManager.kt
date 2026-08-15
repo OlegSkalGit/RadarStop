@@ -133,32 +133,40 @@ class OverpassSyncManager(
             out body;
         """.trimIndent()
 
-        var success = false
+        val cameras = fetchCamerasFromMirrors(query, readTimeoutMs = 25000)
+        if (cameras != null) {
+            dbHelper.replaceCamerasInBox(south, north, west, east, cameras)
+            lastSyncTimeMs = System.currentTimeMillis()
+            lastSyncAttemptMs = 0L
+            lastSyncedLat = lat
+            lastSyncedLon = lon
+            AppPrefs.setLastSyncData(context, lastSyncTimeMs, lat, lon)
+            val count = dbHelper.getCameraCount()
+            AppLogger.log(
+                "OverpassSyncManager",
+                "performSync",
+                true,
+                "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras via JsonReader stream from Overpass for 100x100km box around ($lat, $lon). Total in DB: $count"
+            )
+            mainHandler.post { onSyncSuccess(cameras.size, count) }
+        } else {
+            lastSyncAttemptMs = System.currentTimeMillis()
+            AppLogger.log("OverpassSyncManager", "performSync", false, "All Overpass mirrors failed. Setting 5m retry pause.")
+            mainHandler.post { onStatusUpdate("Network error. Retry in 5m...") }
+        }
+    }
+
+    private fun fetchCamerasFromMirrors(query: String, readTimeoutMs: Int = 30000): List<Camera>? {
         for (i in MIRRORS.indices) {
             val mirror = MIRRORS[i]
-            AppLogger.log("OverpassSyncManager", "executePost", true, "Connecting to mirror [${i + 1}/${MIRRORS.size}]: $mirror")
-            val cameras = executePostAndParseStream(mirror, query)
+            AppLogger.log("OverpassSyncManager", "fetchCamerasFromMirrors", true, "Connecting to mirror [${i + 1}/${MIRRORS.size}]: $mirror")
+            val cameras = executePostAndParseStream(mirror, query, readTimeoutMs = readTimeoutMs)
             if (cameras != null) {
-                dbHelper.replaceCamerasInBox(south, north, west, east, cameras)
-                lastSyncTimeMs = System.currentTimeMillis()
-                lastSyncAttemptMs = 0L
-                lastSyncedLat = lat
-                lastSyncedLon = lon
-                AppPrefs.setLastSyncData(context, lastSyncTimeMs, lat, lon)
-                success = true
-                val count = dbHelper.getCameraCount()
-                AppLogger.log(
-                    "OverpassSyncManager",
-                    "performSync",
-                    true,
-                    "NETWORK SYNC SUCCESS: Downloaded ${cameras.size} cameras via JsonReader stream from Overpass ($mirror) for 100x100km box around ($lat, $lon). Total in DB: $count"
-                )
-                mainHandler.post { onSyncSuccess(cameras.size, count) }
-                break
+                return cameras
             }
 
             if (i < MIRRORS.size - 1) {
-                AppLogger.log("OverpassSyncManager", "performSync", false, "Mirror failed. Waiting 5s before next mirror attempt...")
+                AppLogger.log("OverpassSyncManager", "fetchCamerasFromMirrors", false, "Mirror failed. Waiting 5s before next mirror attempt...")
                 try {
                     Thread.sleep(5000L)
                 } catch (e: InterruptedException) {
@@ -166,12 +174,7 @@ class OverpassSyncManager(
                 }
             }
         }
-
-        if (!success) {
-            lastSyncAttemptMs = System.currentTimeMillis()
-            AppLogger.log("OverpassSyncManager", "performSync", false, "All Overpass mirrors failed. Setting 5m retry pause.")
-            mainHandler.post { onStatusUpdate("Network error. Retry in 5m...") }
-        }
+        return null
     }
 
     private fun <T> executePostRequest(
@@ -314,25 +317,19 @@ class OverpassSyncManager(
             """.trimIndent()
         )
 
-        var success = false
+        var cameras: List<Camera>? = null
         for (query in queries) {
-            if (success) break
-            for (i in MIRRORS.indices) {
-                val mirror = MIRRORS[i]
-                AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "Trying mirror: $mirror for $countryName")
-                val cameras = executePostAndParseStream(mirror, query, readTimeoutMs = 60000)
-                if (cameras != null) {
-                    dbHelper.insertCameras(cameras)
-                    success = true
-                    val count = dbHelper.getCameraCount()
-                    AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "COUNTRY SYNC SUCCESS: Downloaded ${cameras.size} cameras for $countryName. Total in DB: $count")
-                    mainHandler.post { onSyncSuccess(cameras.size, count) }
-                    mainHandler.post { onStatusUpdate("$countryName cameras loaded! (${cameras.size} added, $count total in DB)") }
-                    break
-                }
-            }
+            cameras = fetchCamerasFromMirrors(query, readTimeoutMs = 60000)
+            if (cameras != null) break
         }
-        if (!success) {
+
+        if (cameras != null) {
+            dbHelper.insertCameras(cameras)
+            val count = dbHelper.getCameraCount()
+            AppLogger.log("OverpassSyncManager", "performCountryCameraSync", true, "COUNTRY SYNC SUCCESS: Downloaded ${cameras.size} cameras for $countryName. Total in DB: $count")
+            mainHandler.post { onSyncSuccess(cameras.size, count) }
+            mainHandler.post { onStatusUpdate("$countryName cameras loaded! (${cameras.size} added, $count total in DB)") }
+        } else {
             mainHandler.post { onStatusUpdate("Failed to load $countryName cameras. Check network.") }
         }
     }
