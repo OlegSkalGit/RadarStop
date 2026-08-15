@@ -14,6 +14,8 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.hardware.TriggerEvent
+import android.hardware.TriggerEventListener
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -112,11 +114,42 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
+    private var significantMotionSensor: Sensor? = null
+    private var isSignificantMotionActive: Boolean = false
     private var lastMotionCheckTimeMs: Long = 0L
     @Volatile
     var isDeepSleepState: Boolean = false
     private var isAccelerometerRegistered: Boolean = false
     private var wakeLock: PowerManager.WakeLock? = null
+
+    private val sigMotionListener = object : TriggerEventListener() {
+        override fun onTrigger(event: TriggerEvent?) {
+            isSignificantMotionActive = false
+            if (!isRunning || !isDeepSleepState) return
+            AppLogger.log(
+                "RadarForegroundService",
+                "onTrigger",
+                true,
+                "HARDWARE SIGNIFICANT MOTION DETECTED: Waking up from Deep Sleep..."
+            )
+            wakeUpFromDeepSleep("Hardware Significant Motion Sensor")
+        }
+    }
+
+    private fun getBestLocation(): Location? = lastLocation ?: LocationUtils.getLastKnownLocationCascade(locationManager)
+
+    private fun checkStationaryTimeout(now: Long, reason: String): Boolean {
+        if (stationaryStopStartTimeMs == 0L) {
+            stationaryStopStartTimeMs = now
+        }
+        val timeStoppedMs = now - stationaryStopStartTimeMs
+        if (timeStoppedMs >= 3 * 60 * 1000L) {
+            AppLogger.log("RadarForegroundService", "checkStationaryTimeout", true, "$reason for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
+            enterDeepSleep()
+            return true
+        }
+        return false
+    }
 
     fun getSecondsUntilDeepSleep(): Long {
         if (isDeepSleepState) return 0L
@@ -149,17 +182,23 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             AppLogger.log("RadarForegroundService", "enterDeepSleep", false, "Error releasing WakeLock: ${e.message}")
         }
 
-        if (!isAccelerometerRegistered) {
+        if (significantMotionSensor != null) {
+            if (!isSignificantMotionActive) {
+                isSignificantMotionActive = sensorManager.requestTriggerSensor(sigMotionListener, significantMotionSensor)
+                AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "REGISTERED Hardware Significant Motion Sensor (Status: $isSignificantMotionActive).")
+            }
+        } else if (!isAccelerometerRegistered) {
             accelerometer?.let {
                 sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
                 isAccelerometerRegistered = true
-                AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "REGISTERED Accelerometer sensor for motion wakeup.")
+                AppLogger.log("RadarForegroundService", "enterDeepSleep", true, "REGISTERED Accelerometer sensor (Fallback).")
             }
         }
+        motionSpikeCount = 0
         val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
 
         val deepSleepNotif = "Deep Sleep: Stationed (>3m). Accelerometer active."
-        val loc = lastLocation ?: LocationUtils.getLastKnownLocationCascade(locationManager)
+        val loc = getBestLocation()
 
         val targetLoc = loc ?: LocationUtils.createLocation(0.0, 0.0, "dummy")
 
@@ -193,6 +232,16 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", false, "Error re-acquiring WakeLock: ${e.message}")
         }
 
+        if (isSignificantMotionActive && significantMotionSensor != null) {
+            try {
+                sensorManager.cancelTriggerSensor(sigMotionListener, significantMotionSensor)
+            } catch (e: Exception) {
+                AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", false, "Error canceling trigger sensor: ${e.message}")
+            }
+            isSignificantMotionActive = false
+            AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "CANCELLED Hardware Significant Motion Sensor.")
+        }
+
         if (isAccelerometerRegistered) {
             try {
                 sensorManager.unregisterListener(this)
@@ -202,6 +251,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             isAccelerometerRegistered = false
             AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "UNREGISTERED Accelerometer sensor (application awake).")
         }
+        motionSpikeCount = 0
         stationaryStopStartTimeMs = 0L
         lastLocationTimeMs = System.currentTimeMillis()
         lastPointIntervalMs = 2333L
@@ -223,7 +273,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         try {
             val searchingNotif = "Searching for GPS..."
             updateNotificationText(searchingNotif)
-            val bestKnown = lastLocation ?: LocationUtils.getLastKnownLocationCascade(locationManager)
+            val bestKnown = getBestLocation()
             if (bestKnown != null) {
                 reloadCameraCacheForLocation(bestKnown)
                 val initialMetrics = RadarMath.evaluateLocationData(
@@ -233,8 +283,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     getRamCachedLoadResult(),
                     notificationOverride = searchingNotif
                 )
-                lastMetrics = initialMetrics
-                metricsListener?.invoke(initialMetrics)
+                publishStateAndMetrics(initialMetrics)
                 AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "Instant metrics initialized on wakeup from location (${bestKnown.latitude}, ${bestKnown.longitude}).")
             }
         } catch (e: Exception) {
@@ -309,7 +358,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             onStatusUpdate = { statusMsg -> updateNotificationText(statusMsg) },
             onSyncSuccess = { _, totalCount ->
                 cachedTotalCameraCount = totalCount
-                val loc = lastLocation ?: LocationUtils.getLastKnownLocationCascade(locationManager)
+                val loc = getBestLocation()
 
                 if (loc != null) {
                     reloadCameraCacheForLocation(loc)
@@ -323,7 +372,14 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         audioEngine.playSingleBeep()
 
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        significantMotionSensor = sensorManager.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        AppLogger.log(
+            "RadarForegroundService",
+            "onCreate",
+            true,
+            "Sensors initialized. SignificantMotion: ${significantMotionSensor != null}, Accelerometer: ${accelerometer != null}"
+        )
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
         watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
 
@@ -333,7 +389,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // Try last known location for instant startup
         try {
-            val bestKnown = LocationUtils.getLastKnownLocationCascade(locationManager)
+            val bestKnown = getBestLocation()
             if (bestKnown != null) {
                 lastLocation = bestKnown
                 AppLogger.log("RadarForegroundService", "onCreate", true, "Found last known location (${bestKnown.latitude}, ${bestKnown.longitude}). Loading 10x10km DB cache & evaluating initial metrics immediately...")
@@ -345,8 +401,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     getRamCachedLoadResult(),
                     notificationOverride = initialText
                 )
-                lastMetrics = initialMetrics
-                metricsListener?.invoke(initialMetrics)
+                publishStateAndMetrics(initialMetrics)
             }
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "onCreate", false, "Permission missing for last known location: ${e.message}")
@@ -470,8 +525,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     closestAlertCamera = null,
                     minDistanceToAlert = Float.MAX_VALUE
                 )
-                lastMetrics = staleMetrics
-                metricsListener?.invoke(staleMetrics)
+                publishStateAndMetrics(staleMetrics)
                 audioEngine.stopAlert()
                 AppLogger.log("RadarForegroundService", "checkStaleGpsAndResetSpeed", true, "GPS paused for ${timeSinceLastLoc / 1000}s (Threshold: ${dynamicStaleTimeoutMs}ms). Speed reset to 0 km/h [Stationary].")
             }
@@ -480,14 +534,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         // Periodic stationary Deep Sleep evaluation (independent of onLocationChanged & accuracy > 100m)
         val isFullStop = (lastMetrics?.isStationary == true) || effectiveSpeedKmh == 0f || timeSinceLastLoc >= 10000L
         if (isFullStop) {
-            if (stationaryStopStartTimeMs == 0L) {
-                stationaryStopStartTimeMs = now
-            }
-            val timeStoppedMs = now - stationaryStopStartTimeMs
-            if (timeStoppedMs >= 3 * 60 * 1000L) {
-                AppLogger.log("RadarForegroundService", "checkStaleGpsAndResetSpeed", true, "STATIONARY/NO_GPS TIMEOUT: Stationary/no GPS for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
-                enterDeepSleep()
-            }
+            checkStationaryTimeout(now, "STATIONARY/NO_GPS TIMEOUT: Stationary/no GPS")
         } else {
             stationaryStopStartTimeMs = 0L
         }
@@ -546,317 +593,267 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             audioEngine.notifyLocationUpdate(dynamicStaleTimeoutMs)
             lastLocation = location
 
-        val trajResult = trajectoryFilter.processLocation(location)
+            val trajResult = trajectoryFilter.processLocation(location)
 
-        val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
-        val olsSpeed = trajResult.averageSpeedKmh
-        val directDistSpeed = if (prevLoc != null) {
-            val dtSec = (location.time - prevLoc.time) / 1000.0
-            if (dtSec in 0.2..60.0) LocationUtils.calculateSpeedKmh(prevLoc, location, dtSec) else 0f
-        } else 0f
+            val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
+            val olsSpeed = trajResult.averageSpeedKmh
+            val directDistSpeed = if (prevLoc != null) {
+                val dtSec = (location.time - prevLoc.time) / 1000.0
+                if (dtSec in 0.2..60.0) LocationUtils.calculateSpeedKmh(prevLoc, location, dtSec) else 0f
+            } else 0f
 
-        val speedKmh = if (trajResult.isStationary) {
-            0f
-        } else {
-            maxOf(instantSpeed, olsSpeed, directDistSpeed)
-        }
-        effectiveSpeedKmh = speedKmh
-
-        val lat = location.latitude
-        val lon = location.longitude
-
-        val distFromRamReload = FloatArray(1)
-        if (lastRamReloadLat != 0.0 || lastRamReloadLon != 0.0) {
-            Location.distanceBetween(lat, lon, lastRamReloadLat, lastRamReloadLon, distFromRamReload)
-        }
-
-        // 1. UNCONDITIONAL RAM CACHE LOAD: Always load 10x10km cameras into RAM on fix (even for coarse GPS)
-        if (cachedCameras.isEmpty() || distFromRamReload[0] >= 4000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
-            reloadCameraCacheForLocation(location)
-        }
-
-        // Hysteresis / Floating threshold (60 +/- 10 km/h: 50..70 km/h buffer zone)
-        // Prevents rapid switching between 500m (5s/3s) and 1000m (1s) modes when cruising around 60 km/h in city traffic.
-        if (effectiveSpeedKmh > 70f) {
-            isHighSpeedGpsMode = true
-        } else if (effectiveSpeedKmh < 50f) {
-            isHighSpeedGpsMode = false
-        }
-
-        val effectiveLoc = trajResult.projectedLocation ?: location
-        val metrics = RadarMath.evaluateLocationData(
-            effectiveLoc,
-            effectiveSpeedKmh,
-            dbHelper,
-            getRamCachedLoadResult(),
-            trajResult.trajectoryBearing,
-            trajResult.points,
-            trajResult.isStationary,
-            instantSpeed,
-            olsSpeed,
-            isHighSpeedGpsMode
-        )
-        lastMetrics = metrics
-        metricsListener?.invoke(metrics)
-
-        // 3. Trigger network sync update
-        syncManager.onLocationUpdate(location, speedKmh)
-
-        // 4. Weak GPS Check (Alerting paused if accuracy > 100m, effective speed reset to 0, stationary timer evaluated)
-        val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
-        if (isAccuracyWeak) {
-            effectiveSpeedKmh = 0f
-            if (!isWeakGpsState) {
-                isWeakGpsState = true
-                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>100m [${location.accuracy.toInt()}m]). Alerting paused & speed set to 0.")
+            val speedKmh = if (trajResult.isStationary) {
+                0f
+            } else {
+                maxOf(instantSpeed, olsSpeed, directDistSpeed)
             }
-            val accInt = location.accuracy.toInt()
-            val weakNotif = "Weak GPS signal (>100m [${accInt}m])"
-            updateNotificationText(weakNotif)
-            audioEngine.stopAlert()
+            effectiveSpeedKmh = speedKmh
 
-            val weakMetrics = RadarMath.evaluateLocationData(
+            val lat = location.latitude
+            val lon = location.longitude
+
+            val distFromRamReload = FloatArray(1)
+            if (lastRamReloadLat != 0.0 || lastRamReloadLon != 0.0) {
+                Location.distanceBetween(lat, lon, lastRamReloadLat, lastRamReloadLon, distFromRamReload)
+            }
+
+            // 1. UNCONDITIONAL RAM CACHE LOAD: Always load 10x10km cameras into RAM on fix (even for coarse GPS)
+            if (cachedCameras.isEmpty() || distFromRamReload[0] >= 4000f || lat < cachedBoxMinLat || lat > cachedBoxMaxLat || lon < cachedBoxMinLon || lon > cachedBoxMaxLon) {
+                reloadCameraCacheForLocation(location)
+            }
+
+            // Hysteresis / Floating threshold (60 +/- 10 km/h: 50..70 km/h buffer zone)
+            if (effectiveSpeedKmh > 70f) {
+                isHighSpeedGpsMode = true
+            } else if (effectiveSpeedKmh < 50f) {
+                isHighSpeedGpsMode = false
+            }
+
+            val effectiveLoc = trajResult.projectedLocation ?: location
+
+            // Trigger network sync update
+            syncManager.onLocationUpdate(location, speedKmh)
+
+            // Weak GPS Check (Alerting paused if accuracy > 100m, effective speed reset to 0, stationary timer evaluated)
+            val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
+            if (isAccuracyWeak) {
+                effectiveSpeedKmh = 0f
+                if (!isWeakGpsState) {
+                    isWeakGpsState = true
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>100m [${location.accuracy.toInt()}m]). Alerting paused & speed set to 0.")
+                }
+                val accInt = location.accuracy.toInt()
+                val weakNotif = "Weak GPS signal (>100m [${accInt}m])"
+                audioEngine.stopAlert()
+
+                val weakMetrics = RadarMath.evaluateLocationData(
+                    effectiveLoc,
+                    0f,
+                    dbHelper,
+                    getRamCachedLoadResult(),
+                    trajResult.trajectoryBearing,
+                    trajResult.points,
+                    isStationary = true,
+                    instantSpeedKmh = 0f,
+                    olsSpeedKmh = 0f,
+                    isHighSpeedMode = false,
+                    isGpsDisabled = false,
+                    notificationOverride = weakNotif
+                )
+                publishStateAndMetrics(weakMetrics)
+                checkStationaryTimeout(now, "WEAK GPS TIMEOUT: Weak GPS (>100m)")
+                return
+            } else if (isWeakGpsState) {
+                isWeakGpsState = false
+                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "GPS accuracy restored (<=100m). Alerting resumed.")
+            }
+
+            if (!trajResult.isValid) {
+                AppLogger.log("RadarForegroundService", "onLocationChanged", false, "Candidate location rejected by TrajectoryFilter (backward/jitter projection).")
+                return
+            }
+
+            // Single authoritative location metrics evaluation for cameras and state
+            val metrics = RadarMath.evaluateLocationData(
                 effectiveLoc,
-                0f,
+                effectiveSpeedKmh,
                 dbHelper,
                 getRamCachedLoadResult(),
                 trajResult.trajectoryBearing,
                 trajResult.points,
-                isStationary = true,
-                instantSpeedKmh = 0f,
-                olsSpeedKmh = 0f,
-                isHighSpeedMode = false,
-                isGpsDisabled = false,
-                notificationOverride = weakNotif
+                trajResult.isStationary,
+                instantSpeed,
+                olsSpeed,
+                isHighSpeedGpsMode
             )
-            lastMetrics = weakMetrics
-            metricsListener?.invoke(weakMetrics)
 
-            if (stationaryStopStartTimeMs == 0L) {
-                stationaryStopStartTimeMs = now
-            }
-            val timeStoppedMs = now - stationaryStopStartTimeMs
-            if (timeStoppedMs >= 3 * 60 * 1000L) {
-                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "WEAK GPS TIMEOUT: Weak GPS (>100m) for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
-                enterDeepSleep()
-            }
-            return
-        } else {
-            if (isWeakGpsState) {
-                isWeakGpsState = false
-                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "GPS accuracy restored (<=100m). Alerting resumed.")
-            }
-        }
+            val minDistToAnyCamera = metrics.minDistToAnyCamera
+            val closestAlertCamera = metrics.closestAlertCamera
+            val minDistanceToAlert = metrics.minDistanceToAlert
 
-        if (!trajResult.isValid) {
-            AppLogger.log("RadarForegroundService", "onLocationChanged", false, "Candidate location rejected by TrajectoryFilter (backward/jitter projection).")
-            return
-        }
-
-        // Evaluate temporary metrics for camera distance thresholds
-        val tempMetrics = RadarMath.evaluateLocationData(
-            effectiveLoc,
-            effectiveSpeedKmh,
-            dbHelper,
-            getRamCachedLoadResult(),
-            trajResult.trajectoryBearing,
-            trajResult.points,
-            trajResult.isStationary,
-            instantSpeed,
-            olsSpeed,
-            isHighSpeedGpsMode
-        )
-
-        val minDistToAnyCamera = tempMetrics.minDistToAnyCamera
-        val closestAlertCamera = tempMetrics.closestAlertCamera
-        val minDistanceToAlert = tempMetrics.minDistanceToAlert
-
-        // 1-time logging for entering 300m zone and direct crossing
-        closestAlertCamera?.let { camera ->
-            val distance = minDistanceToAlert
-            if (distance <= 300f) {
-                if (logged300mCameraIds.add(camera.id)) {
-                    AppLogger.log(
-                        "RadarForegroundService",
-                        "onCamera300mEntry",
-                        true,
-                        "300M ZONE ENTERED: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m."
-                    )
+            // 1-time logging for entering 300m zone and direct crossing
+            closestAlertCamera?.let { camera ->
+                val distance = minDistanceToAlert
+                if (distance <= 300f) {
+                    if (logged300mCameraIds.add(camera.id)) {
+                        AppLogger.log(
+                            "RadarForegroundService",
+                            "onCamera300mEntry",
+                            true,
+                            "300M ZONE ENTERED: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m."
+                        )
+                    }
+                } else if (distance > 400f) {
+                    logged300mCameraIds.remove(camera.id)
                 }
-            } else if (distance > 400f) {
-                logged300mCameraIds.remove(camera.id)
-            }
 
-            val continuousThreshold = tempMetrics.continuousThreshold
-            if (distance <= continuousThreshold) {
-                if (loggedCrossingCameraIds.add(camera.id)) {
-                    AppLogger.log(
-                        "RadarForegroundService",
-                        "onCameraCrossing",
-                        true,
-                        "DIRECT CAMERA CROSSING: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m."
-                    )
+                val continuousThreshold = metrics.continuousThreshold
+                if (distance <= continuousThreshold) {
+                    if (loggedCrossingCameraIds.add(camera.id)) {
+                        AppLogger.log(
+                            "RadarForegroundService",
+                            "onCameraCrossing",
+                            true,
+                            "DIRECT CAMERA CROSSING: Camera #${camera.id} (Linear: ${camera.isLinear}). Distance: ${distance.toInt()}m."
+                        )
+                    }
+                } else if (distance > continuousThreshold + 50f) {
+                    loggedCrossingCameraIds.remove(camera.id)
                 }
-            } else if (distance > continuousThreshold + 50f) {
-                loggedCrossingCameraIds.remove(camera.id)
             }
-        }
 
-        val maxGpsReadDistance = if (isHighSpeedGpsMode) 1000f else 500f
-        val isInActiveLinearZone = (activeLinearEntryCam != null)
-        val isWithinGps1sDistance = (minDistToAnyCamera <= maxGpsReadDistance)
-        val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
+            val maxGpsReadDistance = if (isHighSpeedGpsMode) 1000f else 500f
+            val isInActiveLinearZone = (activeLinearEntryCam != null)
+            val isWithinGps1sDistance = (minDistToAnyCamera <= maxGpsReadDistance)
+            val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
 
-        val isFullStop = tempMetrics.isStationary || speedKmh == 0f
+            val isFullStop = metrics.isStationary || speedKmh == 0f
 
-        val targetInterval = if (isFullStop) {
-            if (stationaryStopStartTimeMs == 0L) {
-                stationaryStopStartTimeMs = now
-            }
-            val timeStoppedMs = now - stationaryStopStartTimeMs
-            if (timeStoppedMs < 3 * 60 * 1000L) {
+            val targetInterval = if (isFullStop) {
+                if (checkStationaryTimeout(now, "STATIONARY STOP: Vehicle stopped")) {
+                    return
+                }
                 if (lastLoggedSpeedMode != "STOPPED_GRACE_3MIN") {
                     lastLoggedSpeedMode = "STOPPED_GRACE_3MIN"
                     AppLogger.log("RadarForegroundService", "onLocationChanged", true, "STATIONARY STOP: Vehicle stopped. 3-min Grace Period active: Polling interval kept at 3s.")
                 }
                 3000L
             } else {
-                if (lastLoggedSpeedMode != "DEEP_SLEEP") {
-                    lastLoggedSpeedMode = "DEEP_SLEEP"
+                stationaryStopStartTimeMs = 0L
+                if (isDeepSleepState) {
+                    wakeUpFromDeepSleep("Vehicle Motion Started (${speedKmh.toInt()} km/h)")
                 }
-                enterDeepSleep()
-                return
-            }
-        } else {
-            stationaryStopStartTimeMs = 0L
-            if (isDeepSleepState) {
-                wakeUpFromDeepSleep("Vehicle Motion Started (${speedKmh.toInt()} km/h)")
-            }
-            when {
-                isWithinGps1sDistance || isInActiveLinearZone -> {
-                    if (lastLoggedSpeedMode != "CAMERA_NEARBY_1S") {
-                        lastLoggedSpeedMode = "CAMERA_NEARBY_1S"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Within 1s GPS zone (${minDistToAnyCamera.toInt()}m). Polling interval: 1s.")
+                when {
+                    isWithinGps1sDistance || isInActiveLinearZone -> {
+                        if (lastLoggedSpeedMode != "CAMERA_NEARBY_1S") {
+                            lastLoggedSpeedMode = "CAMERA_NEARBY_1S"
+                            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Within 1s GPS zone (${minDistToAnyCamera.toInt()}m). Polling interval: 1s.")
+                        }
+                        1000L
                     }
-                    1000L
-                }
-                hasNearbyCameraIn3km -> {
-                    if (lastLoggedSpeedMode != "NORMAL_3S") {
-                        lastLoggedSpeedMode = "NORMAL_3S"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Cameras within 3km (${minDistToAnyCamera.toInt()}m). Polling interval: 3s.")
+                    hasNearbyCameraIn3km -> {
+                        if (lastLoggedSpeedMode != "NORMAL_3S") {
+                            lastLoggedSpeedMode = "NORMAL_3S"
+                            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Cameras within 3km (${minDistToAnyCamera.toInt()}m). Polling interval: 3s.")
+                        }
+                        3000L
                     }
-                    3000L
-                }
-                else -> {
-                    if (lastLoggedSpeedMode != "SMART_SLEEP_5S") {
-                        lastLoggedSpeedMode = "SMART_SLEEP_5S"
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (No cameras within 3km). Polling interval: 5s.")
+                    else -> {
+                        if (lastLoggedSpeedMode != "SMART_SLEEP_5S") {
+                            lastLoggedSpeedMode = "SMART_SLEEP_5S"
+                            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (No cameras within 3km). Polling interval: 5s.")
+                        }
+                        5000L
                     }
-                    5000L
                 }
             }
-        }
-        registerGpsUpdates(targetInterval)
+            registerGpsUpdates(targetInterval)
 
-        var activeAlertNotifText: String? = null
+            var activeAlertNotifText: String? = null
 
-        if (speedKmh <= 30f) {
-            if (currentAlertCameraId != null) {
-                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Speed dropped <= 30 km/h).")
-                currentAlertCameraId = null
-            }
-            audioEngine.stopAlert()
-        } else if (closestAlertCamera != null) {
-            val speedInt = speedKmh.toInt()
-            val distInt = minDistanceToAlert.toInt()
-
-            if (closestAlertCamera.isLinear) {
-                if (activeLinearEntryCam?.id != closestAlertCamera.id) {
-                    activeLinearEntryCam = closestAlertCamera
-                    activeLinearExitCam = cachedCameras.filter { it.isLinear && it.id != closestAlertCamera.id }
-                        .minByOrNull { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) }
-                    prevDistToEntryCam = RadarMath.calculateDistance(effectiveLoc, activeLinearEntryCam!!.lat, activeLinearEntryCam!!.lon)
-                    prevDistToExitCam = activeLinearExitCam?.let { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) } ?: Float.MAX_VALUE
-                    isDepartingFromEntry = false
-                }
-            }
-
-            if (currentAlertCameraId != closestAlertCamera.id) {
-                currentAlertCameraId = closestAlertCamera.id
-                Toast.makeText(
-                    applicationContext,
-                    "Radar! Distance: ${distInt}m (${speedInt} km/h)",
-                    Toast.LENGTH_LONG
-                ).show()
-                AppLogger.log(
-                    "RadarForegroundService",
-                    "onLocationChanged",
-                    true,
-                    "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Linear: ${closestAlertCamera.isLinear}"
-                )
-            }
-
-            val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert)
-            audioEngine.startAlert(delayMs)
-            audioEngine.updateDelay(delayMs)
-            activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h)"
-        } else {
-            val entryCam = activeLinearEntryCam
-            if (entryCam != null) {
-                val distEntry = RadarMath.calculateDistance(effectiveLoc, entryCam.lat, entryCam.lon)
-                val exitCam = activeLinearExitCam
-                val distExit = exitCam?.let { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) } ?: Float.MAX_VALUE
-
-                if (distEntry > prevDistToEntryCam + 3f || distEntry > 50f) {
-                    isDepartingFromEntry = true
-                }
-
-                val isDepartingFromExit = (exitCam != null && distExit > prevDistToExitCam + 3f)
-
-                if (isDepartingFromEntry && (isDepartingFromExit || (exitCam == null && distEntry > 1000f))) {
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited linear section (simultaneously departing from entry & exit cameras).")
-                    activeLinearEntryCam = null
-                    activeLinearExitCam = null
-                } else {
-                    prevDistToEntryCam = distEntry
-                    if (exitCam != null) prevDistToExitCam = distExit
-
-                    val speedInt = speedKmh.toInt()
-                    val delayMs = 1500L
-                    audioEngine.startAlert(delayMs)
-                    audioEngine.updateDelay(delayMs)
-                    activeAlertNotifText = "Radar! Linear Zone Alert (${speedInt} km/h)"
-                }
-            }
-
-            if (activeAlertNotifText == null) {
+            if (speedKmh <= 30f) {
                 if (currentAlertCameraId != null) {
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Camera #${currentAlertCameraId} cleared).")
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Speed dropped <= 30 km/h).")
                     currentAlertCameraId = null
                 }
                 audioEngine.stopAlert()
+            } else if (closestAlertCamera != null) {
+                val speedInt = speedKmh.toInt()
+                val distInt = minDistanceToAlert.toInt()
+
+                if (closestAlertCamera.isLinear) {
+                    if (activeLinearEntryCam?.id != closestAlertCamera.id) {
+                        activeLinearEntryCam = closestAlertCamera
+                        activeLinearExitCam = cachedCameras.filter { it.isLinear && it.id != closestAlertCamera.id }
+                            .minByOrNull { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) }
+                        prevDistToEntryCam = RadarMath.calculateDistance(effectiveLoc, activeLinearEntryCam!!.lat, activeLinearEntryCam!!.lon)
+                        prevDistToExitCam = activeLinearExitCam?.let { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) } ?: Float.MAX_VALUE
+                        isDepartingFromEntry = false
+                    }
+                }
+
+                if (currentAlertCameraId != closestAlertCamera.id) {
+                    currentAlertCameraId = closestAlertCamera.id
+                    Toast.makeText(
+                        applicationContext,
+                        "Radar! Distance: ${distInt}m (${speedInt} km/h)",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    AppLogger.log(
+                        "RadarForegroundService",
+                        "onLocationChanged",
+                        true,
+                        "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Linear: ${closestAlertCamera.isLinear}"
+                    )
+                }
+
+                val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert)
+                audioEngine.startAlert(delayMs)
+                audioEngine.updateDelay(delayMs)
+                activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h)"
+            } else {
+                val entryCam = activeLinearEntryCam
+                if (entryCam != null) {
+                    val distEntry = RadarMath.calculateDistance(effectiveLoc, entryCam.lat, entryCam.lon)
+                    val exitCam = activeLinearExitCam
+                    val distExit = exitCam?.let { RadarMath.calculateDistance(effectiveLoc, it.lat, it.lon) } ?: Float.MAX_VALUE
+
+                    if (distEntry > prevDistToEntryCam + 3f || distEntry > 50f) {
+                        isDepartingFromEntry = true
+                    }
+
+                    val isDepartingFromExit = (exitCam != null && distExit > prevDistToExitCam + 3f)
+
+                    if (isDepartingFromEntry && (isDepartingFromExit || (exitCam == null && distEntry > 1000f))) {
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited linear section (simultaneously departing from entry & exit cameras).")
+                        activeLinearEntryCam = null
+                        activeLinearExitCam = null
+                    } else {
+                        prevDistToEntryCam = distEntry
+                        if (exitCam != null) prevDistToExitCam = distExit
+
+                        val speedInt = speedKmh.toInt()
+                        val delayMs = 1500L
+                        audioEngine.startAlert(delayMs)
+                        audioEngine.updateDelay(delayMs)
+                        activeAlertNotifText = "Radar! Linear Zone Alert (${speedInt} km/h)"
+                    }
+                }
+
+                if (activeAlertNotifText == null) {
+                    if (currentAlertCameraId != null) {
+                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Camera #${currentAlertCameraId} cleared).")
+                        currentAlertCameraId = null
+                    }
+                    audioEngine.stopAlert()
+                }
             }
-        }
 
-        val defaultStatusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
-        val finalNotifText = activeAlertNotifText ?: defaultStatusText
+            val defaultStatusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
+            val finalNotifText = activeAlertNotifText ?: defaultStatusText
 
-        val finalMetrics = RadarMath.evaluateLocationData(
-            effectiveLoc,
-            effectiveSpeedKmh,
-            dbHelper,
-            getRamCachedLoadResult(),
-            trajResult.trajectoryBearing,
-            trajResult.points,
-            trajResult.isStationary,
-            instantSpeed,
-            olsSpeed,
-            isHighSpeedGpsMode,
-            isGpsDisabled = false,
-            notificationOverride = finalNotifText
-        )
-
-        publishStateAndMetrics(finalMetrics)
+            val finalMetrics = if (metrics.notificationText == finalNotifText) metrics else metrics.copy(notificationText = finalNotifText)
+            publishStateAndMetrics(finalMetrics)
         } catch (e: Exception) {
             AppLogger.log("RadarForegroundService", "onLocationChanged", false, "Unhandled exception during location processing: ${e.message}")
         }
@@ -935,6 +932,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             e.printStackTrace()
         }
         try {
+            if (isSignificantMotionActive && significantMotionSensor != null) {
+                sensorManager.cancelTriggerSensor(sigMotionListener, significantMotionSensor)
+                isSignificantMotionActive = false
+            }
             sensorManager.unregisterListener(this)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -980,9 +981,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     private fun notifyStateChange(isGpsDisabled: Boolean = false, notificationText: String? = null) {
-        val loc = lastLocation ?: LocationUtils.getLastKnownLocationCascade(locationManager)
-
-        val targetLoc = loc ?: LocationUtils.createLocation(0.0, 0.0, "dummy")
+        val targetLoc = getBestLocation() ?: LocationUtils.createLocation(0.0, 0.0, "dummy")
 
         val metrics = RadarMath.evaluateLocationData(
             targetLoc,
@@ -1009,28 +1008,32 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val delta = Math.abs(g - SensorManager.GRAVITY_EARTH)
             val now = System.currentTimeMillis()
 
-            if (delta >= 1.0f) {
-                if (now - lastSpikeTimeMs < 1500L) {
+            // First spike requires >= 0.8 m/s², subsequent 4 spikes require >= 0.4 m/s²
+            val requiredThreshold = if (motionSpikeCount == 0) 0.8f else 0.4f
+
+            if (delta >= requiredThreshold) {
+                if (motionSpikeCount > 0 && (now - lastSpikeTimeMs <= 2000L)) {
                     motionSpikeCount++
                 } else {
-                    motionSpikeCount = 1
+                    motionSpikeCount = if (delta >= 0.8f) 1 else 0
                 }
-                lastSpikeTimeMs = now
 
-                if (motionSpikeCount >= 3) {
+                if (motionSpikeCount > 0) {
+                    lastSpikeTimeMs = now
+                }
+
+                if (motionSpikeCount >= 5) {
                     motionSpikeCount = 0
                     AppLogger.log(
                         "RadarForegroundService",
                         "onSensorChanged",
                         true,
-                        "SUSTAINED MOTION CONFIRMED (3 spikes >= 1.0 m/s²). Waking up from Deep Sleep..."
+                        "SUSTAINED MOTION CONFIRMED (Spike #1 >= 0.8 m/s² + Spikes #2..5 >= 0.4 m/s²). Waking up from Deep Sleep..."
                     )
                     wakeUpFromDeepSleep("Confirmed Motion Spikes (delta: ${String.format(java.util.Locale.US, "%.2f", delta)})")
                 }
-            } else {
-                if (now - lastSpikeTimeMs > 2000L) {
-                    motionSpikeCount = 0
-                }
+            } else if (now - lastSpikeTimeMs > 2000L) {
+                motionSpikeCount = 0
             }
         }
     }

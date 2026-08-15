@@ -232,7 +232,7 @@ class TrajectoryFilter(
         } else 0f
 
         val effectiveSpeed = maxOf(instantSpeed, derivedSpeed)
-        val isStationaryHighAcc = effectiveSpeed < 3.0f || (buffer.size >= 2 && buffer.first().distanceTo(buffer.last()) < 5.0f && effectiveSpeed < 5.0f)
+        val isStationaryHighAcc = effectiveSpeed < 15.0f || (buffer.size >= 2 && buffer.first().distanceTo(buffer.last()) < 5.0f)
         val finalSpeed = if (isStationaryHighAcc) 0f else effectiveSpeed
 
         if (hasHighAcc || isHighSpeedOver300) {

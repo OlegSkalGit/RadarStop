@@ -83,6 +83,15 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         }
     }
 
+    private fun executeInsertCameras(db: SQLiteDatabase, cameras: List<Camera>) {
+        db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?)").use { stmt ->
+            for (cam in cameras) {
+                stmt.bindCamera(cam)
+                stmt.executeInsert()
+            }
+        }
+    }
+
     fun replaceCamerasInBox(minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, cameras: List<Camera>) {
         cachedCameraCount = -1
         writableDatabase.runInTransaction("DatabaseHelper", "replaceCamerasInBox") { db ->
@@ -90,24 +99,14 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
                 "DELETE FROM $TABLE_CAMERAS WHERE $COLUMN_LAT BETWEEN ? AND ? AND $COLUMN_LON BETWEEN ? AND ?",
                 arrayOf(minLat, maxLat, minLon, maxLon)
             )
-            db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?)").use { stmt ->
-                for (cam in cameras) {
-                    stmt.bindCamera(cam)
-                    stmt.executeInsert()
-                }
-            }
+            executeInsertCameras(db, cameras)
         }
     }
 
     fun insertCameras(cameras: List<Camera>) {
         cachedCameraCount = -1
         writableDatabase.runInTransaction("DatabaseHelper", "insertCameras") { db ->
-            db.compileStatement("INSERT OR REPLACE INTO $TABLE_CAMERAS ($COLUMN_ID, $COLUMN_LAT, $COLUMN_LON, $COLUMN_IS_LINEAR) VALUES (?, ?, ?, ?)").use { stmt ->
-                for (cam in cameras) {
-                    stmt.bindCamera(cam)
-                    stmt.executeInsert()
-                }
-            }
+            executeInsertCameras(db, cameras)
         }
     }
 

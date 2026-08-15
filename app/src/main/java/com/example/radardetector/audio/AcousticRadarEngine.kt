@@ -97,28 +97,7 @@ class AcousticRadarEngine(private val context: Context) {
     }
 
     fun playSingleBeep() {
-        audioExecutor.execute {
-            try {
-                synchronized(this@AcousticRadarEngine) {
-                    requestFocus()
-                    initToneGenerator()
-                }
-                // Bluetooth A2DP / Audio HAL Warmup delay (350ms) so PCM channel opens fully before beep
-                Thread.sleep(350)
-                synchronized(this@AcousticRadarEngine) {
-                    emitBeep()
-                }
-                Thread.sleep(250)
-                synchronized(this@AcousticRadarEngine) {
-                    if (!isBeeping) {
-                        abandonFocus()
-                    }
-                }
-                AppLogger.log("AcousticRadarEngine", "playSingleBeep", true, "Single startup beep played after stream warmup and focus released.")
-            } catch (e: Exception) {
-                AppLogger.log("AcousticRadarEngine", "playSingleBeep", false, "Error: ${e.message}")
-            }
-        }
+        playBeeps(1, 0L)
     }
 
     fun playBeeps(count: Int, intervalMs: Long) {
@@ -128,7 +107,9 @@ class AcousticRadarEngine(private val context: Context) {
                     requestFocus()
                     initToneGenerator()
                 }
-                AppLogger.log("AcousticRadarEngine", "playBeeps", true, "Playing $count test beeps at ${intervalMs}ms interval...")
+                // Bluetooth A2DP / Audio HAL Warmup delay (350ms) so PCM channel opens fully before beep
+                Thread.sleep(350)
+                AppLogger.log("AcousticRadarEngine", "playBeeps", true, "Playing $count test beep(s) at ${intervalMs}ms interval...")
                 for (i in 1..count) {
                     synchronized(this@AcousticRadarEngine) {
                         emitBeep()
