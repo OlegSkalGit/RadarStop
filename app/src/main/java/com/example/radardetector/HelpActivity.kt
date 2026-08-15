@@ -73,15 +73,21 @@ Key Features & Operations:
 • Database & Offline Usage:
   - Camera locations are saved permanently in a local database during driving.
   - Pre-download complete country databases via "Load country cameras" for offline travel without internet access.
+
+• GitHub Repository:
+  https://github.com/OlegSkalGit/RadarStop
         """.trimIndent()
 
         textViewHelp = TextView(this).apply {
             text = helpContentText
             textSize = currentTextSizeSp
             setTextColor(Color.parseColor("#E0E0E0"))
+            setLinkTextColor(Color.parseColor("#00E5FF"))
             setLineSpacing(8f, 1.2f)
             setPadding(16, 16, 16, 16)
             setBackgroundColor(Color.parseColor("#1E1E1E"))
+            autoLinkMask = android.text.util.Linkify.WEB_URLS
+            linksClickable = true
         }
 
         scaleGestureDetector = UiUtils.setupTextPinchZoom(this, textViewHelp, currentTextSizeSp, 10f, 36f) { newSp ->
