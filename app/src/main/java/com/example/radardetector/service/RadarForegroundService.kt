@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -133,6 +135,29 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 "HARDWARE SIGNIFICANT MOTION DETECTED: Waking up from Deep Sleep..."
             )
             wakeUpFromDeepSleep("Hardware Significant Motion Sensor")
+        }
+    }
+
+    private var isGpsReceiverRegistered: Boolean = false
+
+    private val gpsProviderReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == LocationManager.PROVIDERS_CHANGED_ACTION) {
+                val isGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
+                AppLogger.log("RadarForegroundService", "onReceive", true, "Location PROVIDERS_CHANGED received. isGpsDisabled=$isGpsDisabled, isDeepSleep=$isDeepSleepState")
+                if (!isGpsDisabled) {
+                    if (isDeepSleepState) {
+                        wakeUpFromDeepSleep("System GPS turned ON")
+                    } else {
+                        registerGpsUpdates(currentGpsIntervalMs, force = true)
+                    }
+                } else {
+                    if (!isDeepSleepState) {
+                        notifyStateChange(isGpsDisabled = true, notificationText = "GPS is Disabled in System Settings")
+                        enterDeepSleep()
+                    }
+                }
+            }
         }
     }
 
@@ -380,8 +405,18 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             true,
             "Sensors initialized. SignificantMotion: ${significantMotionSensor != null}, Accelerometer: ${accelerometer != null}"
         )
-        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
-        watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
+        try {
+            val filter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(gpsProviderReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(gpsProviderReceiver, filter)
+            }
+            isGpsReceiverRegistered = true
+            AppLogger.log("RadarForegroundService", "onCreate", true, "Registered BroadcastReceiver for PROVIDERS_CHANGED_ACTION.")
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "onCreate", false, "Failed to register PROVIDERS_CHANGED_ACTION receiver: ${e.message}")
+        }
 
         AppLogger.log("RadarForegroundService", "onCreate", true, "Searching for GPS satellites...")
 
@@ -944,6 +979,14 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             locationManager.removeUpdates(this)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+        if (isGpsReceiverRegistered) {
+            try {
+                unregisterReceiver(gpsProviderReceiver)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            isGpsReceiverRegistered = false
         }
         dbExecutor.shutdownNow()
         audioEngine.release()

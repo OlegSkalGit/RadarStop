@@ -547,6 +547,10 @@ class RadarMapActivity : Activity() {
 
         val s = RadarForegroundService.instance
         if (s?.isDeepSleepState == true) {
+            val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            if (lm != null && !LocationUtils.isGpsDisabled(lm)) {
+                s.wakeUpFromDeepSleep("RadarMapActivity resumed with GPS active")
+            }
             refreshMapState()
         }
 
