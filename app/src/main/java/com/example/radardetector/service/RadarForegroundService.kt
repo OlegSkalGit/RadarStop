@@ -121,6 +121,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private var lastMotionCheckTimeMs: Long = 0L
     @Volatile
     var isDeepSleepState: Boolean = false
+    @Volatile
+    private var hasGpsFix: Boolean = false
+    @Volatile
+    private var isNetworkProviderActive: Boolean = false
     private var isAccelerometerRegistered: Boolean = false
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -220,6 +224,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
         }
         motionSpikeCount = 0
+        hasGpsFix = false
+        isNetworkProviderActive = false
+        trajectoryFilter.reset()
         val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
 
         val deepSleepNotif = "Deep Sleep: Stationed (>3m). Accelerometer active."
@@ -243,6 +250,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     fun wakeUpFromDeepSleep(reason: String) {
         if (!isDeepSleepState) return
         isDeepSleepState = false
+        hasGpsFix = false
+        isNetworkProviderActive = false
+        trajectoryFilter.reset()
         AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "WAKEUP TRIGGERED ($reason). Unregistering accelerometer sensor, resuming watchdogHandler and 1s GPS updates...")
         
         try {
@@ -489,25 +499,46 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val minDistance = if (intervalMs >= 15000L) 10f else 0f
             var registeredCount = 0
 
-            val providers = listOf(
-                LocationManager.GPS_PROVIDER,
-                LocationManager.NETWORK_PROVIDER,
-                LocationManager.PASSIVE_PROVIDER
-            )
-            for (provider in providers) {
-                if (locationManager.isProviderEnabled(provider)) {
-                    try {
-                        locationManager.requestLocationUpdates(
-                            provider,
-                            intervalMs,
-                            minDistance,
-                            this
-                        )
-                        registeredCount++
-                    } catch (e: Exception) {}
-                }
+            // 1. Primary satellite GPS provider (Always registered)
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    intervalMs,
+                    minDistance,
+                    this
+                )
+                registeredCount++
             }
-            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "Location polling registered on $registeredCount providers at ${intervalMs}ms. Searching satellites with instant network fallback...")
+
+            // 2. Network provider: only active as temporary cold-start fallback until first GPS fix
+            if (!hasGpsFix && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    intervalMs,
+                    minDistance,
+                    this
+                )
+                isNetworkProviderActive = true
+                registeredCount++
+                AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "Temporary cold-start NETWORK_PROVIDER registered (awaiting first GPS fix).")
+            } else {
+                isNetworkProviderActive = false
+            }
+
+            // 3. Passive provider (Listener without battery drain)
+            if (locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
+                try {
+                    locationManager.requestLocationUpdates(
+                        LocationManager.PASSIVE_PROVIDER,
+                        intervalMs,
+                        minDistance,
+                        this
+                    )
+                    registeredCount++
+                } catch (e: Exception) {}
+            }
+
+            AppLogger.log("RadarForegroundService", "registerGpsUpdates", true, "Location polling registered on $registeredCount providers at ${intervalMs}ms. GPS active: true, NetworkFallback: $isNetworkProviderActive.")
         } catch (e: SecurityException) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "Location permission missing: ${e.message}")
         } catch (e: Exception) {
@@ -612,6 +643,59 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (!isRunning) return
         try {
             val now = System.currentTimeMillis()
+            val provider = location.provider ?: ""
+            val isGpsPoint = (provider == LocationManager.GPS_PROVIDER)
+            val isNetworkPoint = (provider == LocationManager.NETWORK_PROVIDER)
+            val isPassivePoint = (provider == LocationManager.PASSIVE_PROVIDER)
+
+            // 1. Drop coarse passive points when satellite GPS fix is active
+            if (isPassivePoint && hasGpsFix && location.hasAccuracy() && location.accuracy > 20f) {
+                return
+            }
+
+            // 2. Drop network points after satellite GPS fix is established
+            if (isNetworkPoint && hasGpsFix) {
+                return
+            }
+
+            // 3. Handle FIRST GPS FIX event
+            if (isGpsPoint && !hasGpsFix) {
+                hasGpsFix = true
+                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "FIRST SATELLITE GPS FIX ACQUIRED! Accuracy: ${if (location.hasAccuracy()) location.accuracy else 0f}m. Unregistering NETWORK_PROVIDER & resetting trajectory buffer.")
+                if (isNetworkProviderActive) {
+                    try {
+                        locationManager.removeUpdates(this)
+                        val minDistance = if (currentGpsIntervalMs >= 15000L) 10f else 0f
+                        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, currentGpsIntervalMs, minDistance, this)
+                        if (locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
+                            locationManager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, currentGpsIntervalMs, minDistance, this)
+                        }
+                        isNetworkProviderActive = false
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                trajectoryFilter.reset()
+            }
+
+            // 4. Handle pre-GPS Network point: load camera cache, force speed = 0, status = "Searching for GPS..."
+            if (isNetworkPoint && !hasGpsFix) {
+                lastLocation = location
+                if (cachedCameras.isEmpty() || Math.abs(location.latitude - lastRamReloadLat) > 0.045 || Math.abs(location.longitude - lastRamReloadLon) > 0.045) {
+                    reloadCameraCacheForLocation(location)
+                }
+                val searchMetrics = RadarMath.evaluateLocationData(
+                    location,
+                    0f,
+                    dbHelper,
+                    getRamCachedLoadResult(),
+                    isStationary = true,
+                    notificationOverride = "Searching for GPS..."
+                )
+                publishStateAndMetrics(searchMetrics)
+                return
+            }
+
             val prevLoc = lastLocation
             if (prevLoc != null) {
                 val dt = if (location.time > 0L && prevLoc.time > 0L && location.time > prevLoc.time) {
