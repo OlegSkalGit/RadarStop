@@ -948,7 +948,12 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         dbExecutor.shutdownNow()
         audioEngine.release()
         syncManager.shutdown()
-        stopForeground(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         stopSelf()
     }
 
