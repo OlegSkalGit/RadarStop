@@ -755,13 +755,20 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
             // Weak GPS Check (Alerting paused if accuracy > 100m, effective speed reset to 0, stationary timer evaluated)
             val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
+            val accInt = if (location.hasAccuracy()) location.accuracy.toInt() else 0
+            val displacementMeters = if (prevLoc != null) prevLoc.distanceTo(location) else 0f
+
             if (isAccuracyWeak) {
                 effectiveSpeedKmh = 0f
                 if (!isWeakGpsState) {
                     isWeakGpsState = true
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", false, "GPS accuracy degraded (>100m [${location.accuracy.toInt()}m]). Alerting paused & speed set to 0.")
+                    AppLogger.log(
+                        "RadarForegroundService",
+                        "onLocationChanged",
+                        false,
+                        "GPS accuracy degraded (>100m [Acc: ±${accInt}m, Disp: ${displacementMeters.toInt()}m, Speed: ${speedKmh.toInt()} km/h]). Alerting paused & speed set to 0."
+                    )
                 }
-                val accInt = location.accuracy.toInt()
                 val weakNotif = "Weak GPS signal (>100m [${accInt}m])"
                 audioEngine.stopAlert()
 
@@ -784,7 +791,12 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 return
             } else if (isWeakGpsState) {
                 isWeakGpsState = false
-                AppLogger.log("RadarForegroundService", "onLocationChanged", true, "GPS accuracy restored (<=100m). Alerting resumed.")
+                AppLogger.log(
+                    "RadarForegroundService",
+                    "onLocationChanged",
+                    true,
+                    "GPS accuracy restored (<=100m [Acc: ±${accInt}m, Disp: ${displacementMeters.toInt()}m, Speed: ${speedKmh.toInt()} km/h]). Alerting resumed."
+                )
             }
 
             if (!trajResult.isValid) {
