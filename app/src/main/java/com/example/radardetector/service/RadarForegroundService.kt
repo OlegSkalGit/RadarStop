@@ -170,10 +170,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private fun checkStationaryTimeout(now: Long, reason: String): Boolean {
         if (stationaryStopStartTimeMs == 0L) {
             stationaryStopStartTimeMs = now
+            AppLogger.log("RadarForegroundService", "checkStationaryTimeout", true, "STATIONARY COUNTDOWN STARTED (3:00 remaining). Reason: $reason")
         }
         val timeStoppedMs = now - stationaryStopStartTimeMs
         if (timeStoppedMs >= 3 * 60 * 1000L) {
-            AppLogger.log("RadarForegroundService", "checkStationaryTimeout", true, "$reason for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
+            AppLogger.log("RadarForegroundService", "checkStationaryTimeout", true, "DEEP SLEEP TRIGGERED: Stationary for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
             enterDeepSleep()
             return true
         }
@@ -427,6 +428,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         } catch (e: Exception) {
             AppLogger.log("RadarForegroundService", "onCreate", false, "Failed to register PROVIDERS_CHANGED_ACTION receiver: ${e.message}")
         }
+
+        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
+        watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
 
         AppLogger.log("RadarForegroundService", "onCreate", true, "Searching for GPS satellites...")
 
@@ -693,6 +697,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     notificationOverride = "Searching for GPS..."
                 )
                 publishStateAndMetrics(searchMetrics)
+                checkStationaryTimeout(now, "SEARCHING_GPS (Network only)")
                 return
             }
 
