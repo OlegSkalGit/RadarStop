@@ -170,11 +170,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private fun checkStationaryTimeout(now: Long, reason: String): Boolean {
         if (stationaryStopStartTimeMs == 0L) {
             stationaryStopStartTimeMs = now
-            AppLogger.log("RadarForegroundService", "checkStationaryTimeout", true, "STATIONARY COUNTDOWN STARTED (3:00 remaining). Reason: $reason")
         }
         val timeStoppedMs = now - stationaryStopStartTimeMs
         if (timeStoppedMs >= 3 * 60 * 1000L) {
-            AppLogger.log("RadarForegroundService", "checkStationaryTimeout", true, "DEEP SLEEP TRIGGERED: Stationary for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
+            AppLogger.log("RadarForegroundService", "checkStationaryTimeout", true, "$reason for ${timeStoppedMs / 1000}s (>= 3 min). Entering Deep Sleep mode.")
             enterDeepSleep()
             return true
         }
@@ -428,9 +427,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         } catch (e: Exception) {
             AppLogger.log("RadarForegroundService", "onCreate", false, "Failed to register PROVIDERS_CHANGED_ACTION receiver: ${e.message}")
         }
-
-        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
-        watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
 
         AppLogger.log("RadarForegroundService", "onCreate", true, "Searching for GPS satellites...")
 
@@ -697,7 +693,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     notificationOverride = "Searching for GPS..."
                 )
                 publishStateAndMetrics(searchMetrics)
-                checkStationaryTimeout(now, "SEARCHING_GPS (Network only)")
                 return
             }
 
@@ -721,7 +716,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
             val instantSpeed = if (location.hasSpeed() && location.speed > 0f) location.speed * 3.6f else 0f
             val olsSpeed = trajResult.averageSpeedKmh
-            val directDistSpeed = if (prevLoc != null) {
+            val directDist = if (prevLoc != null) prevLoc.distanceTo(location) else 0f
+            val noiseRadius = if (location.hasAccuracy()) maxOf(location.accuracy, 10f) else 15f
+            val isMovementOutsideNoise = directDist > noiseRadius
+
+            val directDistSpeed = if (prevLoc != null && isMovementOutsideNoise) {
                 val dtSec = (location.time - prevLoc.time) / 1000.0
                 if (dtSec in 0.2..60.0) LocationUtils.calculateSpeedKmh(prevLoc, location, dtSec) else 0f
             } else 0f
@@ -851,18 +850,34 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val isWithinGps1sDistance = (minDistToAnyCamera <= maxGpsReadDistance)
             val hasNearbyCameraIn3km = isInActiveLinearZone || (minDistToAnyCamera <= 3000f)
 
+            val acc = if (location.hasAccuracy()) location.accuracy.toInt() else 0
             val isFullStop = metrics.isStationary || speedKmh == 0f
 
             val targetInterval = if (isFullStop) {
                 if (checkStationaryTimeout(now, "STATIONARY STOP: Vehicle stopped")) {
                     return
                 }
+                val stoppedTimeSec = if (stationaryStopStartTimeMs != 0L) (now - stationaryStopStartTimeMs) / 1000L else 0L
                 if (lastLoggedSpeedMode != "STOPPED_GRACE_3MIN") {
                     lastLoggedSpeedMode = "STOPPED_GRACE_3MIN"
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "STATIONARY STOP: Vehicle stopped. 3-min Grace Period active: Polling interval kept at 3s.")
+                    AppLogger.log(
+                        "RadarForegroundService",
+                        "onLocationChanged",
+                        true,
+                        "STATIONARY STOP: v=0 km/h (acc=${acc}m, provider=$provider). 3-min Grace Period active: ${stoppedTimeSec}s/180s. Interval: 3s."
+                    )
                 }
                 3000L
             } else {
+                if (stationaryStopStartTimeMs != 0L) {
+                    val wasStoppedSec = (now - stationaryStopStartTimeMs) / 1000L
+                    AppLogger.log(
+                        "RadarForegroundService",
+                        "onLocationChanged",
+                        true,
+                        "SLEEP TIMER ABORTED: Motion detected (v=${String.format(java.util.Locale.US, "%.1f", speedKmh)} km/h, acc=${acc}m, provider=$provider, isStationary=${metrics.isStationary}). Was stopped for ${wasStoppedSec}s."
+                    )
+                }
                 stationaryStopStartTimeMs = 0L
                 if (isDeepSleepState) {
                     wakeUpFromDeepSleep("Vehicle Motion Started (${speedKmh.toInt()} km/h)")
@@ -871,21 +886,36 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     isWithinGps1sDistance || isInActiveLinearZone -> {
                         if (lastLoggedSpeedMode != "CAMERA_NEARBY_1S") {
                             lastLoggedSpeedMode = "CAMERA_NEARBY_1S"
-                            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Within 1s GPS zone (${minDistToAnyCamera.toInt()}m). Polling interval: 1s.")
+                            AppLogger.log(
+                                "RadarForegroundService",
+                                "onLocationChanged",
+                                true,
+                                "SPEED THRESHOLD: Within 1s GPS zone (${minDistToAnyCamera.toInt()}m, v=${String.format(java.util.Locale.US, "%.1f", speedKmh)} km/h, acc=${acc}m, provider=$provider). Polling: 1s."
+                            )
                         }
                         1000L
                     }
                     hasNearbyCameraIn3km -> {
                         if (lastLoggedSpeedMode != "NORMAL_3S") {
                             lastLoggedSpeedMode = "NORMAL_3S"
-                            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Cameras within 3km (${minDistToAnyCamera.toInt()}m). Polling interval: 3s.")
+                            AppLogger.log(
+                                "RadarForegroundService",
+                                "onLocationChanged",
+                                true,
+                                "SPEED THRESHOLD: Cameras within 3km (${minDistToAnyCamera.toInt()}m, v=${String.format(java.util.Locale.US, "%.1f", speedKmh)} km/h, acc=${acc}m, provider=$provider). Polling: 3s."
+                            )
                         }
                         3000L
                     }
                     else -> {
                         if (lastLoggedSpeedMode != "SMART_SLEEP_5S") {
                             lastLoggedSpeedMode = "SMART_SLEEP_5S"
-                            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "SPEED THRESHOLD: Smart Sleep (No cameras within 3km). Polling interval: 5s.")
+                            AppLogger.log(
+                                "RadarForegroundService",
+                                "onLocationChanged",
+                                true,
+                                "SPEED THRESHOLD: Smart Sleep (No cameras within 3km, v=${String.format(java.util.Locale.US, "%.1f", speedKmh)} km/h, acc=${acc}m, provider=$provider). Polling: 5s."
+                            )
                         }
                         5000L
                     }
