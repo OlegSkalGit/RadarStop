@@ -118,6 +118,7 @@ object RadarMath {
         isHighSpeedMode: Boolean = false,
         isGpsDisabled: Boolean = false,
         isDeepSleep: Boolean = false,
+        isMotionSensorActive: Boolean = false,
         notificationOverride: String? = null
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
@@ -140,7 +141,7 @@ object RadarMath {
         val gpsStatusStr = when (radarState) {
             RadarState.GPS_DISABLED -> "GPS: DISABLED IN SETTINGS"
             RadarState.SEARCHING_GPS -> "GPS: SEARCHING SATELLITES"
-            RadarState.DEEP_SLEEP -> "GPS: DEEP SLEEP [ACCELEROMETER]"
+            RadarState.DEEP_SLEEP -> if (isMotionSensorActive) "GPS: DEEP SLEEP [MOTION SENSOR]" else "GPS: DEEP SLEEP [ACCELEROMETER]"
             RadarState.WEAK_GPS -> "GPS: WEAK (>100m [${accInt}m])"
             else -> if (location.hasAccuracy()) "GPS: OK (±${accInt}m)" else "GPS: ACTIVE"
         }
@@ -149,7 +150,7 @@ object RadarMath {
         val defaultNotif = when (radarState) {
             RadarState.GPS_DISABLED -> radarState.baseNotificationText
             RadarState.SEARCHING_GPS -> radarState.baseNotificationText
-            RadarState.DEEP_SLEEP -> radarState.baseNotificationText
+            RadarState.DEEP_SLEEP -> "Deep Sleep: Stationed (>3m). ${if (isMotionSensorActive) "Motion sensor" else "Accelerometer"} active."
             RadarState.WEAK_GPS -> "Weak GPS signal (>100m [${accInt}m])"
             else -> "Active. Cameras: ${loadResult.cameras.size} in 10x10km / ${loadResult.totalInDb} total in DB"
         }
@@ -235,7 +236,7 @@ class TrajectoryFilter(
             )
         }
 
-        // Додаємо до буфера не частіше ніж раз на 1 секунду, із захистом від часових стрибків
+        // Add to buffer no more than once per second, with protection against timestamp jumps
         val locTime = if (location.time > 0L) location.time else System.currentTimeMillis()
         val timeDiff = locTime - lastBufferPushTimeMs
         if (timeDiff >= 1000L || timeDiff <= 0L || buffer.isEmpty()) {
@@ -274,7 +275,7 @@ class TrajectoryFilter(
         }
 
         if (hasHighAcc || isHighSpeedOver300) {
-            // Усікаємо до 3 останніх точок для високої точності або швидкості > 300 км/год
+            // Truncate to the last 3 points for high accuracy or speed > 300 km/h
             while (buffer.size > 3) {
                 buffer.removeFirst()
             }
@@ -291,11 +292,11 @@ class TrajectoryFilter(
             )
         }
 
-        // 2. Якщо точність 15м - 100м — перевіряємо зигзаги по єдиному буферу
+        // 2. If accuracy is 15m - 100m, check for zigzags on the single buffer
         if (buffer.size >= 3) {
             val pts = buffer.toList()
             val lastPt = pts.last()
-            // Знаходимо найбільшу відстань від останньої точки до будь-якої з попередніх точок у буфері
+            // Find maximum distance from the last point to any previous point in the buffer
             val distExtreme = pts.subList(0, pts.size - 1).maxOf { it.distanceTo(lastPt) }
 
             var distSumNeighboring = 0f
@@ -553,7 +554,7 @@ enum class RadarState(
     ),
     DEEP_SLEEP(
         stateName = "DEEP_SLEEP",
-        baseNotificationText = "Deep Sleep: Stationed (>3m). Accelerometer active.",
+        baseNotificationText = "Deep Sleep: Stationed (>3m). Motion sensor active.",
         mapSpeedText = "0",
         mapSubLabelText = "Deep sleep",
         mapColorHex = "#FF9100"
