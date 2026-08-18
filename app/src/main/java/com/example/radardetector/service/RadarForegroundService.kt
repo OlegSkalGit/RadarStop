@@ -653,68 +653,61 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     true,
                     "FIRST SATELLITE GPS FIX ACQUIRED! Accuracy: ±${incomingAcc.toInt()}m. Switched to pure GPS stream."
                 )
-            } else if (lastActiveProvider != LocationManager.GPS_PROVIDER) {
-                AppLogger.log(
-                    "RadarForegroundService",
-                    "arbitrateLocation",
-                    true,
-                    "ARBITER: Switched to pure SATELLITE GPS (Acc: ±${incomingAcc.toInt()}m)."
-                )
             }
-            lastActiveProvider = LocationManager.GPS_PROVIDER
-            return incoming
+            return checkAndLogProviderSwitch(incoming)
         }
 
         // 2. Fallback / Pre-GPS stage: Check alternative providers (NETWORK & PASSIVE)
         val netLoc = lastNetworkLocation
         val passLoc = lastPassiveLocation
 
-        val netAcc = if (netLoc != null && netLoc.hasAccuracy() && (now - netLoc.time <= 15000L)) netLoc.accuracy else Float.MAX_VALUE
-        val passAcc = if (passLoc != null && passLoc.hasAccuracy() && (now - passLoc.time <= 15000L)) passLoc.accuracy else Float.MAX_VALUE
+        val netAcc = if (netLoc != null && netLoc.hasAccuracy() && (now - netLoc.time <= 5000L)) netLoc.accuracy else Float.MAX_VALUE
+        val passAcc = if (passLoc != null && passLoc.hasAccuracy() && (now - passLoc.time <= 5000L)) passLoc.accuracy else Float.MAX_VALUE
 
         val bestAltAcc = minOf(netAcc, passAcc)
 
         if (bestAltAcc < 100f) {
             val bestAltLoc = if (netAcc <= passAcc) netLoc else passLoc
-            val chosenProvider = bestAltLoc?.provider ?: ""
 
             if (isGps) {
                 // Incoming GPS point is weak (>100m), fallback to superior alternative
-                if (lastActiveProvider != chosenProvider) {
-                    lastActiveProvider = chosenProvider
-                    AppLogger.log(
-                        "RadarForegroundService",
-                        "arbitrateLocation",
-                        true,
-                        "ARBITER: Fallback to $chosenProvider (Acc: ±${bestAltAcc.toInt()}m) - GPS accuracy weak (±${incomingAcc.toInt()}m)."
-                    )
-                }
-                return bestAltLoc
+                return checkAndLogProviderSwitch(bestAltLoc)
             }
 
-            // If incoming is Network or Passive: accept only if it is the best alternative
-            if (incomingAcc <= bestAltAcc) {
-                if (lastActiveProvider != provider) {
-                    lastActiveProvider = provider
-                    AppLogger.log(
-                        "RadarForegroundService",
-                        "arbitrateLocation",
-                        true,
-                        "ARBITER: Active provider set to $provider (Acc: ±${incomingAcc.toInt()}m)."
-                    )
-                }
-                return incoming
+            // If incoming is Network or Passive:
+            val compLoc = if (provider == LocationManager.NETWORK_PROVIDER) passLoc else netLoc
+            val compAcc = if (compLoc != null && compLoc.hasAccuracy() && (now - compLoc.time <= 5000L)) compLoc.accuracy else Float.MAX_VALUE
+
+            // If competitor is fresher (<= 5s) and has better accuracy -> wait (reject incoming worse point)
+            if (compAcc < incomingAcc) {
+                return null
             }
-            return null
+
+            return checkAndLogProviderSwitch(incoming)
         }
 
         // 3. Weak signal fallback: if all providers > 100m, pass incoming to let weak GPS logic handle it
         if (isGps || !hasGpsFix) {
-            lastActiveProvider = provider
-            return incoming
+            return checkAndLogProviderSwitch(incoming)
         }
 
         return null
+    }
+
+    private fun checkAndLogProviderSwitch(selectedLocation: Location?): Location? {
+        if (selectedLocation == null) return null
+        val selectedProvider = selectedLocation.provider ?: ""
+        if (lastActiveProvider != selectedProvider) {
+            lastActiveProvider = selectedProvider
+            val accInt = if (selectedLocation.hasAccuracy()) selectedLocation.accuracy.toInt() else 0
+            AppLogger.log(
+                "RadarForegroundService",
+                "arbitrateLocation",
+                true,
+                "ARBITER: Active provider switched to ${selectedProvider.uppercase()} (Accuracy: ±${accInt}m)."
+            )
+        }
+        return selectedLocation
     }
 
     override fun onLocationChanged(rawLocation: Location) {
