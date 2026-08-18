@@ -123,8 +123,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     var isDeepSleepState: Boolean = false
     @Volatile
     private var hasGpsFix: Boolean = false
-    private var lastNetworkLocation: Location? = null
-    private var lastPassiveLocation: Location? = null
+    private var currentBestLocation: Location? = null
     private var lastActiveProvider: String = ""
     private var isAccelerometerRegistered: Boolean = false
     private var wakeLock: PowerManager.WakeLock? = null
@@ -226,8 +225,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
         motionSpikeCount = 0
         hasGpsFix = false
-        lastNetworkLocation = null
-        lastPassiveLocation = null
+        currentBestLocation = null
         lastActiveProvider = ""
         trajectoryFilter.reset()
         val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
@@ -256,8 +254,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         if (!isDeepSleepState) return
         isDeepSleepState = false
         hasGpsFix = false
-        lastNetworkLocation = null
-        lastPassiveLocation = null
+        currentBestLocation = null
         lastActiveProvider = ""
         trajectoryFilter.reset()
         AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "WAKEUP TRIGGERED ($reason). Unregistering accelerometer sensor, resuming watchdogHandler and 1s GPS updates...")
@@ -634,64 +631,58 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private fun arbitrateLocation(incoming: Location): Location? {
         val now = System.currentTimeMillis()
         incoming.time = now
-        val provider = incoming.provider ?: ""
-        val isGps = (provider == LocationManager.GPS_PROVIDER)
         val incomingAcc = if (incoming.hasAccuracy()) incoming.accuracy else Float.MAX_VALUE
+        val prevBest = currentBestLocation
 
-        when (provider) {
-            LocationManager.NETWORK_PROVIDER -> lastNetworkLocation = incoming
-            LocationManager.PASSIVE_PROVIDER -> lastPassiveLocation = incoming
-        }
-
-        // 1. Primary: Satellite GPS with accuracy <= 100m
-        if (isGps && incomingAcc <= 100f) {
-            if (!hasGpsFix) {
+        // 0. Перша точка після старту / пробудження
+        if (prevBest == null) {
+            currentBestLocation = incoming
+            if (incoming.provider == LocationManager.GPS_PROVIDER && incomingAcc <= 100f) {
                 hasGpsFix = true
-                AppLogger.log(
-                    "RadarForegroundService",
-                    "arbitrateLocation",
-                    true,
-                    "FIRST SATELLITE GPS FIX ACQUIRED! Accuracy: ±${incomingAcc.toInt()}m. Switched to pure GPS stream."
-                )
             }
             return checkAndLogProviderSwitch(incoming)
         }
 
-        // 2. Fallback / Pre-GPS stage: Check alternative providers (NETWORK & PASSIVE)
-        val netLoc = lastNetworkLocation
-        val passLoc = lastPassiveLocation
+        val prevAcc = if (prevBest.hasAccuracy()) prevBest.accuracy else Float.MAX_VALUE
+        val isSameCoordinates = (incoming.latitude == prevBest.latitude && incoming.longitude == prevBest.longitude)
 
-        val netAcc = if (netLoc != null && netLoc.hasAccuracy() && (now - netLoc.time <= 5000L)) netLoc.accuracy else Float.MAX_VALUE
-        val passAcc = if (passLoc != null && passLoc.hasAccuracy() && (now - passLoc.time <= 5000L)) passLoc.accuracy else Float.MAX_VALUE
-
-        val bestAltAcc = minOf(netAcc, passAcc)
-
-        if (bestAltAcc < 100f) {
-            val bestAltLoc = if (netAcc <= passAcc) netLoc else passLoc
-
-            if (isGps) {
-                // Incoming GPS point is weak (>100m), fallback to superior alternative
-                return checkAndLogProviderSwitch(bestAltLoc)
+        // 1. Координати однакові: оцінюємо точність для заміни провайдера
+        if (isSameCoordinates) {
+            if (incomingAcc < prevAcc) {
+                currentBestLocation = incoming
+                if (incoming.provider == LocationManager.GPS_PROVIDER && incomingAcc <= 100f) {
+                    hasGpsFix = true
+                }
+                return checkAndLogProviderSwitch(incoming)
+            } else {
+                prevBest.time = now
+                return prevBest
             }
+        }
 
-            // If incoming is Network or Passive:
-            val compLoc = if (provider == LocationManager.NETWORK_PROVIDER) passLoc else netLoc
-            val compAcc = if (compLoc != null && compLoc.hasAccuracy() && (now - compLoc.time <= 5000L)) compLoc.accuracy else Float.MAX_VALUE
-
-            // If competitor is fresher (<= 5s) and has better accuracy -> wait (reject incoming worse point)
-            if (compAcc < incomingAcc) {
-                return null
+        // 2. Координати різні: точність краща або така сама -> однозначно приймаємо
+        if (incomingAcc <= prevAcc) {
+            currentBestLocation = incoming
+            if (incoming.provider == LocationManager.GPS_PROVIDER && incomingAcc <= 100f) {
+                hasGpsFix = true
             }
-
             return checkAndLogProviderSwitch(incoming)
         }
 
-        // 3. Weak signal fallback: if all providers > 100m, pass incoming to let weak GPS logic handle it
-        if (isGps || !hasGpsFix) {
-            return checkAndLogProviderSwitch(incoming)
+        // 3. Координати різні: точність гірша -> оцінюємо відстань проти похибки
+        val distToPrev = RadarMath.calculateDistance(prevBest, incoming.latitude, incoming.longitude)
+
+        // Похибка нової точки більша за зміщення -> шум, лишаємо попередню
+        if (incomingAcc > distToPrev) {
+            return null
         }
 
-        return null
+        // Зміщення реальне (distToPrev >= incomingAcc) -> приймаємо нову точку
+        currentBestLocation = incoming
+        if (incoming.provider == LocationManager.GPS_PROVIDER && incomingAcc <= 100f) {
+            hasGpsFix = true
+        }
+        return checkAndLogProviderSwitch(incoming)
     }
 
     private fun checkAndLogProviderSwitch(selectedLocation: Location?): Location? {
