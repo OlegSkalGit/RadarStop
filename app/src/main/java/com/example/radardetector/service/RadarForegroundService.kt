@@ -37,7 +37,9 @@ import com.example.radardetector.util.AppPrefs
 import com.example.radardetector.util.LocationUtils
 import com.example.radardetector.util.getAppVersionName
 import android.os.PowerManager
-import java.util.concurrent.Executors
+import android.os.BatteryManager
+import android.bluetooth.BluetoothClass
+import android.bluetooth.BluetoothDevice
 
 class RadarForegroundService : Service(), LocationListener, SensorEventListener {
 
@@ -53,7 +55,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         @Volatile
         var isRunning = false
         @Volatile
-        var currentGpsIntervalMs: Long = 3000L
+        var currentGpsIntervalMs: Long = 1000L
         @Volatile
         var instance: RadarForegroundService? = null
         @Volatile
@@ -65,18 +67,22 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         fun getRamCachedLoadResult(): com.example.radardetector.math.CameraLoadResult? {
             val s = instance
-            return if (isRunning && s != null && s.cachedCameras.isNotEmpty()) {
-                com.example.radardetector.math.CameraLoadResult(
-                    cameras = s.cachedCameras,
-                    boxCameraCount = s.cachedCameras.size,
-                    totalInDb = s.cachedTotalCameraCount,
-                    minLat = s.cachedBoxMinLat,
-                    maxLat = s.cachedBoxMaxLat,
-                    minLon = s.cachedBoxMinLon,
-                    maxLon = s.cachedBoxMaxLon
-                )
-            } else null
+            return if (isRunning && s != null) s.getRamCachedLoadResult() else null
         }
+    }
+
+    fun getRamCachedLoadResult(): com.example.radardetector.math.CameraLoadResult? {
+        return if (cachedCameras.isNotEmpty()) {
+            com.example.radardetector.math.CameraLoadResult(
+                cameras = cachedCameras,
+                boxCameraCount = cachedCameras.size,
+                totalInDb = cachedTotalCameraCount,
+                minLat = cachedBoxMinLat,
+                maxLat = cachedBoxMaxLat,
+                minLon = cachedBoxMinLon,
+                maxLon = cachedBoxMaxLon
+            )
+        } else null
     }
 
     private lateinit var locationManager: LocationManager
@@ -88,7 +94,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
     @Volatile
     internal var cachedCameras: List<Camera> = emptyList()
-    private val dbExecutor = Executors.newSingleThreadExecutor()
     @Volatile
     internal var cachedBoxMinLat = 0.0
     @Volatile
@@ -118,7 +123,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private var accelerometer: Sensor? = null
     private var significantMotionSensor: Sensor? = null
     private var isSignificantMotionActive: Boolean = false
-    private var lastMotionCheckTimeMs: Long = 0L
     @Volatile
     var isDeepSleepState: Boolean = false
     @Volatile
@@ -143,6 +147,77 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     private var isGpsReceiverRegistered: Boolean = false
+    @Volatile
+    var isPowerConnected: Boolean = false
+    private var isPowerAndBtReceiverRegistered: Boolean = false
+
+    private fun checkIsPowerConnected(): Boolean {
+        return try {
+            val batteryStatus: Intent? = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            val plugged = batteryStatus?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
+            isCharging || plugged == BatteryManager.BATTERY_PLUGGED_AC || plugged == BatteryManager.BATTERY_PLUGGED_USB || plugged == BatteryManager.BATTERY_PLUGGED_WIRELESS
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private val powerAndBtReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_POWER_CONNECTED -> {
+                    isPowerConnected = true
+                    stationaryStopStartTimeMs = 0L
+                    AppLogger.log("RadarForegroundService", "onReceive", true, "POWER CONNECTED: Continuous 1s GPS polling active, Deep Sleep disabled.")
+                    if (isDeepSleepState) {
+                        wakeUpFromDeepSleep("Power Connected")
+                    } else {
+                        registerGpsUpdates(1000L, force = true)
+                    }
+                }
+                Intent.ACTION_POWER_DISCONNECTED -> {
+                    isPowerConnected = false
+                    stationaryStopStartTimeMs = System.currentTimeMillis()
+                    AppLogger.log("RadarForegroundService", "onReceive", true, "POWER DISCONNECTED: Adaptive polling & 3-min grace period resumed.")
+                    if (!isDeepSleepState) {
+                        registerGpsUpdates(currentGpsIntervalMs, force = true)
+                    }
+                }
+                BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                    try {
+                        val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                        }
+                        val btClass = device?.bluetoothClass
+                        val isAudio = btClass != null && (
+                            btClass.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO ||
+                            btClass.hasService(BluetoothClass.Service.AUDIO) ||
+                            btClass.hasService(BluetoothClass.Service.TELEPHONY) ||
+                            btClass.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_CAR_AUDIO ||
+                            btClass.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_HEADPHONES ||
+                            btClass.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_WEARABLE_HEADSET ||
+                            btClass.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_HANDSFREE
+                        )
+                        if (isAudio) {
+                            AppLogger.log("RadarForegroundService", "onReceive", true, "BLUETOOTH AUDIO CONNECTED: Waking up from Deep Sleep / resetting sleep timer...")
+                            stationaryStopStartTimeMs = 0L
+                            if (isDeepSleepState) {
+                                wakeUpFromDeepSleep("Bluetooth Audio Connected")
+                            } else {
+                                registerGpsUpdates(1000L, force = true)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.log("RadarForegroundService", "onReceive", false, "Error processing Bluetooth connection: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
 
     private val gpsProviderReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -168,6 +243,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private fun getBestLocation(): Location? = lastLocation ?: LocationUtils.getLastKnownLocationCascade(locationManager)
 
     private fun checkStationaryTimeout(now: Long, reason: String): Boolean {
+        if (isPowerConnected) {
+            stationaryStopStartTimeMs = 0L
+            return false
+        }
         if (stationaryStopStartTimeMs == 0L) {
             stationaryStopStartTimeMs = now
         }
@@ -181,7 +260,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     }
 
     fun getSecondsUntilDeepSleep(): Long {
-        if (isDeepSleepState) return 0L
+        if (isDeepSleepState || isPowerConnected) return 0L
         val start = stationaryStopStartTimeMs
         if (start == 0L) return 180L
         val elapsedMs = System.currentTimeMillis() - start
@@ -290,6 +369,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             isAccelerometerRegistered = false
             AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", true, "UNREGISTERED Accelerometer sensor (application awake).")
         }
+        isPowerConnected = checkIsPowerConnected()
         motionSpikeCount = 0
         stationaryStopStartTimeMs = 0L
         lastLocationTimeMs = System.currentTimeMillis()
@@ -310,7 +390,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // Instant metrics evaluation from last known location upon wakeup
         try {
-            val searchingNotif = "Searching for GPS..."
+            val searchingNotif = RadarState.SEARCHING_GPS.baseNotificationText
             updateNotificationText(searchingNotif)
             val bestKnown = getBestLocation()
             if (bestKnown != null) {
@@ -367,7 +447,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         createNotificationChannel()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
-        val initialText = if (isSystemGpsDisabled) "GPS is Disabled in System Settings" else "Searching for GPS..."
+        val initialText = if (isSystemGpsDisabled) RadarState.GPS_DISABLED.baseNotificationText else RadarState.SEARCHING_GPS.baseNotificationText
         lastNotificationText = initialText
         startForeground(NOTIF_ID, buildNotification(initialText))
 
@@ -430,6 +510,24 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             AppLogger.log("RadarForegroundService", "onCreate", true, "Registered BroadcastReceiver for PROVIDERS_CHANGED_ACTION.")
         } catch (e: Exception) {
             AppLogger.log("RadarForegroundService", "onCreate", false, "Failed to register PROVIDERS_CHANGED_ACTION receiver: ${e.message}")
+        }
+
+        isPowerConnected = checkIsPowerConnected()
+        try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_POWER_CONNECTED)
+                addAction(Intent.ACTION_POWER_DISCONNECTED)
+                addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(powerAndBtReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(powerAndBtReceiver, filter)
+            }
+            isPowerAndBtReceiverRegistered = true
+            AppLogger.log("RadarForegroundService", "onCreate", true, "Registered BroadcastReceiver for Power and Bluetooth Audio (Initial Power: $isPowerConnected).")
+        } catch (e: Exception) {
+            AppLogger.log("RadarForegroundService", "onCreate", false, "Failed to register Power/BT receiver: ${e.message}")
         }
 
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_CHECK_INTERVAL_MS)
@@ -503,7 +601,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         lastGpsRegisterTimeMs = now
         try {
             locationManager.removeUpdates(this)
-            val minDistance = if (intervalMs >= 15000L) 10f else 0f
             var registeredCount = 0
 
             val providers = arrayOf(
@@ -517,7 +614,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                         locationManager.requestLocationUpdates(
                             prov,
                             intervalMs,
-                            minDistance,
+                            0f,
                             this
                         )
                         registeredCount++
@@ -540,13 +637,23 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         val now = System.currentTimeMillis()
         val timeSinceLastLoc = now - lastLocationTimeMs
         if (timeSinceLastLoc >= 3 * 60 * 1000L) {
-            AppLogger.log(
-                "RadarForegroundService",
-                "checkWatchdogStall",
-                true,
-                "NO GPS FIXES for ${timeSinceLastLoc / 1000}s (>=3 min). Entering Deep Sleep mode with active accelerometer..."
-            )
-            enterDeepSleep()
+            if (isPowerConnected) {
+                AppLogger.log(
+                    "RadarForegroundService",
+                    "checkWatchdogStall",
+                    false,
+                    "NO GPS FIXES for ${timeSinceLastLoc / 1000}s on Power. Forcing GPS re-registration..."
+                )
+                registerGpsUpdates(1000L, force = true)
+            } else {
+                AppLogger.log(
+                    "RadarForegroundService",
+                    "checkWatchdogStall",
+                    true,
+                    "NO GPS FIXES for ${timeSinceLastLoc / 1000}s (>=3 min). Entering Deep Sleep mode with active accelerometer..."
+                )
+                enterDeepSleep()
+            }
         } else if (timeSinceLastLoc >= WATCHDOG_CHECK_INTERVAL_MS) {
             AppLogger.log(
                 "RadarForegroundService",
@@ -554,7 +661,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 false,
                 "WATCHDOG TRIGGERED: No location updates received for ${timeSinceLastLoc / 1000}s. Forcing GPS re-registration..."
             )
-            registerGpsUpdates(currentGpsIntervalMs, force = true)
+            registerGpsUpdates(if (isPowerConnected) 1000L else currentGpsIntervalMs, force = true)
         } else {
             AppLogger.log(
                 "RadarForegroundService",
@@ -589,7 +696,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         // Periodic stationary Deep Sleep evaluation (independent of onLocationChanged & accuracy > 100m)
         val isFullStop = (lastMetrics?.isStationary == true) || effectiveSpeedKmh == 0f || timeSinceLastLoc >= 10000L
         if (isFullStop) {
-            checkStationaryTimeout(now, "STATIONARY/NO_GPS TIMEOUT: Stationary/no GPS")
+            if (!isPowerConnected) {
+                checkStationaryTimeout(now, "STATIONARY/NO_GPS TIMEOUT: Stationary/no GPS")
+            } else {
+                stationaryStopStartTimeMs = 0L
+            }
         } else {
             stationaryStopStartTimeMs = 0L
         }
@@ -874,7 +985,13 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             val isFullStop = metrics.isStationary || speedKmh < 15.0f || speedKmh == 0f
             val accStr = if (location.hasAccuracy()) "±${location.accuracy.toInt()}m" else "N/A"
 
-            val targetInterval = if (!hasGpsFix) {
+            val targetInterval = if (isPowerConnected) {
+                if (lastLoggedSpeedMode != "POWER_CONNECTED_1S") {
+                    lastLoggedSpeedMode = "POWER_CONNECTED_1S"
+                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "POWER CONNECTED: Continuous 1s GPS polling active.")
+                }
+                1000L
+            } else if (!hasGpsFix) {
                 1000L
             } else if (isFullStop) {
                 if (checkStationaryTimeout(now, "STATIONARY STOP: Vehicle stopped [Speed: 0 km/h, Acc: $accStr]")) {
@@ -1108,7 +1225,14 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
             isGpsReceiverRegistered = false
         }
-        dbExecutor.shutdownNow()
+        if (isPowerAndBtReceiverRegistered) {
+            try {
+                unregisterReceiver(powerAndBtReceiver)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            isPowerAndBtReceiverRegistered = false
+        }
         audioEngine.release()
         syncManager.shutdown()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
