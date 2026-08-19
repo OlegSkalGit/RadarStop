@@ -636,7 +636,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // 0. Перша точка після старту / пробудження
         if (prevBest == null) {
-            return acceptLocation(incoming, incomingAcc)
+            currentBestLocation = incoming
+            if (incoming.provider == LocationManager.GPS_PROVIDER && incomingAcc <= 100f) {
+                hasGpsFix = true
+            }
+            return checkAndLogProviderSwitch(incoming)
         }
 
         val prevAcc = if (prevBest.hasAccuracy()) prevBest.accuracy else Float.MAX_VALUE
@@ -645,7 +649,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         // 1. Координати однакові: оцінюємо точність для заміни провайдера
         if (isSameCoordinates) {
             if (incomingAcc < prevAcc) {
-                return acceptLocation(incoming, incomingAcc)
+                currentBestLocation = incoming
+                if (incoming.provider == LocationManager.GPS_PROVIDER && incomingAcc <= 100f) {
+                    hasGpsFix = true
+                }
+                return checkAndLogProviderSwitch(incoming)
             } else {
                 prevBest.time = now
                 return prevBest
@@ -654,7 +662,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         // 2. Координати різні: точність краща або така сама -> однозначно приймаємо
         if (incomingAcc <= prevAcc) {
-            return acceptLocation(incoming, incomingAcc)
+            currentBestLocation = incoming
+            if (incoming.provider == LocationManager.GPS_PROVIDER && incomingAcc <= 100f) {
+                hasGpsFix = true
+            }
+            return checkAndLogProviderSwitch(incoming)
         }
 
         // 3. Координати різні: точність гірша -> оцінюємо відстань проти похибки
@@ -666,15 +678,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
 
         // Зміщення реальне (distToPrev >= incomingAcc) -> приймаємо нову точку
-        return acceptLocation(incoming, incomingAcc)
-    }
-
-    private fun acceptLocation(location: Location, accuracy: Float): Location? {
-        currentBestLocation = location
-        if (location.provider == LocationManager.GPS_PROVIDER && accuracy <= 100f) {
+        currentBestLocation = incoming
+        if (incoming.provider == LocationManager.GPS_PROVIDER && incomingAcc <= 100f) {
             hasGpsFix = true
         }
-        return checkAndLogProviderSwitch(location)
+        return checkAndLogProviderSwitch(incoming)
     }
 
     private fun checkAndLogProviderSwitch(selectedLocation: Location?): Location? {
