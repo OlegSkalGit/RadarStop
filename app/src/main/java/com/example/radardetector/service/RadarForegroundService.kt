@@ -324,7 +324,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
 
         val sensorName = if (isSignificantMotionActive) "Motion sensor" else "Accelerometer"
-        val deepSleepNotif = "Deep Sleep: Stationed (>3m). $sensorName active."
+        val deepSleepNotif = if (isSystemGpsDisabled) "GPS is Disabled in System Settings" else "Deep Sleep: Stationed (>3m). $sensorName active."
         val loc = getBestLocation()
 
         val targetLoc = loc ?: LocationUtils.createLocation(0.0, 0.0, "dummy")

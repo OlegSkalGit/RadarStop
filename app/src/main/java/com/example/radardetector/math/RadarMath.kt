@@ -126,8 +126,8 @@ object RadarMath {
         val isSearchingGps = (notificationOverride == "Searching for GPS...") || (location.latitude == 0.0 && location.longitude == 0.0 && !isGpsDisabled && !isDeepSleep)
 
         val radarState = when {
-            isDeepSleep -> RadarState.DEEP_SLEEP
             isGpsDisabled -> RadarState.GPS_DISABLED
+            isDeepSleep -> RadarState.DEEP_SLEEP
             isSearchingGps -> RadarState.SEARCHING_GPS
             isAccuracyWeak -> RadarState.WEAK_GPS
             isStationary || speedKmh <= 3.0f -> RadarState.STOPPED
@@ -534,7 +534,7 @@ enum class RadarState(
     GPS_DISABLED(
         stateName = "GPS_DISABLED",
         baseNotificationText = "GPS is Disabled in System Settings",
-        mapSpeedText = "GPS OFF",
+        mapSpeedText = "GPS off",
         mapSubLabelText = "Please enable GPS",
         mapColorHex = "#FF1744"
     ),
