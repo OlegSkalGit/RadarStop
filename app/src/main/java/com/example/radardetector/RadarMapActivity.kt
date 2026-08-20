@@ -546,15 +546,14 @@ class RadarMapActivity : Activity() {
     private fun refreshMapState(metricsParam: com.example.radardetector.math.ProcessedLocationMetrics? = null) {
         lastMapUpdateTimeMs = System.currentTimeMillis()
         updateSleepCountdown()
-        updateGpsButtonState()
         RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
-        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(this)
-        val isGpsDisabled = isSystemGpsDisabled || metrics?.isGpsDisabled == true
+        val isGpsDisabled = metrics?.isGpsDisabled == true
 
         if (isGpsDisabled || metrics == null) {
             updateGpsSpeedDisplay(isGpsDisabled, metrics)
             if (isGpsDisabled) {
+                btnGpsFix.visibility = View.VISIBLE
                 tvStatusLine1.text = "Speed: 0 km/h | GPS Disabled in Settings | Interval: --"
                 tvStatusLine2.text = "Beep Status: OFF (GPS Disabled) | Cams: --"
             } else {
@@ -564,6 +563,7 @@ class RadarMapActivity : Activity() {
             return
         }
 
+        btnGpsFix.visibility = View.GONE
         updateUi(metrics)
     }
 
@@ -575,6 +575,7 @@ class RadarMapActivity : Activity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         updateDebugVisibility()
+        updateGpsButtonState()
 
         val s = RadarForegroundService.instance
         if (s?.isDeepSleepState == true) {
