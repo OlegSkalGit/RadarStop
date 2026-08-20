@@ -236,7 +236,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     private val gpsProviderReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == LocationManager.PROVIDERS_CHANGED_ACTION) {
-                val isGpsDisabled = LocationUtils.isGpsDisabled(this@RadarForegroundService, locationManager)
+                val isGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
                 AppLogger.log("RadarForegroundService", "onReceive", true, "Location PROVIDERS_CHANGED received. isGpsDisabled=$isGpsDisabled, isDeepSleep=$isDeepSleepState")
                 if (!isGpsDisabled) {
                     if (isDeepSleepState) {
@@ -321,7 +321,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         currentBestLocation = null
         lastActiveProvider = ""
         trajectoryFilter.reset()
-        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(this, locationManager)
+        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
 
         val sensorName = if (isSignificantMotionActive) "Motion sensor" else "Accelerometer"
         val deepSleepNotif = if (isSystemGpsDisabled) "GPS is Disabled in System Settings" else "Deep Sleep: Stationed (>3m). $sensorName active."
@@ -394,7 +394,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         watchdogHandler.postDelayed(staleGpsRunnable, STALE_CHECK_INTERVAL_MS)
 
         // Check if system GPS is disabled before attempting wakeup notification
-        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(this, locationManager)
+        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
 
         if (isSystemGpsDisabled) {
             AppLogger.log("RadarForegroundService", "wakeUpFromDeepSleep", false, "System GPS is disabled. Remaining in Deep Sleep.")
@@ -460,7 +460,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
         createNotificationChannel()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(this, locationManager)
+        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
         val initialText = if (isSystemGpsDisabled) RadarState.GPS_DISABLED.baseNotificationText else RadarState.SEARCHING_GPS.baseNotificationText
         lastNotificationText = initialText
         startForeground(NOTIF_ID, buildNotification(initialText))
@@ -613,7 +613,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             return
         }
 
-        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(this, locationManager)
+        val isSystemGpsDisabled = LocationUtils.isGpsDisabled(locationManager)
 
         if (isSystemGpsDisabled) {
             AppLogger.log("RadarForegroundService", "registerGpsUpdates", false, "GPS Hardware Provider is DISABLED in Android System Settings! Transitioning to Deep Sleep.")

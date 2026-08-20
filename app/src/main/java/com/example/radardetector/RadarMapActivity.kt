@@ -123,26 +123,12 @@ class RadarMapActivity : Activity() {
             )
             visibility = View.GONE
             setOnClickListener {
-                val isLocationOff = !LocationUtils.isLocationEnabled(this@RadarMapActivity)
-                if (isLocationOff) {
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                } catch (e: Exception) {
                     try {
-                        startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                    } catch (e: Exception) {
-                        try {
-                            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-                        } catch (_: Exception) {}
-                    }
-                } else {
-                    try {
-                        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = android.net.Uri.fromParts("package", packageName, null)
-                        }
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        try {
-                            startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                        } catch (_: Exception) {}
-                    }
+                        startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                    } catch (_: Exception) {}
                 }
             }
         }
@@ -553,23 +539,8 @@ class RadarMapActivity : Activity() {
 
     private fun updateGpsButtonState() {
         if (!::btnGpsFix.isInitialized) return
-        val isLocationOff = !LocationUtils.isLocationEnabled(this)
-        val hasFinePermission = LocationUtils.hasFineLocationPermission(this)
-        val isGpsProviderOff = !LocationUtils.isGpsProviderEnabled(this)
-
-        when {
-            isLocationOff -> {
-                btnGpsFix.text = "Enable GPS"
-                btnGpsFix.visibility = View.VISIBLE
-            }
-            !hasFinePermission || isGpsProviderOff -> {
-                btnGpsFix.text = "Precise GPS"
-                btnGpsFix.visibility = View.VISIBLE
-            }
-            else -> {
-                btnGpsFix.visibility = View.GONE
-            }
-        }
+        val isGpsDisabled = LocationUtils.isGpsDisabled(this)
+        btnGpsFix.visibility = if (isGpsDisabled) View.VISIBLE else View.GONE
     }
 
     private fun refreshMapState(metricsParam: com.example.radardetector.math.ProcessedLocationMetrics? = null) {
@@ -608,7 +579,7 @@ class RadarMapActivity : Activity() {
         val s = RadarForegroundService.instance
         if (s?.isDeepSleepState == true) {
             val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            if (lm != null && !LocationUtils.isGpsDisabled(this, lm)) {
+            if (lm != null && !LocationUtils.isGpsDisabled(lm)) {
                 s.wakeUpFromDeepSleep("RadarMapActivity resumed with GPS active")
             }
             refreshMapState()

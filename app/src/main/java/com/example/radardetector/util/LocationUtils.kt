@@ -57,19 +57,23 @@ object LocationUtils {
     }
 
     /**
-     * Checks whether precise GPS is disabled (globally, hardware provider, or fine permission).
+     * Checks whether system GPS / location is disabled on the device.
      */
     fun isGpsDisabled(context: Context): Boolean {
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return true
-        return isGpsDisabled(context, lm)
-    }
-
-    fun isGpsDisabled(context: Context, lm: LocationManager): Boolean {
-        return !isPreciseGpsEnabled(context, lm)
+        return isGpsDisabled(lm)
     }
 
     fun isGpsDisabled(lm: LocationManager): Boolean {
-        return !isLocationEnabled(lm) || !isGpsProviderEnabled(lm)
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                !lm.isLocationEnabled
+            } else {
+                !lm.isProviderEnabled(LocationManager.GPS_PROVIDER) && !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }
+        } catch (e: Exception) {
+            !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        }
     }
 
     /**
