@@ -161,7 +161,7 @@ DEST_APK="RadarStop_${VERSION_STR}.apk"
 echo "[4/4] Building Release APK (v${VERSION_STR})..."
 echo ""
 
-"${GRADLE_BIN}" assembleRelease
+"${GRADLE_BIN}" clean assembleRelease
 
 APK_PATH="app/build/outputs/apk/release/app-release.apk"
 if [ ! -f "${APK_PATH}" ]; then

@@ -7,9 +7,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val now = Date()
-val formattedVersionName = SimpleDateFormat("yy.MM.dd_HHmm", Locale.US).format(now)
-val formattedVersionCode = SimpleDateFormat("yyDDDHHmm", Locale.US).format(now).toInt()
+fun getBuildTimestamp(): Date = Date()
+fun getFormattedVersionName(): String = SimpleDateFormat("yy.MM.dd_HHmm", Locale.US).format(getBuildTimestamp())
+fun getFormattedVersionCode(): Int = SimpleDateFormat("yyDDDHHmm", Locale.US).format(getBuildTimestamp()).toInt()
 
 android {
     namespace = "com.example.radardetector"
@@ -19,8 +19,8 @@ android {
         applicationId = "com.example.radardetector"
         minSdk = 26
         targetSdk = 34
-        versionCode = formattedVersionCode
-        versionName = formattedVersionName
+        versionCode = getFormattedVersionCode()
+        versionName = getFormattedVersionName()
         resourceConfigurations += setOf("en")
     }
 
@@ -56,4 +56,10 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
+}
+
+tasks.matching {
+    it.name.contains("Manifest", ignoreCase = true) || it.name.contains("Package", ignoreCase = true)
+}.configureEach {
+    outputs.upToDateWhen { false }
 }

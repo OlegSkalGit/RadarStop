@@ -109,7 +109,7 @@ set "ROOT_APK=RadarStop_!VERSION_STR!.apk"
 echo [4/4] Building Release APK (v!VERSION_STR!)...
 echo.
 
-call "%GRADLE_BAT%" assembleRelease
+call "%GRADLE_BAT%" clean assembleRelease
 
 echo.
 

@@ -68,6 +68,10 @@ object LocationUtils {
         return !isPreciseGpsEnabled(context, lm)
     }
 
+    fun isGpsDisabled(lm: LocationManager): Boolean {
+        return !isLocationEnabled(lm) || !isGpsProviderEnabled(lm)
+    }
+
     /**
      * Attempts to retrieve the best available last known location across GPS, Network, and Passive providers.
      */
