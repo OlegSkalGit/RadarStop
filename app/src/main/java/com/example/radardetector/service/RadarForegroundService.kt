@@ -488,16 +488,24 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         syncManager = OverpassSyncManager(
             this,
             dbHelper,
-            onStatusUpdate = { statusMsg -> updateNotificationText(statusMsg) },
+            onStatusUpdate = { statusMsg ->
+                if (!isDeepSleepState) {
+                    updateNotificationText(statusMsg)
+                }
+            },
             onSyncSuccess = { _, totalCount ->
                 cachedTotalCameraCount = totalCount
                 val loc = getBestLocation()
 
                 if (loc != null) {
                     reloadCameraCacheForLocation(loc)
-                    lastMetrics = RadarMath.evaluateLocationData(loc, effectiveSpeedKmh, dbHelper, getRamCachedLoadResult())
+                    if (!isDeepSleepState) {
+                        lastMetrics = RadarMath.evaluateLocationData(loc, effectiveSpeedKmh, dbHelper, getRamCachedLoadResult())
+                    }
                 } else {
-                    updateActiveNotificationStatus()
+                    if (!isDeepSleepState) {
+                        updateActiveNotificationStatus()
+                    }
                 }
             }
         )
@@ -726,6 +734,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
     internal var cachedTotalCameraCount: Int = 0
 
     private fun updateActiveNotificationStatus() {
+        if (isDeepSleepState) return
         val statusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
         updateNotificationText(statusText)
     }
@@ -743,7 +752,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         cachedBoxMaxLon = res.maxLon
         cachedCameras = res.cameras
         cachedTotalCameraCount = res.totalInDb
-        updateActiveNotificationStatus()
+        if (!isDeepSleepState) {
+            updateActiveNotificationStatus()
+        }
         AppLogger.log(
             "RadarForegroundService",
             "reloadCameraCacheForLocation",
