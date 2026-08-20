@@ -245,8 +245,8 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                         registerGpsUpdates(currentGpsIntervalMs, force = true)
                     }
                 } else {
+                    notifyStateChange(isGpsDisabled = true, notificationText = "GPS is Disabled in System Settings")
                     if (!isDeepSleepState) {
-                        notifyStateChange(isGpsDisabled = true, notificationText = "GPS is Disabled in System Settings")
                         enterDeepSleep()
                     }
                 }
