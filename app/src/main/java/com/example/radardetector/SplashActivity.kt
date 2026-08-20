@@ -54,6 +54,10 @@ class SplashActivity : Activity() {
         permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
         permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -74,9 +78,9 @@ class SplashActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_FOREGROUND_PERMS) {
-            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            AppLogger.log("SplashActivity", "onRequestPermissionsResult", allGranted, "Permission grant result: allGranted=$allGranted")
-            if (allGranted) {
+            val hasLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            AppLogger.log("SplashActivity", "onRequestPermissionsResult", hasLocation, "Permission grant result: hasLocation=$hasLocation")
+            if (hasLocation) {
                 onForegroundPermissionsGranted()
             } else {
                 Toast.makeText(applicationContext, "Location and notification permissions are required.", Toast.LENGTH_LONG).show()

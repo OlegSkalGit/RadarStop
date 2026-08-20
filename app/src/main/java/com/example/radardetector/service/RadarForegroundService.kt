@@ -38,8 +38,11 @@ import com.example.radardetector.util.LocationUtils
 import com.example.radardetector.util.getAppVersionName
 import android.os.PowerManager
 import android.os.BatteryManager
+import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothHeadset
+import android.bluetooth.BluetoothProfile
 
 class RadarForegroundService : Service(), LocationListener, SensorEventListener {
 
@@ -163,6 +166,16 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         }
     }
 
+    private fun handleBluetoothAudioConnected(reason: String) {
+        AppLogger.log("RadarForegroundService", "onReceive", true, "$reason: Waking up from Deep Sleep / resetting sleep timer...")
+        stationaryStopStartTimeMs = 0L
+        if (isDeepSleepState) {
+            wakeUpFromDeepSleep(reason)
+        } else {
+            registerGpsUpdates(1000L, force = true)
+        }
+    }
+
     private val powerAndBtReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
@@ -184,6 +197,13 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                         registerGpsUpdates(currentGpsIntervalMs, force = true)
                     }
                 }
+                BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED,
+                BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED -> {
+                    val state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, BluetoothProfile.STATE_DISCONNECTED)
+                    if (state == BluetoothProfile.STATE_CONNECTED) {
+                        handleBluetoothAudioConnected("BLUETOOTH AUDIO PROFILE (A2DP/Headset) CONNECTED")
+                    }
+                }
                 BluetoothDevice.ACTION_ACL_CONNECTED -> {
                     try {
                         val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -203,16 +223,10 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                             btClass.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_HANDSFREE
                         )
                         if (isAudio) {
-                            AppLogger.log("RadarForegroundService", "onReceive", true, "BLUETOOTH AUDIO CONNECTED: Waking up from Deep Sleep / resetting sleep timer...")
-                            stationaryStopStartTimeMs = 0L
-                            if (isDeepSleepState) {
-                                wakeUpFromDeepSleep("Bluetooth Audio Connected")
-                            } else {
-                                registerGpsUpdates(1000L, force = true)
-                            }
+                            handleBluetoothAudioConnected("BLUETOOTH AUDIO DEVICE CONNECTED (ACL)")
                         }
                     } catch (e: Exception) {
-                        AppLogger.log("RadarForegroundService", "onReceive", false, "Error processing Bluetooth connection: ${e.message}")
+                        AppLogger.log("RadarForegroundService", "onReceive", false, "Error processing Bluetooth ACL connection: ${e.message}")
                     }
                 }
             }
@@ -502,7 +516,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
         try {
             val filter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(gpsProviderReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                registerReceiver(gpsProviderReceiver, filter, Context.RECEIVER_EXPORTED)
             } else {
                 registerReceiver(gpsProviderReceiver, filter)
             }
@@ -518,9 +532,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 addAction(Intent.ACTION_POWER_CONNECTED)
                 addAction(Intent.ACTION_POWER_DISCONNECTED)
                 addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+                addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
+                addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(powerAndBtReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                registerReceiver(powerAndBtReceiver, filter, Context.RECEIVER_EXPORTED)
             } else {
                 registerReceiver(powerAndBtReceiver, filter)
             }
