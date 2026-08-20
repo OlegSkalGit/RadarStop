@@ -50,6 +50,7 @@ class RadarMapActivity : Activity() {
     private lateinit var tvSubLabel: TextView
     private lateinit var tvCamNearWarning: TextView
     private lateinit var tvSleepCountdown: TextView
+    private lateinit var btnGpsFix: Button
     private lateinit var bottomStatusPanel: LinearLayout
     private var isDebugMode: Boolean = false
     private var lastMapUpdateTimeMs: Long = System.currentTimeMillis()
@@ -111,7 +112,46 @@ class RadarMapActivity : Activity() {
             finish()
         }
 
-        val topSpacer = View(this).apply {
+        btnGpsFix = Button(this).apply {
+            text = "Enable GPS"
+            setTextColor(Color.parseColor("#FF1744"))
+            setBackgroundColor(Color.parseColor("#3A3A3A"))
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            visibility = View.GONE
+            setOnClickListener {
+                val isLocationOff = !LocationUtils.isLocationEnabled(this@RadarMapActivity)
+                if (isLocationOff) {
+                    try {
+                        startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    } catch (e: Exception) {
+                        try {
+                            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                        } catch (_: Exception) {}
+                    }
+                } else {
+                    try {
+                        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = android.net.Uri.fromParts("package", packageName, null)
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        try {
+                            startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+        }
+
+        val leftSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+        }
+
+        val rightSpacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
         }
 
@@ -120,7 +160,9 @@ class RadarMapActivity : Activity() {
         }
 
         topRow.addView(btnClose)
-        topRow.addView(topSpacer)
+        topRow.addView(leftSpacer)
+        topRow.addView(btnGpsFix)
+        topRow.addView(rightSpacer)
         topRow.addView(btnMenu)
         topOverlayPanel.addView(topRow)
 
@@ -509,9 +551,31 @@ class RadarMapActivity : Activity() {
         dialog.show()
     }
 
+    private fun updateGpsButtonState() {
+        if (!::btnGpsFix.isInitialized) return
+        val isLocationOff = !LocationUtils.isLocationEnabled(this)
+        val hasFinePermission = LocationUtils.hasFineLocationPermission(this)
+        val isGpsProviderOff = !LocationUtils.isGpsProviderEnabled(this)
+
+        when {
+            isLocationOff -> {
+                btnGpsFix.text = "Enable GPS"
+                btnGpsFix.visibility = View.VISIBLE
+            }
+            !hasFinePermission || isGpsProviderOff -> {
+                btnGpsFix.text = "Precise GPS"
+                btnGpsFix.visibility = View.VISIBLE
+            }
+            else -> {
+                btnGpsFix.visibility = View.GONE
+            }
+        }
+    }
+
     private fun refreshMapState(metricsParam: com.example.radardetector.math.ProcessedLocationMetrics? = null) {
         lastMapUpdateTimeMs = System.currentTimeMillis()
         updateSleepCountdown()
+        updateGpsButtonState()
         RadarForegroundService.instance?.checkStaleGpsAndResetSpeed()
         val metrics = metricsParam ?: RadarForegroundService.lastMetrics
         val isSystemGpsDisabled = LocationUtils.isGpsDisabled(this)

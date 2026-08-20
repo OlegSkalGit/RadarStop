@@ -19,7 +19,6 @@ import android.view.WindowManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -45,7 +44,6 @@ class LogViewerActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        title = "RadarStop Debug"
         AppLogger.initNewSession(this)
         audioEngine = AcousticRadarEngine(this)
 
@@ -59,33 +57,38 @@ class LogViewerActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
 
-        val headerLayout = UiUtils.createHeaderLayout(this, "RadarStop Debug")
-        rootLayout.addView(headerLayout)
-
-        val topBar = LinearLayout(this).apply {
+        val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 4)
+            setPadding(0, 0, 0, 16)
         }
 
-        val checkBoxLogging = CheckBox(this).apply {
-            text = "Logging Enabled"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            isChecked = AppLogger.isLoggingEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                AppLogger.setLoggingEnabled(this@LogViewerActivity, isChecked)
-                if (isChecked) {
-                    AppLogger.log("LogViewerActivity", "onCheckedChanged", true, "ADB file logging enabled by user.")
-                    updateSpinnerFiles(selectToday = true)
-                } else {
-                    refreshLog()
-                }
+        val btnBack = UiUtils.createStyledButton(this, "Back") {
+            finish()
+        }
+
+        val topSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+        }
+
+        var isLogging = AppLogger.isLoggingEnabled
+        lateinit var btnLogging: Button
+        btnLogging = UiUtils.createStyledButton(this, if (isLogging) "Logging On" else "Logging Off") {
+            isLogging = !isLogging
+            AppLogger.setLoggingEnabled(this@LogViewerActivity, isLogging)
+            btnLogging.text = if (isLogging) "Logging On" else "Logging Off"
+            if (isLogging) {
+                AppLogger.log("LogViewerActivity", "onClick", true, "ADB file logging enabled by user.")
+                updateSpinnerFiles(selectToday = true)
+            } else {
+                refreshLog()
             }
         }
 
-        topBar.addView(checkBoxLogging)
-        rootLayout.addView(topBar)
+        headerLayout.addView(btnBack)
+        headerLayout.addView(topSpacer)
+        headerLayout.addView(btnLogging)
+        rootLayout.addView(headerLayout)
 
         val scrollView = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(

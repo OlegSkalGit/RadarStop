@@ -10,27 +10,62 @@ import android.os.Build
  */
 object LocationUtils {
 
-    /**
-     * Checks whether system GPS / location is disabled on the device.
-     */
-    fun isGpsDisabled(context: Context): Boolean {
-        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return true
-        return isGpsDisabled(lm)
+    fun hasFineLocationPermission(context: Context): Boolean {
+        return androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    fun isLocationEnabled(context: Context): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+        return isLocationEnabled(lm)
+    }
+
+    fun isLocationEnabled(lm: LocationManager): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                lm.isLocationEnabled
+            } else {
+                lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun isGpsProviderEnabled(context: Context): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+        return isGpsProviderEnabled(lm)
+    }
+
+    fun isGpsProviderEnabled(lm: LocationManager): Boolean {
+        return try {
+            lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun isPreciseGpsEnabled(context: Context): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+        return isPreciseGpsEnabled(context, lm)
+    }
+
+    fun isPreciseGpsEnabled(context: Context, lm: LocationManager): Boolean {
+        return isLocationEnabled(lm) && isGpsProviderEnabled(lm) && hasFineLocationPermission(context)
     }
 
     /**
-     * Checks whether system GPS / location is disabled via LocationManager instance.
+     * Checks whether precise GPS is disabled (globally, hardware provider, or fine permission).
      */
-    fun isGpsDisabled(lm: LocationManager): Boolean {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                !lm.isLocationEnabled
-            } else {
-                !lm.isProviderEnabled(LocationManager.GPS_PROVIDER) && !lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-            }
-        } catch (e: Exception) {
-            !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        }
+    fun isGpsDisabled(context: Context): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return true
+        return isGpsDisabled(context, lm)
+    }
+
+    fun isGpsDisabled(context: Context, lm: LocationManager): Boolean {
+        return !isPreciseGpsEnabled(context, lm)
     }
 
     /**
