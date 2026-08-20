@@ -19,7 +19,6 @@
 
     <application
         android:allowBackup="false"
-        android:fullBackupContent="false"
         android:icon="@android:drawable/ic_menu_compass"
         android:label="RadarStop"
         android:supportsRtl="true"
