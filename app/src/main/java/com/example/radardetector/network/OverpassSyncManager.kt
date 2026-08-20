@@ -356,10 +356,7 @@ class OverpassSyncManager(
 
             val query = """
                 [out:json][timeout:30];
-                (
-                  relation["admin_level"="2"]["ISO3166-1"];
-                  relation["admin_level"="2"]["ISO3166-1:alpha2"];
-                );
+                relation["admin_level"="2"]["ISO3166-1"];
                 out tags;
             """.trimIndent()
 
