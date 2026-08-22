@@ -73,10 +73,10 @@ class LogViewerActivity : Activity() {
 
         var isLogging = AppLogger.isLoggingEnabled
         lateinit var btnLogging: Button
-        btnLogging = UiUtils.createStyledButton(this, if (isLogging) "Logging On" else "Logging Off") {
+        btnLogging = UiUtils.createStyledButton(this, if (isLogging) "Disable Logging" else "Enable Logging") {
             isLogging = !isLogging
             AppLogger.setLoggingEnabled(this@LogViewerActivity, isLogging)
-            btnLogging.text = if (isLogging) "Logging On" else "Logging Off"
+            btnLogging.text = if (isLogging) "Disable Logging" else "Enable Logging"
             if (isLogging) {
                 AppLogger.log("LogViewerActivity", "onClick", true, "ADB file logging enabled by user.")
                 updateSpinnerFiles(selectToday = true)
