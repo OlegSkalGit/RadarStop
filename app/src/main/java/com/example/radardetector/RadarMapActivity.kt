@@ -389,7 +389,7 @@ class RadarMapActivity : Activity() {
                 metrics.isStationary -> "PAUSED (Stationary Stop)"
                 speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
                 closestAlertCam != null -> {
-                    val delayMs = RadarMath.calculateBeepDelay(minAlertDist)
+                    val delayMs = RadarMath.calculateBeepDelay(minAlertDist, metrics.isDepartingAlert)
                     val distInt = minAlertDist.toInt()
                     "ALERT ${distInt}m (${delayMs}ms)"
                 }
@@ -448,10 +448,10 @@ class RadarMapActivity : Activity() {
         // 1. Autostart On / Off
         var isAutostart = AppPrefs.isAutostartEnabled(this)
         lateinit var btnAutostart: Button
-        btnAutostart = UiUtils.createStyledButton(this, if (isAutostart) "Autostart On" else "Autostart Off", itemStyleParams) {
+        btnAutostart = UiUtils.createStyledButton(this, if (isAutostart) "Disable Autostart" else "Enable Autostart", itemStyleParams) {
             isAutostart = !isAutostart
             AppPrefs.setAutostartEnabled(this, isAutostart)
-            btnAutostart.text = if (isAutostart) "Autostart On" else "Autostart Off"
+            btnAutostart.text = if (isAutostart) "Disable Autostart" else "Enable Autostart"
             val statusMsg = if (isAutostart) "Start with system - Enable" else "Start with system - Disable"
             Toast.makeText(this@RadarMapActivity, statusMsg, Toast.LENGTH_SHORT).show()
             AppLogger.log("RadarMapActivity", "AutostartToggle", true, statusMsg)
@@ -506,10 +506,10 @@ class RadarMapActivity : Activity() {
         }
 
         lateinit var btnDebug: Button
-        btnDebug = UiUtils.createStyledButton(this, if (isDebug) "Debug On" else "Debug Off", itemStyleParams) {
+        btnDebug = UiUtils.createStyledButton(this, if (isDebug) "Disable Debug" else "Enable Debug", itemStyleParams) {
             isDebug = !isDebug
             AppPrefs.setDebugMode(this, isDebug)
-            btnDebug.text = if (isDebug) "Debug On" else "Debug Off"
+            btnDebug.text = if (isDebug) "Disable Debug" else "Enable Debug"
             if (!isDebug) {
                 AppLogger.setLoggingEnabled(this@RadarMapActivity, false)
             }
@@ -522,8 +522,8 @@ class RadarMapActivity : Activity() {
         populateDebugItems()
         container.addView(UiUtils.createDialogDivider(this))
 
-        // 5. Turn Off
-        val btnTurnOff = UiUtils.createStyledButton(this, "Turn Off", itemStyleParams) {
+        // 5. Quit
+        val btnQuit = UiUtils.createStyledButton(this, "Quit", itemStyleParams) {
             dialog.dismiss()
             val stopIntent = Intent(this@RadarMapActivity, RadarForegroundService::class.java).apply {
                 action = RadarForegroundService.ACTION_STOP_SERVICE
@@ -531,7 +531,7 @@ class RadarMapActivity : Activity() {
             startService(stopIntent)
             finishAffinity()
         }
-        container.addView(btnTurnOff)
+        container.addView(btnQuit)
 
         dialog.setContentView(container)
         dialog.show()
