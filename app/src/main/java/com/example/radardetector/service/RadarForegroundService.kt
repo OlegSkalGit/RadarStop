@@ -717,7 +717,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     minDistanceToAlert = Float.MAX_VALUE
                 )
                 publishStateAndMetrics(staleMetrics)
-                audioEngine.stopAlert()
+                resetPointCameraAlertState("GPS stale")
                 AppLogger.log("RadarForegroundService", "checkStaleGpsAndResetSpeed", true, "GPS paused for ${timeSinceLastLoc / 1000}s (Threshold: ${dynamicStaleTimeoutMs}ms). Speed reset to 0 km/h [Stationary].")
             }
         }
@@ -926,7 +926,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     )
                 }
                 val weakNotif = "Weak GPS signal (>100m [${accInt}m])"
-                audioEngine.stopAlert()
+                resetPointCameraAlertState("Weak GPS signal")
 
                 val weakMetrics = RadarMath.evaluateLocationData(
                     effectiveLoc,
@@ -1075,17 +1075,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
             var activeAlertNotifText: String? = null
 
-            if (speedKmh <= 30f) {
-                if (currentAlertCameraId != null) {
-                    AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Speed dropped <= 30 km/h).")
-                    currentAlertCameraId = null
-                    minTrackedPointCameraDist = Float.MAX_VALUE
-                    prevPointCameraDist = Float.MAX_VALUE
-                    prevPointCameraTimeMs = 0L
-                    isDepartingFromPointCam = false
-                }
-                audioEngine.stopAlert()
-            } else if (closestAlertCamera != null) {
+            if (speedKmh > 30f && closestAlertCamera != null) {
                 val speedInt = speedKmh.toInt()
                 val distInt = minDistanceToAlert.toInt()
 
@@ -1160,28 +1150,14 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                         }
                     }
 
-                    val isSideRoadCam = !isDepartingFromPointCam && speedKmh > 40f && approachSpeedKmh < 20f
-
-                    if (isSideRoadCam) {
-                        audioEngine.stopAlert()
-                    } else if (isDepartingFromPointCam && minDistanceToAlert > 200f) {
-                        if (currentAlertCameraId != null) {
-                            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Departed > 200m from #${currentAlertCameraId}).")
-                            currentAlertCameraId = null
-                            minTrackedPointCameraDist = Float.MAX_VALUE
-                            prevPointCameraDist = Float.MAX_VALUE
-                            prevPointCameraTimeMs = 0L
-                            isDepartingFromPointCam = false
-                        }
-                        audioEngine.stopAlert()
-                    } else {
+                    if (!isDepartingFromPointCam || minDistanceToAlert <= 200f) {
                         val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, isDepartingFromPointCam)
                         audioEngine.startAlert(delayMs)
                         audioEngine.updateDelay(delayMs)
                         activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h)"
                     }
                 }
-            } else {
+            } else if (speedKmh > 30f && activeLinearEntryCam != null) {
                 val entryCam = activeLinearEntryCam
                 if (entryCam != null) {
                     val distEntry = RadarMath.calculateDistance(effectiveLoc, entryCam.lat, entryCam.lon)
@@ -1209,18 +1185,11 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                         activeAlertNotifText = "Radar! Linear Zone Alert (${speedInt} km/h)"
                     }
                 }
+            }
 
-                if (activeAlertNotifText == null) {
-                    if (currentAlertCameraId != null) {
-                        AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Camera #${currentAlertCameraId} cleared).")
-                        currentAlertCameraId = null
-                        minTrackedPointCameraDist = Float.MAX_VALUE
-                        prevPointCameraDist = Float.MAX_VALUE
-                        prevPointCameraTimeMs = 0L
-                        isDepartingFromPointCam = false
-                    }
-                    audioEngine.stopAlert()
-                }
+            if (activeAlertNotifText == null) {
+                val reason = if (speedKmh <= 30f) "Speed dropped <= 30 km/h" else "Exited camera alert zone"
+                resetPointCameraAlertState(reason)
             }
 
             val defaultStatusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
@@ -1361,6 +1330,18 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
 
     fun playTestBeep() {
         audioEngine.playSingleBeep()
+    }
+
+    private fun resetPointCameraAlertState(logReason: String? = null) {
+        if (currentAlertCameraId != null && logReason != null) {
+            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone ($logReason, Camera #$currentAlertCameraId cleared).")
+        }
+        currentAlertCameraId = null
+        minTrackedPointCameraDist = Float.MAX_VALUE
+        prevPointCameraDist = Float.MAX_VALUE
+        prevPointCameraTimeMs = 0L
+        isDepartingFromPointCam = false
+        audioEngine.stopAlert()
     }
 
     override fun onProviderEnabled(provider: String) {
