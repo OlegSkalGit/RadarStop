@@ -36,7 +36,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            isShrinkResources = false
+            isShrinkResources = true
             isCrunchPngs = true
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
@@ -56,4 +56,10 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
+}
+
+tasks.matching {
+    it.name.contains("Manifest", ignoreCase = true) || it.name.contains("Package", ignoreCase = true)
+}.configureEach {
+    outputs.upToDateWhen { false }
 }

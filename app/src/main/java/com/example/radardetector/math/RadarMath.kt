@@ -75,16 +75,6 @@ object RadarMath {
     }
 
     /**
-     * Calculates approach speed in km/h based on distance delta and time delta in seconds.
-     * Positive value indicates closing in on camera, negative value indicates departing.
-     */
-    fun calculateApproachSpeedKmh(prevDistM: Float, currentDistM: Float, dtSec: Double): Float {
-        if (dtSec !in 0.2..5.0) return 0f
-        val deltaM = prevDistM - currentDistM
-        return ((deltaM / dtSec) * 3.6).toFloat()
-    }
-
-    /**
      * Calculates 10x10 km Bounding Box coordinates (minLat, maxLat, minLon, maxLon)
      * corresponding to +-0.045 degrees around lat/lon.
      */
@@ -140,8 +130,7 @@ object RadarMath {
         isGpsDisabled: Boolean = false,
         isDeepSleep: Boolean = false,
         isMotionSensorActive: Boolean = false,
-        notificationOverride: String? = null,
-        approachSpeedKmh: Float = 0f
+        notificationOverride: String? = null
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
         val isAccGood = location.hasAccuracy() && location.accuracy <= 15f
@@ -216,8 +205,7 @@ object RadarMath {
             trajectoryPoints = trajectoryPoints,
             isStationary = isStationary,
             instantSpeedKmh = instantSpeedKmh,
-            olsSpeedKmh = olsSpeedKmh,
-            approachSpeedKmh = approachSpeedKmh
+            olsSpeedKmh = olsSpeedKmh
         )
     }
 }
@@ -631,6 +619,5 @@ data class ProcessedLocationMetrics(
     val trajectoryPoints: List<Location> = emptyList(),
     val isStationary: Boolean = false,
     val instantSpeedKmh: Float = 0f,
-    val olsSpeedKmh: Float = 0f,
-    val approachSpeedKmh: Float = 0f
+    val olsSpeedKmh: Float = 0f
 )
