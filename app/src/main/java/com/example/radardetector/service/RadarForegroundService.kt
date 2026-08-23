@@ -1147,12 +1147,6 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                     }
 
                     if (isDepartingFromPointCam && minDistanceToAlert > 200f) {
-                        if (currentAlertCameraId != null) {
-                            AppLogger.log("RadarForegroundService", "onLocationChanged", true, "Exited camera alert zone (Departed > 200m from #${currentAlertCameraId}).")
-                            currentAlertCameraId = null
-                            minTrackedPointCameraDist = Float.MAX_VALUE
-                            isDepartingFromPointCam = false
-                        }
                         audioEngine.stopAlert()
                     } else {
                         val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, isDepartingFromPointCam)
