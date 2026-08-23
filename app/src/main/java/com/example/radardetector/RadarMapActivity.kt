@@ -389,9 +389,14 @@ class RadarMapActivity : Activity() {
                 metrics.isStationary -> "PAUSED (Stationary Stop)"
                 speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
                 closestAlertCam != null -> {
-                    val delayMs = RadarMath.calculateBeepDelay(minAlertDist, metrics.isDepartingAlert)
-                    val distInt = minAlertDist.toInt()
-                    "ALERT ${distInt}m (${delayMs}ms)"
+                    val isDeparting = RadarForegroundService.instance?.isDepartingFromPointCam == true
+                    if (isDeparting && minAlertDist > 200f) {
+                        "OFF (Idle)"
+                    } else {
+                        val delayMs = RadarMath.calculateBeepDelay(minAlertDist, isDeparting)
+                        val distInt = minAlertDist.toInt()
+                        "ALERT ${distInt}m (${delayMs}ms)"
+                    }
                 }
                 else -> "OFF (Idle)"
             }
