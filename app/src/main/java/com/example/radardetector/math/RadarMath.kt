@@ -75,6 +75,16 @@ object RadarMath {
     }
 
     /**
+     * Calculates approach speed in km/h based on distance delta and time delta in seconds.
+     * Positive value indicates closing in on camera, negative value indicates departing.
+     */
+    fun calculateApproachSpeedKmh(prevDistM: Float, currentDistM: Float, dtSec: Double): Float {
+        if (dtSec !in 0.2..5.0) return 0f
+        val deltaM = prevDistM - currentDistM
+        return ((deltaM / dtSec) * 3.6).toFloat()
+    }
+
+    /**
      * Calculates 10x10 km Bounding Box coordinates (minLat, maxLat, minLon, maxLon)
      * corresponding to +-0.045 degrees around lat/lon.
      */
