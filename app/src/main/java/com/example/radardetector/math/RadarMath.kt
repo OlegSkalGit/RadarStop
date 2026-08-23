@@ -140,7 +140,8 @@ object RadarMath {
         isGpsDisabled: Boolean = false,
         isDeepSleep: Boolean = false,
         isMotionSensorActive: Boolean = false,
-        notificationOverride: String? = null
+        notificationOverride: String? = null,
+        approachSpeedKmh: Float = 0f
     ): ProcessedLocationMetrics {
         val isAccuracyWeak = location.hasAccuracy() && location.accuracy > 100f
         val isAccGood = location.hasAccuracy() && location.accuracy <= 15f
@@ -215,7 +216,8 @@ object RadarMath {
             trajectoryPoints = trajectoryPoints,
             isStationary = isStationary,
             instantSpeedKmh = instantSpeedKmh,
-            olsSpeedKmh = olsSpeedKmh
+            olsSpeedKmh = olsSpeedKmh,
+            approachSpeedKmh = approachSpeedKmh
         )
     }
 }
@@ -629,5 +631,6 @@ data class ProcessedLocationMetrics(
     val trajectoryPoints: List<Location> = emptyList(),
     val isStationary: Boolean = false,
     val instantSpeedKmh: Float = 0f,
-    val olsSpeedKmh: Float = 0f
+    val olsSpeedKmh: Float = 0f,
+    val approachSpeedKmh: Float = 0f
 )

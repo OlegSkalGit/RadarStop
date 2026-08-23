@@ -1074,10 +1074,19 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             registerGpsUpdates(targetInterval)
 
             var activeAlertNotifText: String? = null
+            var currentApproachSpeedKmh = 0f
 
-            if (speedKmh > 30f && closestAlertCamera != null) {
-                val speedInt = speedKmh.toInt()
+            if (closestAlertCamera != null && minDistanceToAlert <= 300f) {
                 val distInt = minDistanceToAlert.toInt()
+                val locTime = if (effectiveLoc.time > 0L) effectiveLoc.time else System.currentTimeMillis()
+                val dtSec = if (prevPointCameraTimeMs > 0L) (locTime - prevPointCameraTimeMs) / 1000.0 else 0.0
+                val computedApproachSpeed = if (dtSec in 0.2..5.0 && prevPointCameraDist != Float.MAX_VALUE) {
+                    RadarMath.calculateApproachSpeedKmh(prevPointCameraDist, minDistanceToAlert, dtSec)
+                } else {
+                    speedKmh
+                }
+                prevPointCameraDist = minDistanceToAlert
+                prevPointCameraTimeMs = locTime
 
                 if (closestAlertCamera.isLinear) {
                     if (activeLinearEntryCam?.id != closestAlertCamera.id) {
@@ -1089,51 +1098,39 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                         isDepartingFromEntry = false
                     }
 
-                    if (currentAlertCameraId != closestAlertCamera.id) {
-                        currentAlertCameraId = closestAlertCamera.id
-                        Toast.makeText(
-                            applicationContext,
-                            "Radar! Distance: ${distInt}m (${speedInt} km/h)",
-                            Toast.LENGTH_LONG
-                        ).show()
-                        AppLogger.log(
-                            "RadarForegroundService",
-                            "onLocationChanged",
-                            true,
-                            "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h, Distance: ${distInt}m, Linear: true"
-                        )
-                    }
+                    currentApproachSpeedKmh = if (computedApproachSpeed > 0f) computedApproachSpeed else speedKmh
+                    val speedToDisplay = currentApproachSpeedKmh.toInt()
 
-                    val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert)
-                    audioEngine.startAlert(delayMs)
-                    audioEngine.updateDelay(delayMs)
-                    activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h)"
+                    if (currentApproachSpeedKmh > 30f) {
+                        if (currentAlertCameraId != closestAlertCamera.id) {
+                            currentAlertCameraId = closestAlertCamera.id
+                            val speedInt = speedKmh.toInt()
+                            Toast.makeText(
+                                applicationContext,
+                                "Radar! Distance: ${distInt}m (${speedInt} km/h | Appr: ${speedToDisplay} km/h)",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            AppLogger.log(
+                                "RadarForegroundService",
+                                "onLocationChanged",
+                                true,
+                                "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h (Approach: ${speedToDisplay} km/h), Distance: ${distInt}m, Linear: true"
+                            )
+                        }
+
+                        val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert)
+                        audioEngine.startAlert(delayMs)
+                        audioEngine.updateDelay(delayMs)
+                        val speedInt = speedKmh.toInt()
+                        activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h | Appr: ${speedToDisplay} km/h)"
+                    }
                 } else {
-                    val locTime = if (effectiveLoc.time > 0L) effectiveLoc.time else System.currentTimeMillis()
-                    val dtSec = if (prevPointCameraTimeMs > 0L) (locTime - prevPointCameraTimeMs) / 1000.0 else 0.0
-                    val approachSpeedKmh = if (dtSec in 0.2..5.0 && prevPointCameraDist != Float.MAX_VALUE) {
-                        RadarMath.calculateApproachSpeedKmh(prevPointCameraDist, minDistanceToAlert, dtSec)
-                    } else {
-                        speedKmh
-                    }
-                    prevPointCameraDist = minDistanceToAlert
-                    prevPointCameraTimeMs = locTime
-
-                    if (currentAlertCameraId != closestAlertCamera.id) {
+                    val isFirstContact = (currentAlertCameraId != closestAlertCamera.id)
+                    if (isFirstContact) {
                         currentAlertCameraId = closestAlertCamera.id
                         minTrackedPointCameraDist = minDistanceToAlert
                         isDepartingFromPointCam = false
-                        Toast.makeText(
-                            applicationContext,
-                            "Radar! Distance: ${distInt}m (${speedInt} km/h)",
-                            Toast.LENGTH_LONG
-                        ).show()
-                        AppLogger.log(
-                            "RadarForegroundService",
-                            "onLocationChanged",
-                            true,
-                            "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h (Approach: ${approachSpeedKmh.toInt()} km/h), Distance: ${distInt}m, Linear: false"
-                        )
+                        currentApproachSpeedKmh = speedKmh
                     } else {
                         if (!isDepartingFromPointCam) {
                             if (minDistanceToAlert < minTrackedPointCameraDist) {
@@ -1144,17 +1141,38 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                                     "RadarForegroundService",
                                     "onLocationChanged",
                                     true,
-                                    "Departing from camera #${closestAlertCamera.id} (+15m from min ${minTrackedPointCameraDist.toInt()}m -> ${distInt}m, ApproachSpeed: ${approachSpeedKmh.toInt()} km/h)."
+                                    "Departing from camera #${closestAlertCamera.id} (+15m from min ${minTrackedPointCameraDist.toInt()}m -> ${distInt}m, ApproachSpeed: ${computedApproachSpeed.toInt()} km/h)."
                                 )
                             }
                         }
+                        currentApproachSpeedKmh = computedApproachSpeed
                     }
 
-                    if (!isDepartingFromPointCam || minDistanceToAlert <= 200f) {
-                        val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, isDepartingFromPointCam)
-                        audioEngine.startAlert(delayMs)
-                        audioEngine.updateDelay(delayMs)
-                        activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h)"
+                    val relevantSpeed = if (isDepartingFromPointCam) kotlin.math.abs(currentApproachSpeedKmh) else currentApproachSpeedKmh
+                    val speedToDisplay = relevantSpeed.toInt()
+
+                    if (relevantSpeed > 30f) {
+                        if (!isDepartingFromPointCam || minDistanceToAlert <= 200f) {
+                            val speedInt = speedKmh.toInt()
+                            if (isFirstContact) {
+                                Toast.makeText(
+                                    applicationContext,
+                                    "Radar! Distance: ${distInt}m (${speedInt} km/h | Appr: ${speedToDisplay} km/h)",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                AppLogger.log(
+                                    "RadarForegroundService",
+                                    "onLocationChanged",
+                                    true,
+                                    "CAMERA ALERT DETECTED: Camera #${closestAlertCamera.id}. Speed: ${speedInt} km/h (Approach: ${speedToDisplay} km/h), Distance: ${distInt}m, Linear: false"
+                                )
+                            }
+
+                            val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, isDepartingFromPointCam)
+                            audioEngine.startAlert(delayMs)
+                            audioEngine.updateDelay(delayMs)
+                            activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h | Appr: ${speedToDisplay} km/h)"
+                        }
                     }
                 }
             } else if (speedKmh > 30f && activeLinearEntryCam != null) {
@@ -1188,14 +1206,21 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
             }
 
             if (activeAlertNotifText == null) {
-                val reason = if (speedKmh <= 30f) "Speed dropped <= 30 km/h" else "Exited camera alert zone"
+                val reason = if (speedKmh <= 30f) "Speed dropped <= 30 km/h" else "Exited camera alert zone or approach speed <= 30 km/h"
                 resetPointCameraAlertState(reason)
             }
 
             val defaultStatusText = "Active. Cameras: ${cachedCameras.size} in 10x10km / $cachedTotalCameraCount total in DB"
             val finalNotifText = activeAlertNotifText ?: defaultStatusText
 
-            val finalMetrics = if (metrics.notificationText == finalNotifText) metrics else metrics.copy(notificationText = finalNotifText)
+            val finalMetrics = if (metrics.notificationText == finalNotifText && metrics.approachSpeedKmh == currentApproachSpeedKmh) {
+                metrics
+            } else {
+                metrics.copy(
+                    notificationText = finalNotifText,
+                    approachSpeedKmh = currentApproachSpeedKmh
+                )
+            }
             publishStateAndMetrics(finalMetrics)
         } catch (e: Exception) {
             AppLogger.log("RadarForegroundService", "onLocationChanged", false, "Unhandled exception during location processing: ${e.message}")

@@ -384,20 +384,26 @@ class RadarMapActivity : Activity() {
                 else -> "${activeSec}s"
             }
 
+            val isDeparting = RadarForegroundService.instance?.isDepartingFromPointCam == true
+            val relevantCamSpeed = if (isDeparting) kotlin.math.abs(metrics.approachSpeedKmh) else metrics.approachSpeedKmh
+
             val beepStatusStr = when {
                 metrics.isAccuracyWeak -> "PAUSED (Weak GPS)"
                 metrics.isStationary -> "PAUSED (Stationary Stop)"
-                speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
-                closestAlertCam != null -> {
-                    val isDeparting = RadarForegroundService.instance?.isDepartingFromPointCam == true
-                    if (isDeparting && minAlertDist > 200f) {
+                closestAlertCam != null && minAlertDist <= 300f -> {
+                    if (relevantCamSpeed <= 30f) {
+                        "PAUSED (Approach <= 30 km/h [${relevantCamSpeed.toInt()} km/h])"
+                    } else if (isDeparting && minAlertDist > 200f) {
                         "OFF (Idle)"
                     } else {
                         val delayMs = RadarMath.calculateBeepDelay(minAlertDist, isDeparting)
                         val distInt = minAlertDist.toInt()
-                        "ALERT ${distInt}m (${delayMs}ms)"
+                        val apprInt = relevantCamSpeed.toInt()
+                        val speedInt = speedKmh.toInt()
+                        "ALERT ${distInt}m (${speedInt} km/h | Appr: ${apprInt} km/h, ${delayMs}ms)"
                     }
                 }
+                speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
                 else -> "OFF (Idle)"
             }
 
@@ -405,7 +411,8 @@ class RadarMapActivity : Activity() {
             val totalDb = metrics.cameraLoadResult.totalInDb
             val instInt = metrics.instantSpeedKmh.toInt()
             val olsInt = metrics.olsSpeedKmh.toInt()
-            tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h (Inst: $instInt | OLS: $olsInt) | $displayGpsStatusStr | Interval: $pollingIntervalStr"
+            val apprStr = if (closestAlertCam != null && minAlertDist <= 300f) " | Appr: ${relevantCamSpeed.toInt()} km/h" else ""
+            tvStatusLine1.text = "Speed: ${speedKmh.toInt()} km/h (Inst: $instInt | OLS: $olsInt$apprStr) | $displayGpsStatusStr | Interval: $pollingIntervalStr"
             tvStatusLine2.text = "Beep Status: $beepStatusStr | Cams: ${metrics.inRange3kmCount} in 3km / ${metrics.cameraLoadResult.boxCameraCount} in 10x10km / $totalDb total DB"
 
             mapView.updateData(metrics.location, metrics.cameraLoadResult.cameras, metrics.trajectoryBearing, metrics.trajectoryPoints)
