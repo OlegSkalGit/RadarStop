@@ -48,15 +48,16 @@ object RadarMath {
     }
 
     /**
-     * Calculates beep delay based on distance to camera.
-     * Approaching (!isDeparting):
-     *   200-300m: 2000 ms (2.0s)
-     *   100-200m: 1000 ms (1.0s)
-     *   0-100m:    500 ms (0.5s)
-     * Departing (isDeparting):
-     *   100-200m: 2000 ms (2.0s)
-     *   0-100m:   1000 ms (1.0s)
-     *   200-300m: not processed (0 ms / no alert)
+     * Calculates beep delay based on distance.
+     * Approaching (<= 300m):
+     * 200-300m: 2000 ms (2.0s)
+     * 100-200m: 1000 ms (1.0s)
+     * 0-100m:    500 ms (0.5s)
+     *
+     * Departing (<= 200m):
+     * 100-200m: 2000 ms (2.0s)
+     * 0-100m:   1000 ms (1.0s)
+     * 200-300m: not processed (0 ms)
      */
     fun calculateBeepDelay(distanceMeters: Float, isDeparting: Boolean = false): Long {
         val dist = abs(distanceMeters)
@@ -173,25 +174,22 @@ object RadarMath {
         var minDistToAnyCam = Float.MAX_VALUE
         var closestAlertCam: com.example.radardetector.db.Camera? = null
         var minAlertDist = Float.MAX_VALUE
-        var isClosestAlertCamDeparting = false
+        var isDepartingAlert = false
+        val effectiveBearing = if (trajectoryBearing != 0f) trajectoryBearing else location.bearing
 
-        val tempDistBearing = FloatArray(2)
         for (cam in loadResult.cameras) {
-            calculateDistanceAndBearing(location.latitude, location.longitude, cam.lat, cam.lon, tempDistBearing)
-            val dist = tempDistBearing[0]
-            val bearingToCam = tempDistBearing[1]
+            val geo = calculateDistanceAndBearing(location.latitude, location.longitude, cam.lat, cam.lon)
+            val dist = geo[0]
             if (dist < minDistToAnyCam) minDistToAnyCam = dist
 
-            val angleDiff = angleDifference(trajectoryBearing, bearingToCam)
+            val angleDiff = abs(angleDifference(effectiveBearing, geo[1]))
             val isDeparting = angleDiff > 90f
+            val inZone = if (isDeparting) dist <= 200f else dist <= 300f
 
-            val maxAlertDist = if (cam.isLinear || !isDeparting) 300f else 200f
-            if (dist <= maxAlertDist) {
-                if (dist < minAlertDist) {
-                    minAlertDist = dist
-                    closestAlertCam = cam
-                    isClosestAlertCamDeparting = isDeparting
-                }
+            if (inZone && dist < minAlertDist) {
+                minAlertDist = dist
+                closestAlertCam = cam
+                isDepartingAlert = isDeparting
             }
         }
 
@@ -217,7 +215,7 @@ object RadarMath {
             isStationary = isStationary,
             instantSpeedKmh = instantSpeedKmh,
             olsSpeedKmh = olsSpeedKmh,
-            isDepartingAlert = isClosestAlertCamDeparting
+            isDepartingAlert = isDepartingAlert
         )
     }
 }

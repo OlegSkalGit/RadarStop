@@ -1107,13 +1107,9 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                 }
 
                 val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, metrics.isDepartingAlert)
-                if (delayMs > 0L) {
-                    audioEngine.startAlert(delayMs)
-                    audioEngine.updateDelay(delayMs)
-                    activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h)"
-                } else {
-                    audioEngine.stopAlert()
-                }
+                audioEngine.startAlert(delayMs)
+                audioEngine.updateDelay(delayMs)
+                activeAlertNotifText = "Radar! Distance: ${distInt}m (${speedInt} km/h)"
             } else {
                 val entryCam = activeLinearEntryCam
                 if (entryCam != null) {
