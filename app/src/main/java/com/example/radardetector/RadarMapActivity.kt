@@ -390,7 +390,7 @@ class RadarMapActivity : Activity() {
                 speedKmh <= 30f -> "PAUSED (Speed <= 30 km/h)"
                 closestAlertCam != null -> {
                     val isDeparting = RadarForegroundService.instance?.isDepartingFromPointCam == true
-                    if (isDeparting && minAlertDist > 200f) {
+                    if (isDeparting && minAlertDist > 100f) {
                         "OFF (Idle)"
                     } else {
                         val delayMs = RadarMath.calculateBeepDelay(minAlertDist, isDeparting)

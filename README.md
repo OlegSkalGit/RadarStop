@@ -107,7 +107,7 @@ The build scripts automatically:
 - **Point Cameras (up to 300 m zone):**
   - **Approaching:** 200–300 m (2.0 s), 100–200 m (1.0 s), 0–100 m (0.5 s).
   - **Departing Detection:** When distance increases by $\ge 15$ m from the minimum recorded distance, mode switches to departing and minimum tracking is frozen.
-  - **Departing:** 0–100 m (1.0 s), 100–200 m (2.0 s), > 200 m (alerts stop and state resets).
+  - **Departing:** 0–100 m (2.0 s), > 100 m (alerts stop and state resets).
 - **Linear Section Cameras:** Continuous alert tone (1.5 s interval) across the entire average speed enforcement zone.
 
 ---

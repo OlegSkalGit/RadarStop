@@ -1146,7 +1146,7 @@ class RadarForegroundService : Service(), LocationListener, SensorEventListener 
                         }
                     }
 
-                    if (isDepartingFromPointCam && minDistanceToAlert > 200f) {
+                    if (isDepartingFromPointCam && minDistanceToAlert > 100f) {
                         audioEngine.stopAlert()
                     } else {
                         val delayMs = RadarMath.calculateBeepDelay(minDistanceToAlert, isDepartingFromPointCam)
